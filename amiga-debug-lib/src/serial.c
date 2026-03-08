@@ -29,7 +29,7 @@ int serial_open(ULONG baud)
     }
 
     /* Open serial.device unit 0 */
-    serial_io->io_SerFlags = SERF_XDISABLED | SERF_RAD_BOOGIE;
+    serial_io->io_SerFlags = SERF_XDISABLED;
     if (OpenDevice((CONST_STRPTR)"serial.device", 0,
                    (struct IORequest *)serial_io, 0) != 0) {
         DeleteIORequest((struct IORequest *)serial_io);
@@ -46,7 +46,7 @@ int serial_open(ULONG baud)
     serial_io->io_ReadLen = 8;
     serial_io->io_WriteLen = 8;
     serial_io->io_StopBits = 1;
-    serial_io->io_SerFlags = SERF_XDISABLED | SERF_RAD_BOOGIE;
+    serial_io->io_SerFlags = SERF_XDISABLED;
     DoIO((struct IORequest *)serial_io);
 
     /* Create a separate IO request for reading */

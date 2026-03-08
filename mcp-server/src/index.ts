@@ -298,12 +298,12 @@ function createServer(): McpServer {
               ],
             });
           }
-        }, 5000);
+        }, 15000);
       });
     }
   );
 
-  // ─── Variable Tools ───
+  // ───Variable Tools ───
 
   server.tool(
     "amiga_get_var",
