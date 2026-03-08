@@ -1,0 +1,23 @@
+DOCKER_IMAGE = amigadev/crosstools:m68k-amigaos
+DOCKER_RUN = docker run --rm -v $(PWD):/work -w /work $(DOCKER_IMAGE)
+
+.PHONY: all lib examples clean mcp-server
+
+all: lib examples
+
+lib:
+	$(DOCKER_RUN) make -C amiga-debug-lib
+
+examples: lib
+	$(DOCKER_RUN) make -C examples/hello_world
+	$(DOCKER_RUN) make -C examples/bouncing_ball
+	$(DOCKER_RUN) make -C examples/system_monitor
+
+clean:
+	$(DOCKER_RUN) make -C amiga-debug-lib clean
+	$(DOCKER_RUN) make -C examples/hello_world clean
+	$(DOCKER_RUN) make -C examples/bouncing_ball clean
+	$(DOCKER_RUN) make -C examples/system_monitor clean
+
+mcp-server:
+	cd mcp-server && npm install && npm run build
