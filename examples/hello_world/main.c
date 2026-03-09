@@ -9,20 +9,23 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "debug.h"
+#include "bridge_client.h"
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
 
+#define VERSION "2.0-bridge"
+
 static LONG loop_count = 0;
 static LONG running = 1;
+static LONG bridge_ok = 0;
 static char display_msg[256] = "Waiting for message...";
 static char prev_msg[256] = "";
 
 /* Custom command handler */
 static void cmd_handler(ULONG id, const char *data)
 {
-    DBG_I("Received command %lu: %s", id, data);
+    AB_I("Received command %lu: %s", id, data);
 }
 
 int main(void)
@@ -41,19 +44,24 @@ int main(void)
         return 1;
     }
 
-    /* Initialize debug serial link */
-    if (dbg_init(9600) != 0) {
-        /* Debug init failed - continue without debug */
-        printf("Warning: debug init failed\n");
+    printf("hello_world v%s\n", VERSION);
+
+    /* Connect to AmigaBridge daemon */
+    if (ab_init("hello_world") != 0) {
+        printf("  Bridge: NOT FOUND (is amiga-bridge running?)\n");
+        bridge_ok = 0;
+    } else {
+        printf("  Bridge: CONNECTED\n");
+        bridge_ok = 1;
     }
 
-    DBG_I("Hello World starting up");
+    AB_I("Hello World v%s starting up", VERSION);
 
     /* Register variables for remote inspection */
-    dbg_register_var("loop_count", DBG_TYPE_I32, &loop_count);
-    dbg_register_var("running", DBG_TYPE_I32, &running);
-    dbg_register_var("message", DBG_TYPE_STR, display_msg);
-    dbg_set_cmd_handler(cmd_handler);
+    ab_register_var("loop_count", AB_TYPE_I32, &loop_count);
+    ab_register_var("running", AB_TYPE_I32, &running);
+    ab_register_var("message", AB_TYPE_STR, display_msg);
+    ab_set_cmd_handler(cmd_handler);
 
     /* Open a simple window */
     win = OpenWindowTags(NULL,
@@ -61,7 +69,9 @@ int main(void)
         WA_Top, 50,
         WA_Width, 320,
         WA_Height, 100,
-        WA_Title, (ULONG)"Hello Amiga - Debug Demo",
+        WA_Title, (ULONG)(bridge_ok ?
+            "Hello Amiga v2.0 [Bridge: OK]" :
+            "Hello Amiga v2.0 [Bridge: OFF]"),
         WA_CloseGadget, TRUE,
         WA_DragBar, TRUE,
         WA_DepthGadget, TRUE,
@@ -70,13 +80,13 @@ int main(void)
         TAG_DONE);
 
     if (!win) {
-        DBG_E("Failed to open window");
-        dbg_cleanup();
+        AB_E("Failed to open window");
+        ab_cleanup();
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
     }
 
-    DBG_I("Window opened successfully");
+    AB_I("Window opened successfully");
 
     /* Main loop */
     while (running) {
@@ -86,7 +96,7 @@ int main(void)
             ReplyMsg((struct Message *)msg);
 
             if (class == IDCMP_CLOSEWINDOW) {
-                DBG_I("Close window requested");
+                AB_I("Close window requested");
                 running = 0;
             }
         }
@@ -95,16 +105,16 @@ int main(void)
 
         /* Log every 100 iterations */
         if ((loop_count % 100) == 0) {
-            DBG_D("Loop iteration %ld", loop_count);
+            AB_D("Loop iteration %ld", loop_count);
         }
 
         /* Heartbeat every 500 iterations */
         if ((++hb_counter % 500) == 0) {
-            dbg_heartbeat();
+            ab_heartbeat();
         }
 
-        /* Poll for debug commands from host */
-        dbg_poll();
+        /* Poll for commands from bridge daemon */
+        ab_poll();
 
         /* Redraw message if it changed */
         if (strcmp(display_msg, prev_msg) != 0) {
@@ -121,10 +131,10 @@ int main(void)
         Delay(5);
     }
 
-    DBG_I("Hello World shutting down");
+    AB_I("Hello World shutting down");
 
     CloseWindow(win);
-    dbg_cleanup();
+    ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
 

@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amiga Workbench - Debug Console</title>
+<style>
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-card: #0f3460;
+    --bg-input: #0a0a1a;
+    --accent-blue: #4a90d9;
+    --accent-orange: #e07020;
+    --accent-orange-dim: #a05010;
+    --text-primary: #e0e0e0;
+    --text-secondary: #8899aa;
+    --text-dim: #556677;
+    --border: #2a3a5e;
+    --green: #44cc44;
+    --red: #cc4444;
+    --yellow: #cccc44;
+    --white: #ffffff;
+    --mono: 'Courier New', Courier, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1a3a6a 0%, #0f2848 100%);
+    border-bottom: 2px solid var(--accent-orange);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-orange);
+    letter-spacing: 1px;
+  }
+  .header .subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .conn-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 13px;
+  }
+  .conn-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+  }
+  .conn-dot.connected { background: var(--green); }
+  .sys-info {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 8px 20px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }
+  .tab.active {
+    color: var(--accent-orange);
+    border-bottom-color: var(--accent-orange);
+    background: rgba(224,112,32,0.08);
+  }
+
+  /* Content */
+  .content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  .tab-panel {
+    display: none;
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    padding: 16px;
+  }
+  .tab-panel.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .card h3 {
+    font-size: 13px;
+    color: var(--accent-blue);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* Dashboard grid */
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: var(--text-secondary); }
+  .stat-value { font-family: var(--mono); color: var(--text-primary); }
+
+  /* Buttons */
+  .btn {
+    background: var(--accent-blue);
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn:active { opacity: 0.7; }
+  .btn.orange { background: var(--accent-orange); }
+  .btn.small { padding: 4px 10px; font-size: 11px; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* Log viewer */
+  .log-toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .log-filter-btn {
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.2s;
+  }
+  .log-filter-btn.active { border-color: var(--accent-orange); color: var(--accent-orange); }
+  .log-filter-btn:hover { border-color: var(--text-secondary); }
+  .log-search {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+    width: 200px;
+  }
+  .log-search::placeholder { color: var(--text-dim); }
+  .log-container {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-y: auto;
+    height: calc(100vh - 200px);
+    padding: 4px 0;
+  }
+  .log-line {
+    padding: 1px 10px;
+    white-space: nowrap;
+    display: flex;
+    gap: 12px;
+  }
+  .log-line:hover { background: rgba(255,255,255,0.03); }
+  .log-tick { color: var(--text-dim); min-width: 60px; }
+  .log-level { min-width: 50px; font-weight: 600; }
+  .log-level.D { color: #888; }
+  .log-level.I { color: var(--text-primary); }
+  .log-level.W { color: var(--yellow); }
+  .log-level.E { color: var(--red); }
+  .log-client { color: var(--accent-blue); min-width: 80px; }
+  .log-msg { color: var(--text-primary); }
+
+  /* File browser */
+  .file-browser {
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    gap: 12px;
+    height: calc(100vh - 160px);
+  }
+  .file-tree {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow-y: auto;
+    padding: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .file-list-pane {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .file-breadcrumb {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--mono);
+    border-bottom: 1px solid var(--border);
+    color: var(--accent-blue);
+    flex-shrink: 0;
+  }
+  .file-list {
+    flex: 1;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .tree-item {
+    padding: 3px 4px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .tree-item:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+  .tree-item.active { color: var(--accent-orange); }
+  .tree-item .icon { margin-right: 4px; }
+  .file-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 120px 80px;
+    padding: 4px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    cursor: pointer;
+    align-items: center;
+  }
+  .file-row:hover { background: rgba(255,255,255,0.05); }
+  .file-row .name { color: var(--text-primary); }
+  .file-row .size { color: var(--text-secondary); text-align: right; }
+  .file-row .date { color: var(--text-dim); }
+  .file-row .prot { color: var(--text-dim); }
+  .file-row.dir .name { color: var(--accent-blue); }
+  .file-header {
+    display: grid;
+    grid-template-columns: 1fr 80px 120px 80px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  /* Tasks table */
+  .task-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .task-table th {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+  .task-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  /* Memory inspector */
+  .mem-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .mem-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .mem-input::placeholder { color: var(--text-dim); }
+  .hex-dump {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow: auto;
+    height: calc(100vh - 280px);
+    white-space: pre;
+    color: var(--text-primary);
+  }
+  .mem-bookmarks {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .bookmark {
+    padding: 3px 8px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-secondary);
+  }
+  .bookmark:hover { border-color: var(--accent-orange); color: var(--accent-orange); }
+
+  /* Variables */
+  .var-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .var-table th {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+  .var-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .var-edit-input {
+    background: var(--bg-input);
+    border: 1px solid var(--accent-orange);
+    color: var(--text-primary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 12px;
+    width: 120px;
+  }
+
+  /* Toggle switch */
+  .toggle-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .toggle {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    background: var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle.on { background: var(--accent-orange); }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.2s;
+  }
+  .toggle.on::after { left: 16px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg-primary); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  .select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .command-bar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .command-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .command-input::placeholder { color: var(--text-dim); }
+  .command-output {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-top: 8px;
+    color: var(--text-secondary);
+    min-height: 40px;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <h1>AmigaWorkbench</h1>
+    <span class="subtitle">Debug Console</span>
+    <div class="sys-info" id="sysInfo">--</div>
+    <div class="conn-status">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connText">Disconnected</span>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" id="tabBar">
+    <div class="tab active" data-tab="dashboard">Dashboard</div>
+    <div class="tab" data-tab="logs">Logs</div>
+    <div class="tab" data-tab="files">Files</div>
+    <div class="tab" data-tab="tasks">Tasks</div>
+    <div class="tab" data-tab="memory">Memory</div>
+    <div class="tab" data-tab="variables">Variables</div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- Dashboard -->
+    <div class="tab-panel active" id="panel-dashboard">
+      <div class="dash-grid">
+        <div class="card">
+          <h3>Connection</h3>
+          <div class="stat-row"><span class="stat-label">Serial Link</span><span class="stat-value" id="dashSerial">--</span></div>
+          <div class="stat-row"><span class="stat-label">Host</span><span class="stat-value" id="dashHost">--</span></div>
+          <div class="stat-row"><span class="stat-label">Port</span><span class="stat-value" id="dashPort">--</span></div>
+          <div class="stat-row"><span class="stat-label">Log Buffer</span><span class="stat-value" id="dashLogCount">0</span></div>
+          <div class="stat-row"><span class="stat-label">Variables</span><span class="stat-value" id="dashVarCount">0</span></div>
+        </div>
+        <div class="card">
+          <h3>System Status</h3>
+          <div class="stat-row"><span class="stat-label">Last Heartbeat</span><span class="stat-value" id="dashHbTick">--</span></div>
+          <div class="stat-row"><span class="stat-label">Chip Memory Free</span><span class="stat-value" id="dashChip">--</span></div>
+          <div class="stat-row"><span class="stat-label">Fast Memory Free</span><span class="stat-value" id="dashFast">--</span></div>
+        </div>
+        <div class="card">
+          <h3>Clients</h3>
+          <div id="dashClients"><span class="empty-state" style="padding:10px;font-size:12px;">No clients</span></div>
+        </div>
+        <div class="card">
+          <h3>Quick Actions</h3>
+          <div class="btn-group">
+            <button class="btn" onclick="doPing()">Ping</button>
+            <button class="btn" onclick="doListClients()">List Clients</button>
+            <button class="btn" onclick="doListTasks()">List Tasks</button>
+            <button class="btn orange" onclick="doConnect()">Connect</button>
+            <button class="btn" onclick="doDisconnect()">Disconnect</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <h3>Send Command</h3>
+        <div class="command-bar">
+          <input class="command-input" id="cmdInput" placeholder="Enter command (e.g. status, reset)" onkeydown="if(event.key==='Enter')doExec()">
+          <button class="btn orange" onclick="doExec()">Send</button>
+        </div>
+        <div class="command-output" id="cmdOutput">Ready.</div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="tab-panel" id="panel-logs">
+      <div class="log-toolbar">
+        <button class="log-filter-btn active" data-level="all" onclick="toggleLogLevel(this)">ALL</button>
+        <button class="log-filter-btn active" data-level="D" onclick="toggleLogLevel(this)">DEBUG</button>
+        <button class="log-filter-btn active" data-level="I" onclick="toggleLogLevel(this)">INFO</button>
+        <button class="log-filter-btn active" data-level="W" onclick="toggleLogLevel(this)">WARN</button>
+        <button class="log-filter-btn active" data-level="E" onclick="toggleLogLevel(this)">ERROR</button>
+        <select class="select" id="logClientFilter" onchange="filterLogs()">
+          <option value="">All Clients</option>
+        </select>
+        <input class="log-search" id="logSearch" placeholder="Search logs..." oninput="filterLogs()">
+        <div class="toggle-wrap">
+          <div class="toggle on" id="logAutoScroll" onclick="toggleAutoScroll()"></div>
+          <span>Auto-scroll</span>
+        </div>
+        <button class="btn small" onclick="clearLogs()">Clear</button>
+      </div>
+      <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <!-- Files -->
+    <div class="tab-panel" id="panel-files">
+      <div class="file-browser">
+        <div class="file-tree" id="fileTree">
+          <div class="tree-item active" data-path="SYS:" onclick="navigateDir('SYS:')"><span class="icon">&#128193;</span>SYS:</div>
+          <div class="tree-item" data-path="AK2:" onclick="navigateDir('AK2:')"><span class="icon">&#128193;</span>AK2:</div>
+          <div class="tree-item" data-path="AK2:Dev/" onclick="navigateDir('AK2:Dev/')"><span class="icon">&#128193;</span>AK2:Dev/</div>
+          <div class="tree-item" data-path="WORK:" onclick="navigateDir('WORK:')"><span class="icon">&#128193;</span>WORK:</div>
+          <div class="tree-item" data-path="RAM:" onclick="navigateDir('RAM:')"><span class="icon">&#128193;</span>RAM:</div>
+        </div>
+        <div class="file-list-pane">
+          <div class="file-breadcrumb" id="fileBreadcrumb">SYS:</div>
+          <div class="file-header">
+            <span>Name</span><span style="text-align:right">Size</span><span>Date</span><span>Prot</span>
+          </div>
+          <div class="file-list" id="fileList">
+            <div class="empty-state">Select a directory to browse</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tasks -->
+    <div class="tab-panel" id="panel-tasks">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
+        <button class="btn" onclick="refreshTasks()">Refresh</button>
+        <div class="toggle-wrap">
+          <div class="toggle" id="taskAutoRefresh" onclick="toggleTaskRefresh()"></div>
+          <span>Auto-refresh</span>
+        </div>
+        <span style="font-size:12px;color:var(--text-dim);" id="taskCount"></span>
+      </div>
+      <div class="card" style="padding:0;overflow:auto;">
+        <table class="task-table" id="taskTable">
+          <thead>
+            <tr><th>Name</th><th>Priority</th><th>State</th><th>Stack Size</th></tr>
+          </thead>
+          <tbody id="taskBody">
+            <tr><td colspan="4" class="empty-state">Click Refresh to load tasks</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Memory -->
+    <div class="tab-panel" id="panel-memory">
+      <div class="mem-controls">
+        <label style="font-size:12px;color:var(--text-secondary);">Address:</label>
+        <input class="mem-input" id="memAddr" placeholder="00000004" value="00000004" style="width:120px;">
+        <label style="font-size:12px;color:var(--text-secondary);">Size:</label>
+        <input class="mem-input" id="memSize" placeholder="256" value="256" style="width:80px;" type="number">
+        <button class="btn orange" onclick="readMemory()">Read</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <span style="font-size:11px;color:var(--text-dim);margin-right:8px;">Bookmarks:</span>
+        <div class="mem-bookmarks" style="display:inline-flex;">
+          <span class="bookmark" onclick="setMemBookmark('00000004',64)">ExecBase ($4)</span>
+          <span class="bookmark" onclick="setMemBookmark('00DFF000',256)">Custom ($DFF000)</span>
+          <span class="bookmark" onclick="setMemBookmark('00BFE001',16)">CIA-A ($BFE001)</span>
+          <span class="bookmark" onclick="setMemBookmark('00BFD000',16)">CIA-B ($BFD000)</span>
+          <span class="bookmark" onclick="setMemBookmark('00F80000',256)">ROM ($F80000)</span>
+        </div>
+      </div>
+      <div class="hex-dump" id="hexDump">No data. Enter an address and click Read.</div>
+    </div>
+
+    <!-- Variables -->
+    <div class="tab-panel" id="panel-variables">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
+        <button class="btn" onclick="refreshVars()">Refresh</button>
+        <div class="toggle-wrap">
+          <div class="toggle on" id="varAutoRefresh" onclick="toggleVarRefresh()"></div>
+          <span>Auto-refresh</span>
+        </div>
+        <span style="font-size:12px;color:var(--text-dim);" id="varCount"></span>
+      </div>
+      <div class="card" style="padding:0;overflow:auto;">
+        <table class="var-table" id="varTable">
+          <thead>
+            <tr><th>Client</th><th>Name</th><th>Type</th><th>Value</th><th>Action</th></tr>
+          </thead>
+          <tbody id="varBody">
+            <tr><td colspan="5" class="empty-state">No variables registered</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+// ─── State ───
+const state = {
+  connected: false,
+  logs: [],
+  vars: {},
+  clients: [],
+  tasks: [],
+  logLevels: { D: true, I: true, W: true, E: true },
+  autoScroll: true,
+  taskAutoRefresh: false,
+  varAutoRefresh: true,
+  currentDir: 'SYS:',
+};
+let taskRefreshTimer = null;
+let varRefreshTimer = null;
+let eventSource = null;
+
+// ─── Tab Navigation ───
+document.getElementById('tabBar').addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+});
+
+// ─── API Helpers ───
+async function api(path, opts = {}) {
+  try {
+    const res = await fetch('/api' + path, {
+      ...opts,
+      headers: { 'Content-Type': 'application/json', ...opts.headers },
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('API error:', err);
+    return null;
+  }
+}
+
+// ─── SSE Connection ───
+function connectSSE() {
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource('/api/events');
+
+  eventSource.addEventListener('log', (e) => {
+    const msg = JSON.parse(e.data);
+    addLogMessage(msg);
+  });
+
+  eventSource.addEventListener('heartbeat', (e) => {
+    const msg = JSON.parse(e.data);
+    updateHeartbeat(msg);
+  });
+
+  eventSource.addEventListener('var', (e) => {
+    const msg = JSON.parse(e.data);
+    updateVar(msg);
+  });
+
+  eventSource.addEventListener('status', (e) => {
+    const data = JSON.parse(e.data);
+    updateStatus(data);
+  });
+
+  eventSource.addEventListener('clients', (e) => {
+    const data = JSON.parse(e.data);
+    updateClients(data);
+  });
+
+  eventSource.addEventListener('tasks', (e) => {
+    const data = JSON.parse(e.data);
+    updateTasks(data);
+  });
+
+  eventSource.addEventListener('dir', (e) => {
+    const data = JSON.parse(e.data);
+    updateFileList(data);
+  });
+
+  eventSource.addEventListener('connected', () => {
+    setConnected(true);
+  });
+
+  eventSource.addEventListener('disconnected', () => {
+    setConnected(false);
+  });
+
+  eventSource.onerror = () => {
+    console.log('SSE connection error, will retry...');
+  };
+}
+
+// ─── Status Updates ───
+function setConnected(val) {
+  state.connected = val;
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  dot.className = 'conn-dot' + (val ? ' connected' : '');
+  text.textContent = val ? 'Connected' : 'Disconnected';
+  document.getElementById('dashSerial').textContent = val ? 'Active' : 'Inactive';
+}
+
+function updateStatus(data) {
+  setConnected(data.connected);
+  document.getElementById('dashHost').textContent = data.host || '--';
+  document.getElementById('dashPort').textContent = data.port || '--';
+  document.getElementById('dashLogCount').textContent = data.logCount || 0;
+  document.getElementById('dashVarCount').textContent = data.varCount || 0;
+  if (data.lastHeartbeat) {
+    updateHeartbeat(data.lastHeartbeat);
+  }
+}
+
+function updateHeartbeat(hb) {
+  document.getElementById('dashHbTick').textContent = 'tick ' + hb.tick;
+  document.getElementById('dashChip').textContent = formatBytes(hb.freeChip);
+  document.getElementById('dashFast').textContent = formatBytes(hb.freeFast);
+  document.getElementById('sysInfo').textContent =
+    'Chip: ' + formatBytes(hb.freeChip) + ' | Fast: ' + formatBytes(hb.freeFast);
+}
+
+function updateClients(clients) {
+  state.clients = clients;
+  const el = document.getElementById('dashClients');
+  if (!clients || clients.length === 0) {
+    el.innerHTML = '<span class="empty-state" style="padding:10px;font-size:12px;">No clients</span>';
+    return;
+  }
+  el.innerHTML = clients.map(c =>
+    '<div class="stat-row"><span class="stat-value">' + escapeHtml(c) + '</span></div>'
+  ).join('');
+}
+
+// ─── Logs ───
+function addLogMessage(msg) {
+  state.logs.push(msg);
+  if (state.logs.length > 5000) state.logs = state.logs.slice(-4000);
+  appendLogLine(msg);
+}
+
+function appendLogLine(msg) {
+  const container = document.getElementById('logContainer');
+  if (!matchesLogFilter(msg)) return;
+
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML =
+    '<span class="log-tick">' + (msg.tick ?? '') + '</span>' +
+    '<span class="log-level ' + msg.level + '">' + levelName(msg.level) + '</span>' +
+    '<span class="log-client">' + escapeHtml(msg.client || '--') + '</span>' +
+    '<span class="log-msg">' + escapeHtml(msg.message) + '</span>';
+  container.appendChild(line);
+
+  if (state.autoScroll) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function matchesLogFilter(msg) {
+  if (!state.logLevels[msg.level]) return false;
+  const clientFilter = document.getElementById('logClientFilter').value;
+  if (clientFilter && msg.client !== clientFilter) return false;
+  const search = document.getElementById('logSearch').value.toLowerCase();
+  if (search && !msg.message.toLowerCase().includes(search)) return false;
+  return true;
+}
+
+function toggleLogLevel(btn) {
+  const level = btn.dataset.level;
+  if (level === 'all') {
+    const allActive = btn.classList.contains('active');
+    document.querySelectorAll('.log-filter-btn').forEach(b => {
+      if (allActive) b.classList.remove('active');
+      else b.classList.add('active');
+    });
+    for (const k of Object.keys(state.logLevels)) {
+      state.logLevels[k] = !allActive;
+    }
+  } else {
+    btn.classList.toggle('active');
+    state.logLevels[level] = btn.classList.contains('active');
+    // update "ALL" button
+    const allBtn = document.querySelector('.log-filter-btn[data-level="all"]');
+    const allActive = Object.values(state.logLevels).every(v => v);
+    allBtn.classList.toggle('active', allActive);
+  }
+  filterLogs();
+}
+
+function filterLogs() {
+  const container = document.getElementById('logContainer');
+  container.innerHTML = '';
+  for (const msg of state.logs) {
+    appendLogLine(msg);
+  }
+}
+
+function clearLogs() {
+  state.logs = [];
+  document.getElementById('logContainer').innerHTML = '';
+}
+
+function toggleAutoScroll() {
+  state.autoScroll = !state.autoScroll;
+  document.getElementById('logAutoScroll').classList.toggle('on', state.autoScroll);
+}
+
+function levelName(code) {
+  return { D: 'DEBUG', I: 'INFO', W: 'WARN', E: 'ERROR' }[code] || code;
+}
+
+// ─── Files ───
+async function navigateDir(path) {
+  state.currentDir = path;
+  document.getElementById('fileBreadcrumb').textContent = path;
+  // Highlight active tree item
+  document.querySelectorAll('.tree-item').forEach(t => {
+    t.classList.toggle('active', t.dataset.path === path);
+  });
+  document.getElementById('fileList').innerHTML = '<div class="empty-state">Loading...</div>';
+
+  const data = await api('/dir?path=' + encodeURIComponent(path));
+  if (data && data.entries) {
+    updateFileList(data);
+  } else {
+    document.getElementById('fileList').innerHTML = '<div class="empty-state">Could not read directory (not connected?)</div>';
+  }
+}
+
+function updateFileList(data) {
+  const el = document.getElementById('fileList');
+  if (!data.entries || data.entries.length === 0) {
+    el.innerHTML = '<div class="empty-state">Empty directory</div>';
+    return;
+  }
+  if (data.path) {
+    document.getElementById('fileBreadcrumb').textContent = data.path;
+  }
+  el.innerHTML = data.entries.map(entry => {
+    const isDir = entry.type === 'dir';
+    const clickAttr = isDir ?
+      'onclick="navigateDir(\'' + escapeHtml(entry.path || (state.currentDir + entry.name + '/')) + '\')"' : '';
+    return '<div class="file-row' + (isDir ? ' dir' : '') + '" ' + clickAttr + '>' +
+      '<span class="name">' + (isDir ? '&#128193; ' : '&#128196; ') + escapeHtml(entry.name) + '</span>' +
+      '<span class="size">' + (isDir ? '--' : formatSize(entry.size)) + '</span>' +
+      '<span class="date">' + escapeHtml(entry.date || '--') + '</span>' +
+      '<span class="prot">' + escapeHtml(entry.prot || '--') + '</span>' +
+      '</div>';
+  }).join('');
+}
+
+// ─── Tasks ───
+async function refreshTasks() {
+  const data = await api('/tasks');
+  if (data && data.tasks) {
+    updateTasks(data);
+  }
+}
+
+function updateTasks(data) {
+  const tbody = document.getElementById('taskBody');
+  const count = document.getElementById('taskCount');
+  if (!data.tasks || data.tasks.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No tasks found</td></tr>';
+    count.textContent = '';
+    return;
+  }
+  state.tasks = data.tasks;
+  count.textContent = data.tasks.length + ' tasks';
+  tbody.innerHTML = data.tasks.map(t =>
+    '<tr>' +
+    '<td>' + escapeHtml(t.name || '--') + '</td>' +
+    '<td>' + (t.priority ?? '--') + '</td>' +
+    '<td>' + escapeHtml(t.state || '--') + '</td>' +
+    '<td>' + (t.stackSize ?? '--') + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
+function toggleTaskRefresh() {
+  state.taskAutoRefresh = !state.taskAutoRefresh;
+  document.getElementById('taskAutoRefresh').classList.toggle('on', state.taskAutoRefresh);
+  if (state.taskAutoRefresh) {
+    taskRefreshTimer = setInterval(refreshTasks, 5000);
+  } else {
+    clearInterval(taskRefreshTimer);
+    taskRefreshTimer = null;
+  }
+}
+
+// ─── Memory ───
+async function readMemory() {
+  const addr = document.getElementById('memAddr').value.replace(/^0x/i, '');
+  const size = parseInt(document.getElementById('memSize').value) || 256;
+  document.getElementById('hexDump').textContent = 'Reading 0x' + addr + ', ' + size + ' bytes...';
+
+  const data = await api('/memory?address=' + encodeURIComponent(addr) + '&size=' + size);
+  if (data && data.dump) {
+    document.getElementById('hexDump').textContent = data.dump;
+  } else if (data && data.error) {
+    document.getElementById('hexDump').textContent = 'Error: ' + data.error;
+  } else {
+    document.getElementById('hexDump').textContent = 'No response (not connected?)';
+  }
+}
+
+function setMemBookmark(addr, size) {
+  document.getElementById('memAddr').value = addr;
+  document.getElementById('memSize').value = size;
+  readMemory();
+}
+
+// ─── Variables ───
+async function refreshVars() {
+  const data = await api('/vars');
+  if (data && data.vars) {
+    updateVarTable(data.vars);
+  }
+}
+
+function updateVar(msg) {
+  state.vars[msg.name] = msg;
+  if (state.varAutoRefresh) {
+    updateVarTable(Object.values(state.vars));
+  }
+}
+
+function updateVarTable(vars) {
+  const tbody = document.getElementById('varBody');
+  const count = document.getElementById('varCount');
+  if (!vars || vars.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No variables registered</td></tr>';
+    count.textContent = '';
+    return;
+  }
+  count.textContent = vars.length + ' variables';
+  tbody.innerHTML = vars.map(v =>
+    '<tr>' +
+    '<td>' + escapeHtml(v.client || '--') + '</td>' +
+    '<td>' + escapeHtml(v.name) + '</td>' +
+    '<td>' + escapeHtml(v.varType || v.type || '--') + '</td>' +
+    '<td id="var-val-' + escapeHtml(v.name) + '">' + escapeHtml(v.value) + '</td>' +
+    '<td><button class="btn small" onclick="editVar(\'' + escapeHtml(v.name) + '\')">Edit</button></td>' +
+    '</tr>'
+  ).join('');
+}
+
+function editVar(name) {
+  const cell = document.getElementById('var-val-' + name);
+  if (!cell) return;
+  const current = cell.textContent;
+  cell.innerHTML = '<input class="var-edit-input" value="' + escapeHtml(current) +
+    '" onkeydown="if(event.key===\'Enter\')saveVar(\'' + escapeHtml(name) + '\',this.value)" autofocus>' +
+    ' <button class="btn small" onclick="saveVar(\'' + escapeHtml(name) + '\',this.previousElementSibling.value)">Save</button>';
+  cell.querySelector('input').focus();
+}
+
+async function saveVar(name, value) {
+  await api('/command', {
+    method: 'POST',
+    body: JSON.stringify({ command: 'SETVAR|' + name + '|' + value }),
+  });
+  // Refresh after short delay
+  setTimeout(refreshVars, 500);
+}
+
+function toggleVarRefresh() {
+  state.varAutoRefresh = !state.varAutoRefresh;
+  document.getElementById('varAutoRefresh').classList.toggle('on', state.varAutoRefresh);
+}
+
+// ─── Dashboard Actions ───
+async function doPing() {
+  document.getElementById('cmdOutput').textContent = 'Pinging...';
+  const data = await api('/ping', { method: 'POST' });
+  if (data) {
+    document.getElementById('cmdOutput').textContent = data.message || JSON.stringify(data);
+    if (data.heartbeat) updateHeartbeat(data.heartbeat);
+  } else {
+    document.getElementById('cmdOutput').textContent = 'No response';
+  }
+}
+
+async function doListClients() {
+  document.getElementById('cmdOutput').textContent = 'Requesting clients...';
+  const data = await api('/clients');
+  document.getElementById('cmdOutput').textContent = data ? JSON.stringify(data, null, 2) : 'No response';
+  if (data && data.clients) updateClients(data.clients);
+}
+
+async function doListTasks() {
+  document.getElementById('cmdOutput').textContent = 'Requesting tasks...';
+  const data = await api('/tasks');
+  document.getElementById('cmdOutput').textContent = data ? JSON.stringify(data, null, 2) : 'No response';
+  if (data && data.tasks) updateTasks(data);
+}
+
+async function doConnect() {
+  document.getElementById('cmdOutput').textContent = 'Connecting...';
+  const data = await api('/connect', { method: 'POST' });
+  document.getElementById('cmdOutput').textContent = data ? (data.message || JSON.stringify(data)) : 'No response';
+}
+
+async function doDisconnect() {
+  document.getElementById('cmdOutput').textContent = 'Disconnecting...';
+  const data = await api('/disconnect', { method: 'POST' });
+  document.getElementById('cmdOutput').textContent = data ? (data.message || JSON.stringify(data)) : 'No response';
+}
+
+async function doExec() {
+  const input = document.getElementById('cmdInput');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  document.getElementById('cmdOutput').textContent = 'Sending: ' + cmd;
+  const data = await api('/command', {
+    method: 'POST',
+    body: JSON.stringify({ command: cmd }),
+  });
+  document.getElementById('cmdOutput').textContent = data ? (data.response || data.message || JSON.stringify(data)) : 'No response';
+}
+
+// ─── Utility ───
+function formatBytes(n) {
+  if (n == null) return '--';
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+  return n + ' B';
+}
+
+function formatSize(n) {
+  if (n == null) return '--';
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + 'M';
+  if (n >= 1024) return Math.round(n / 1024) + 'K';
+  return n + '';
+}
+
+function escapeHtml(s) {
+  if (typeof s !== 'string') return String(s ?? '');
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Init ───
+async function init() {
+  connectSSE();
+  // Load initial status
+  const status = await api('/status');
+  if (status) updateStatus(status);
+  // Load initial logs
+  const logs = await api('/logs');
+  if (logs && logs.logs) {
+    for (const msg of logs.logs) {
+      addLogMessage(msg);
+    }
+  }
+  // Load initial vars
+  refreshVars();
+  // Start var auto-refresh
+  varRefreshTimer = setInterval(() => {
+    if (state.varAutoRefresh) refreshVars();
+  }, 3000);
+}
+
+init();
+</script>
+</body>
+</html>
