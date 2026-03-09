@@ -136,6 +136,8 @@ int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSiz
         return -1;
     }
 
-    sprintf(resultBuf, "Started: %s", command);
+    strncpy(resultBuf, "Started: ", bufSize - 1);
+    strncat(resultBuf, command, bufSize - strlen(resultBuf) - 1);
+    resultBuf[bufSize - 1] = '\0';
     return 0;
 }

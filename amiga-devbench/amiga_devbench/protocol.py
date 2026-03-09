@@ -204,6 +204,13 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "timestamp": now,
         }
 
+    if msg_type == "OK":
+        return {
+            "type": "OK",
+            "context": parts[1] if len(parts) > 1 else "",
+            "message": "|".join(parts[2:]) if len(parts) > 2 else "",
+        }
+
     if msg_type == "ERR":
         return {
             "type": "ERR",
@@ -265,6 +272,8 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"DOSCOMMAND|{cmd['id']}|{cmd['command']}"
     if t == "RUN":
         return f"RUN|{cmd['id']}|{cmd['command']}"
+    if t == "BREAK":
+        return f"BREAK|{cmd['name']}"
     if t == "SHUTDOWN":
         return "SHUTDOWN"
     raise ValueError(f"Unknown command type: {t}")
@@ -294,7 +303,7 @@ def format_hex_dump(address: str, hex_data: str) -> str:
 
 
 def _parse_task_entries(raw: str) -> list[dict[str, Any]]:
-    """Parse task list format: name1(pri1,state1),name2(pri2,state2),..."""
+    """Parse task list format: name1(pri1,state1,type1),name2(pri2,state2,type2),..."""
     tasks = []
     for entry in raw.split("),"):
         entry = entry.strip().rstrip(")")
@@ -304,9 +313,10 @@ def _parse_task_entries(raw: str) -> list[dict[str, Any]]:
             info_parts = info.split(",")
             pri = _int(info_parts[0]) if info_parts else 0
             task_state = info_parts[1].strip() if len(info_parts) > 1 else "?"
-            tasks.append({"name": name, "priority": pri, "state": task_state})
+            task_type = info_parts[2].strip() if len(info_parts) > 2 else "task"
+            tasks.append({"name": name, "priority": pri, "state": task_state, "type": task_type})
         elif entry:
-            tasks.append({"name": entry, "priority": 0, "state": "?"})
+            tasks.append({"name": entry, "priority": 0, "state": "?", "type": "task"})
     return tasks
 
 

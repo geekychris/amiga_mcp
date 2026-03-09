@@ -40,6 +40,7 @@ static void handle_delete(const char *args);
 static void handle_makedir(const char *args);
 static void handle_launch(const char *args);
 static void handle_run(const char *args);
+static void handle_break(const char *args);
 
 static void send_line(const char *line)
 {
@@ -52,6 +53,42 @@ static void send_line(const char *line)
     sendbuf[len] = '\n';
     serial_write(sendbuf, len + 1);
     g_tx_count++;
+}
+
+/* Send an error response, safely truncating the message */
+static void send_err(const char *context, const char *detail)
+{
+    char buf[BRIDGE_MAX_LINE];
+    int clen = strlen(context);
+    int dlen = detail ? strlen(detail) : 0;
+
+    /* "ERR|context: detail" - truncate detail if needed */
+    if (4 + clen + 2 + dlen >= BRIDGE_MAX_LINE) {
+        dlen = BRIDGE_MAX_LINE - 4 - clen - 3;
+        if (dlen < 0) dlen = 0;
+    }
+
+    strcpy(buf, "ERR|");
+    strcat(buf, context);
+    if (detail && dlen > 0) {
+        strcat(buf, ": ");
+        strncat(buf, detail, dlen);
+    }
+    send_line(buf);
+}
+
+/* Send an OK response, safely truncating */
+static void send_ok(const char *context, const char *detail)
+{
+    char buf[BRIDGE_MAX_LINE];
+    strcpy(buf, "OK|");
+    strncat(buf, context, BRIDGE_MAX_LINE - 4);
+    if (detail) {
+        strncat(buf, "|", BRIDGE_MAX_LINE - strlen(buf) - 1);
+        strncat(buf, detail, BRIDGE_MAX_LINE - strlen(buf) - 1);
+    }
+    buf[BRIDGE_MAX_LINE - 1] = '\0';
+    send_line(buf);
 }
 
 /*
@@ -94,12 +131,6 @@ void protocol_parse_line(const char *line)
     } else if (strcmp(cmd, "EXEC") == 0) {
         handle_exec(args);
     } else if (strcmp(cmd, "LISTCLIENTS") == 0) {
-        /* Debug: dump raw client slot state before listing */
-        {
-            char dbuf[256];
-            client_debug_dump(dbuf, 256);
-            send_line(dbuf);
-        }
         handle_listclients();
     } else if (strcmp(cmd, "LISTTASKS") == 0) {
         handle_listtasks();
@@ -127,13 +158,13 @@ void protocol_parse_line(const char *line)
         handle_launch(args);  /* Same as LAUNCH */
     } else if (strcmp(cmd, "RUN") == 0) {
         handle_run(args);
+    } else if (strcmp(cmd, "BREAK") == 0) {
+        handle_break(args);
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
-        send_line("OK|SHUTDOWN");
+        send_ok("SHUTDOWN", NULL);
         /* The main loop will exit via CTRL-C or window close */
     } else {
-        char errbuf[BRIDGE_MAX_LINE];
-        sprintf(errbuf, "ERR|Unknown command: %s", cmd);
-        send_line(errbuf);
+        send_err("Unknown command", cmd);
     }
 }
 
@@ -142,12 +173,26 @@ void protocol_send_log(const char *clientName, int level,
 {
     char buf[BRIDGE_MAX_LINE];
     char lch;
+    char lvl[2];
 
     if (level < 0 || level > 3) level = AB_INFO;
     lch = level_chars[level];
+    lvl[0] = lch;
+    lvl[1] = '\0';
 
-    sprintf(buf, "LOG|%c|%lu|[%s] %s", lch, (unsigned long)tick,
-            clientName ? clientName : "sys", message);
+    if (clientName && strcmp(clientName, "sys") != 0) {
+        /* Client log - use CLOG format for proper client attribution.
+         * Use %s instead of %c — amiga.lib RawDoFmt reads %c as 16-bit
+         * WORD, causing stack misalignment and string truncation. */
+        sprintf(buf, "CLOG|%s|%s|%lu|", clientName, lvl,
+                (unsigned long)tick);
+        /* Append message with truncation to avoid overflow */
+        strncat(buf, message, BRIDGE_MAX_LINE - strlen(buf) - 1);
+    } else {
+        sprintf(buf, "LOG|%s|%lu|", lvl, (unsigned long)tick);
+        strncat(buf, message, BRIDGE_MAX_LINE - strlen(buf) - 1);
+    }
+    buf[BRIDGE_MAX_LINE - 1] = '\0';
     send_line(buf);
 }
 
@@ -160,9 +205,11 @@ void protocol_send_var(const char *clientName, const char *name,
     if (type < 0 || type > 4) type = AB_TYPE_I32;
     tname = type_names[type];
 
-    sprintf(buf, "VAR|%s.%s|%s|%s",
+    sprintf(buf, "VAR|%s.%s|%s|",
             clientName ? clientName : "sys",
-            name, tname, value);
+            name, tname);
+    strncat(buf, value, BRIDGE_MAX_LINE - strlen(buf) - 1);
+    buf[BRIDGE_MAX_LINE - 1] = '\0';
     send_line(buf);
 }
 
@@ -205,16 +252,18 @@ void protocol_send_cmd_response(ULONG cmdId, const char *status,
                                 const char *responseData)
 {
     char buf[BRIDGE_MAX_LINE];
-    sprintf(buf, "CMD|%lu|%s|%s",
-            (unsigned long)cmdId, status,
-            responseData ? responseData : "");
+    sprintf(buf, "CMD|%lu|%s|", (unsigned long)cmdId, status);
+    if (responseData) {
+        strncat(buf, responseData, BRIDGE_MAX_LINE - strlen(buf) - 1);
+    }
+    buf[BRIDGE_MAX_LINE - 1] = '\0';
     send_line(buf);
 }
 
 void protocol_send_clients(void)
 {
     /* Build the response inline using client_find to iterate. */
-    char cbuf[256];
+    char cbuf[BRIDGE_MAX_LINE];
     int cc = client_count();
     int pos;
     int found = 0;
@@ -227,7 +276,7 @@ void protocol_send_clients(void)
     for (id = 1; id <= 100 && found < cc; id++) {
         struct ClientEntry *ce = client_find(id);
         if (ce) {
-            if (found > 0 && pos < 250) {
+            if (found > 0 && pos < BRIDGE_MAX_LINE - 2) {
                 cbuf[pos++] = ',';
             }
             sprintf(cbuf + pos, "%s(%lu)",
@@ -235,7 +284,7 @@ void protocol_send_clients(void)
                     (unsigned long)ce->clientId);
             pos += strlen(cbuf + pos);
             found++;
-            if (pos >= 200) break;
+            if (pos >= BRIDGE_MAX_LINE - 64) break;
         }
     }
 
@@ -269,9 +318,10 @@ void protocol_send_dir(const char *path)
     char buf[BRIDGE_MAX_LINE];
     int result = fs_list_dir(path, buf, BRIDGE_MAX_LINE);
     if (result < 0) {
-        sprintf(buf, "ERR|LISTDIR failed: %s", path);
+        send_err("LISTDIR failed", path);
+    } else {
+        send_line(buf);
     }
-    send_line(buf);
 }
 
 void protocol_send_file(const char *path, ULONG offset, ULONG size)
@@ -284,9 +334,7 @@ void protocol_send_file(const char *path, ULONG offset, ULONG size)
 
     result = fs_read_file(path, offset, size, filebuf, 256, &actual);
     if (result < 0) {
-        char buf[BRIDGE_MAX_LINE];
-        sprintf(buf, "ERR|READFILE failed: %s", path);
-        send_line(buf);
+        send_err("READFILE failed", path);
     } else {
         char buf[BRIDGE_MAX_LINE];
         char hexbuf[514];
@@ -307,9 +355,10 @@ void protocol_send_fileinfo(const char *path)
     char buf[BRIDGE_MAX_LINE];
     int result = fs_file_info(path, buf, BRIDGE_MAX_LINE);
     if (result < 0) {
-        sprintf(buf, "ERR|FILEINFO failed: %s", path);
+        send_err("FILEINFO failed", path);
+    } else {
+        send_line(buf);
     }
-    send_line(buf);
 }
 
 void protocol_send_raw(const char *line)
@@ -324,11 +373,6 @@ static void handle_ping(void)
     ULONG chip, fast;
     int cc;
     char buf[128];
-    char dbuf[256];
-
-    /* Debug: dump client state from PING context */
-    client_debug_dump(dbuf, 256);
-    send_line(dbuf);
 
     sys_avail_mem(&chip, &fast);
     cc = client_count();
@@ -357,15 +401,19 @@ static void handle_inspect(const char *args)
         size = 16;
     }
 
+    if (size == 0) {
+        send_err("INSPECT", "size is 0");
+        return;
+    }
     if (size > 256) size = 256;
 
     actual = sys_inspect_mem((APTR)addr, size, membuf, 256);
     if (actual > 0) {
         protocol_send_mem((APTR)addr, (ULONG)actual, membuf);
     } else {
-        char buf[128];
-        sprintf(buf, "ERR|INSPECT failed at %08lx", (unsigned long)addr);
-        send_line(buf);
+        char detail[64];
+        sprintf(detail, "address %08lx not accessible", (unsigned long)addr);
+        send_err("INSPECT", detail);
     }
 }
 
@@ -389,14 +437,10 @@ static void handle_getvar(const char *args)
                                ce->clientId, 0,
                                dot + 1, strlen(dot + 1) + 1);
         } else {
-            char buf[128];
-            sprintf(buf, "ERR|Client not found: %s", cname);
-            send_line(buf);
+            send_err("Client not found", cname);
         }
     } else {
-        char buf[128];
-        sprintf(buf, "ERR|GETVAR needs client.varname format");
-        send_line(buf);
+        send_err("GETVAR", "needs client.varname format");
     }
 }
 
@@ -428,14 +472,10 @@ static void handle_setvar(const char *args)
                                ce->clientId, 0,
                                payload, strlen(payload) + 1);
         } else {
-            char buf[128];
-            sprintf(buf, "ERR|Client not found: %s", cname);
-            send_line(buf);
+            send_err("Client not found", cname);
         }
     } else {
-        char buf[128];
-        sprintf(buf, "ERR|SETVAR needs client.varname|value format");
-        send_line(buf);
+        send_err("SETVAR", "needs client.varname|value format");
     }
 }
 
@@ -449,7 +489,7 @@ static void handle_exec(const char *args)
 
     sep = strchr(args, '|');
     if (!sep) {
-        send_line("ERR|EXEC needs id|expression format");
+        send_err("EXEC", "needs id|expression format");
         return;
     }
 
@@ -566,7 +606,7 @@ static void handle_writefile(const char *args)
 
     sep1 = strchr(args, '|');
     if (!sep1) {
-        send_line("ERR|WRITEFILE needs path|offset|hexdata");
+        send_err("WRITEFILE", "needs path|offset|hexdata");
         return;
     }
 
@@ -598,14 +638,11 @@ static void handle_writefile(const char *args)
 
     result = fs_write_file(path, offset, databuf, datalen);
     if (result < 0) {
-        char buf[128];
-        sprintf(buf, "ERR|WRITEFILE failed: %s", path);
-        send_line(buf);
+        send_err("WRITEFILE failed", path);
     } else {
-        char buf[128];
-        sprintf(buf, "OK|WRITEFILE|%s|%lu",
-                path, (unsigned long)datalen);
-        send_line(buf);
+        char detail[32];
+        sprintf(detail, "%lu", (unsigned long)datalen);
+        send_ok("WRITEFILE", detail);
     }
 }
 
@@ -618,13 +655,9 @@ static void handle_delete(const char *args)
 {
     int result = fs_delete(args);
     if (result < 0) {
-        char buf[128];
-        sprintf(buf, "ERR|DELETE failed: %s", args);
-        send_line(buf);
+        send_err("DELETE failed", args);
     } else {
-        char buf[128];
-        sprintf(buf, "OK|DELETE|%s", args);
-        send_line(buf);
+        send_ok("DELETE", args);
     }
 }
 
@@ -632,13 +665,9 @@ static void handle_makedir(const char *args)
 {
     int result = fs_makedir(args);
     if (result < 0) {
-        char buf[128];
-        sprintf(buf, "ERR|MAKEDIR failed: %s", args);
-        send_line(buf);
+        send_err("MAKEDIR failed", args);
     } else {
-        char buf[128];
-        sprintf(buf, "OK|MAKEDIR|%s", args);
-        send_line(buf);
+        send_ok("MAKEDIR", args);
     }
 }
 
@@ -652,7 +681,7 @@ static void handle_launch(const char *args)
 
     sep = strchr(args, '|');
     if (!sep) {
-        send_line("ERR|LAUNCH needs id|command format");
+        send_err("LAUNCH", "needs id|command format");
         return;
     }
 
@@ -675,7 +704,7 @@ static void handle_run(const char *args)
 
     sep = strchr(args, '|');
     if (!sep) {
-        send_line("ERR|RUN needs id|command format");
+        send_err("RUN", "needs id|command format");
         return;
     }
 
@@ -685,5 +714,23 @@ static void handle_run(const char *args)
         protocol_send_cmd_response(cmdId, "ERR", resultBuf);
     } else {
         protocol_send_cmd_response(cmdId, "OK", resultBuf);
+    }
+}
+
+static void handle_break(const char *args)
+{
+    /* Format: task_name - sends CTRL-C to named task */
+    int result;
+
+    if (!args || args[0] == '\0') {
+        send_err("BREAK", "needs task name");
+        return;
+    }
+
+    result = sys_break_task(args);
+    if (result == 0) {
+        send_ok("BREAK", args);
+    } else {
+        send_err("Task not found", args);
     }
 }

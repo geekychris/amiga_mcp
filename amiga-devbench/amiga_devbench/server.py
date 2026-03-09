@@ -380,6 +380,44 @@ async def api_run(request: Request) -> JSONResponse:
     return JSONResponse({"status": "timeout", "output": "No response from Amiga"})
 
 
+async def api_break(request: Request) -> JSONResponse:
+    """Send CTRL-C break signal to a named task/process on the Amiga."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+
+    body = await request.json()
+    name = body.get("name", "")
+    if not name:
+        return JSONResponse({"error": "Missing 'name' field"}, status_code=400)
+
+    async with _event_bus.subscribe("ok", "err") as queue:
+        try:
+            _conn.send({"type": "BREAK", "name": name})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                ctx = data.get("context", "")
+                if ctx == "BREAK":
+                    return JSONResponse({
+                        "status": "ok" if evt == "ok" else "error",
+                        "message": data.get("message", f"Break sent to {name}"),
+                    })
+                if "Task not found" in data.get("message", ""):
+                    return JSONResponse({"status": "error", "message": data["message"]})
+            except asyncio.TimeoutError:
+                break
+
+    return JSONResponse({"status": "timeout", "message": "No response from bridge"})
+
+
 async def api_ping(request: Request) -> JSONResponse:
     assert _conn is not None and _event_bus is not None
     if not _conn.connected:
@@ -568,6 +606,7 @@ def create_app(args: Any) -> Starlette:
         Route("/api/launch", api_launch, methods=["POST"]),
         Route("/api/run", api_run, methods=["POST"]),
         Route("/api/ping", api_ping, methods=["POST"]),
+        Route("/api/break", api_break, methods=["POST"]),
         Route("/api/connect", api_connect, methods=["POST"]),
         Route("/api/disconnect", api_disconnect, methods=["POST"]),
         Route("/health", health, methods=["GET"]),

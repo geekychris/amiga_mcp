@@ -371,6 +371,9 @@ class SerialConnection:
         elif msg_type == "PONG":
             self._event_bus.publish("pong", msg)
 
+        elif msg_type == "OK":
+            self._event_bus.publish("ok", msg)
+
         elif msg_type == "ERR":
             self._event_bus.publish("err", msg)
 

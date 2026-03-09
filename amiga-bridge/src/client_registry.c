@@ -134,20 +134,21 @@ int client_list(char *buf, int bufSize)
 {
     int i;
     int pos = 0;
+    char entry[48];
 
     buf[0] = '\0';
 
     for (i = 0; i < AB_MAX_CLIENTS; i++) {
         if (clients[i].active) {
             int written;
-            if (pos > 0 && pos < bufSize - 1) {
-                buf[pos++] = ',';
-            }
-            sprintf(buf + pos, "%s(%lu)",
+            sprintf(entry, "%s(%lu)",
                     clients[i].name,
                     (unsigned long)clients[i].clientId);
-            pos += strlen(buf + pos);
-            if (pos >= bufSize - 1) break;
+            written = strlen(entry);
+            if (pos > 0 && pos + 1 + written >= bufSize - 1) break;
+            if (pos > 0) buf[pos++] = ',';
+            memcpy(buf + pos, entry, written);
+            pos += written;
         }
     }
 
@@ -179,15 +180,18 @@ int client_build_line(char *buf, int bufSize)
     /* Second pass: build list */
     for (i = 0; i < AB_MAX_CLIENTS; i++) {
         if (clients[i].active) {
+            char entry[48];
             int written;
-            if (pos > entryStart && pos < bufSize - 2) {
-                buf[pos++] = ',';
-            }
-            sprintf(buf + pos, "%s(%lu)",
+            sprintf(entry, "%s(%lu)",
                     clients[i].name,
                     (unsigned long)clients[i].clientId);
-            pos += strlen(buf + pos);
-            if (pos >= bufSize - 64) break;
+            written = strlen(entry);
+            if (pos + 1 + written >= bufSize - 2) break;
+            if (pos > entryStart) {
+                buf[pos++] = ',';
+            }
+            memcpy(buf + pos, entry, written);
+            pos += written;
         }
     }
 

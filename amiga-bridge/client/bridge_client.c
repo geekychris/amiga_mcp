@@ -38,6 +38,7 @@ static struct MsgPort *daemon_port = NULL;
 static ULONG my_client_id = 0;
 static BOOL connected = FALSE;
 static ab_cmd_handler_t cmd_handler = NULL;
+static char my_app_name[34]; /* Persistent copy for task name */
 
 static struct BridgeMsg *pool_alloc(void)
 {
@@ -142,9 +143,11 @@ static int format_var_value(const struct VarEntry *ve, char *buf, int bufSize)
 {
     switch (ve->type) {
     case AB_TYPE_I32:
-        return sprintf(buf, "%ld", (long)(*(LONG *)ve->ptr));
+        sprintf(buf, "%ld", (long)(*(LONG *)ve->ptr));
+        return strlen(buf);
     case AB_TYPE_U32:
-        return sprintf(buf, "%lu", (unsigned long)(*(ULONG *)ve->ptr));
+        sprintf(buf, "%lu", (unsigned long)(*(ULONG *)ve->ptr));
+        return strlen(buf);
     case AB_TYPE_STR:
         {
             const char *s = (const char *)ve->ptr;
@@ -155,10 +158,11 @@ static int format_var_value(const struct VarEntry *ve, char *buf, int bufSize)
             return len;
         }
     case AB_TYPE_F32:
-        /* Treat as raw 32-bit value to avoid pulling in float libs */
-        return sprintf(buf, "0x%08lx", *(unsigned long *)ve->ptr);
+        sprintf(buf, "0x%08lx", *(unsigned long *)ve->ptr);
+        return strlen(buf);
     case AB_TYPE_PTR:
-        return sprintf(buf, "%08lx", (unsigned long)(*(ULONG *)ve->ptr));
+        sprintf(buf, "%08lx", (unsigned long)(*(ULONG *)ve->ptr));
+        return strlen(buf);
     default:
         buf[0] = '?';
         buf[1] = '\0';
@@ -212,6 +216,17 @@ int ab_init(const char *appName)
     pool_free(bm);
     connected = TRUE;
 
+    /* Set task name so BREAK/FindTask can find us.
+     * Copy to static buffer since appName may be on stack. */
+    strncpy(my_app_name, appName, 33);
+    my_app_name[33] = '\0';
+    {
+        struct Task *me = FindTask(NULL);
+        if (me) {
+            me->tc_Node.ln_Name = my_app_name;
+        }
+    }
+
     return 0;
 }
 
@@ -264,10 +279,14 @@ void ab_log(int level, const char *fmt, ...)
     logdata[1] = '|';
 
     va_start(args, fmt);
-    pos = vsprintf(logdata + 2, fmt, args);
+    vsprintf(logdata + 2, fmt, args);
     va_end(args);
 
-    send_simple(ABMSG_LOG, 0, logdata, pos + 3);
+    /* Safety: ensure null termination within buffer */
+    logdata[AB_MAX_DATA - 1] = '\0';
+
+    pos = strlen(logdata);
+    send_simple(ABMSG_LOG, 0, logdata, pos + 1);
 }
 
 void ab_register_var(const char *name, int type, void *ptr)
@@ -306,7 +325,8 @@ void ab_register_var(const char *name, int type, void *ptr)
     }
 
     /* Notify daemon: "name|type" */
-    len = sprintf(data, "%s|%d", name, type);
+    sprintf(data, "%s|%ld", name, (long)type);
+    len = strlen(data);
     send_simple(ABMSG_VAR_REGISTER, 0, data, len + 1);
 }
 
@@ -341,7 +361,8 @@ void ab_push_var(const char *name)
 
     /* Format: "name|type|value" */
     format_var_value(ve, valbuf, 128);
-    len = sprintf(data, "%s|%d|%s", ve->name, ve->type, valbuf);
+    sprintf(data, "%s|%ld|%s", ve->name, (long)ve->type, valbuf);
+    len = strlen(data);
     send_simple(ABMSG_VAR_PUSH, 0, data, len + 1);
 }
 
@@ -481,9 +502,10 @@ void ab_cmd_respond(ULONG id, const char *status, const char *data)
 
     if (!connected) return;
 
-    len = sprintf(respdata, "%s|%s",
-                  status ? status : "OK",
-                  data ? data : "");
+    sprintf(respdata, "%s|%s",
+            status ? status : "OK",
+            data ? data : "");
+    len = strlen(respdata);
 
     send_simple(ABMSG_CMD_RESPONSE, id, respdata, len + 1);
 }

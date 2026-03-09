@@ -1,0 +1,12 @@
+; AmigaBridge auto-start installer
+; Run this once from Amiga Shell:
+;   Execute AK2:Dev/install-bridge.script
+
+; Add to User-Startup if not already there
+Search S:User-Startup "amiga-bridge" QUIET
+IF WARN
+  Echo "Run >NIL: AK2:Dev/amiga-bridge" >>S:User-Startup
+  Echo "AmigaBridge added to User-Startup"
+ELSE
+  Echo "AmigaBridge already in User-Startup"
+ENDIF

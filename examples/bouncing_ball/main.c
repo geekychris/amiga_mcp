@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "debug.h"
+#include "bridge_client.h"
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
@@ -25,30 +25,21 @@ static ULONG frame_count = 0;
 
 #define WIN_W 320
 #define WIN_H 200
-#define BORDER_L 4
-#define BORDER_T 11
-#define BORDER_R 4
-#define BORDER_B 4
 
 /* Custom command handler */
 static void cmd_handler(ULONG id, const char *data)
 {
-    char response[128];
-    int len;
-
     if (strcmp(data, "reset") == 0) {
         ball_x = WIN_W / 2;
         ball_y = WIN_H / 2;
         ball_dx = 3;
         ball_dy = 2;
-        DBG_I("Ball position reset");
-        len = snprintf(response, sizeof(response), "CMD|%lu|ok|position reset\n", id);
+        AB_I("Ball position reset");
+        ab_cmd_respond(id, "ok", "position reset");
     } else {
-        len = snprintf(response, sizeof(response), "CMD|%lu|err|unknown command: %s\n", id, data);
+        AB_W("Unknown command: %s", data);
+        ab_cmd_respond(id, "err", "unknown command");
     }
-    /* Response is sent via log for now */
-    (void)len;
-    (void)response;
 }
 
 static void draw_ball(struct RastPort *rp, LONG x, LONG y, LONG size, UBYTE color)
@@ -75,28 +66,31 @@ int main(void)
         return 1;
     }
 
-    if (dbg_init(9600) != 0) {
-        /* Continue without debug */
+    /* Connect to AmigaBridge daemon (also sets task name) */
+    if (ab_init("bouncing_ball") != 0) {
+        printf("Bridge: NOT FOUND\n");
+    } else {
+        printf("Bridge: CONNECTED\n");
     }
 
-    DBG_I("Bouncing Ball starting");
+    AB_I("Bouncing Ball starting");
 
     /* Register all ball variables for remote inspection */
-    dbg_register_var("ball_x", DBG_TYPE_I32, &ball_x);
-    dbg_register_var("ball_y", DBG_TYPE_I32, &ball_y);
-    dbg_register_var("ball_dx", DBG_TYPE_I32, &ball_dx);
-    dbg_register_var("ball_dy", DBG_TYPE_I32, &ball_dy);
-    dbg_register_var("ball_size", DBG_TYPE_I32, &ball_size);
-    dbg_register_var("frame_count", DBG_TYPE_U32, &frame_count);
+    ab_register_var("ball_x", AB_TYPE_I32, &ball_x);
+    ab_register_var("ball_y", AB_TYPE_I32, &ball_y);
+    ab_register_var("ball_dx", AB_TYPE_I32, &ball_dx);
+    ab_register_var("ball_dy", AB_TYPE_I32, &ball_dy);
+    ab_register_var("ball_size", AB_TYPE_I32, &ball_size);
+    ab_register_var("frame_count", AB_TYPE_U32, &frame_count);
 
-    dbg_set_cmd_handler(cmd_handler);
+    ab_set_cmd_handler(cmd_handler);
 
     win = OpenWindowTags(NULL,
         WA_Left, 50,
         WA_Top, 30,
         WA_Width, WIN_W,
         WA_Height, WIN_H,
-        WA_Title, (ULONG)"Bouncing Ball - Debug Demo",
+        WA_Title, (ULONG)"Bouncing Ball",
         WA_CloseGadget, TRUE,
         WA_DragBar, TRUE,
         WA_DepthGadget, TRUE,
@@ -106,8 +100,8 @@ int main(void)
         TAG_DONE);
 
     if (!win) {
-        DBG_E("Failed to open window");
-        dbg_cleanup();
+        AB_E("Failed to open window");
+        ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
@@ -117,7 +111,7 @@ int main(void)
     inner_w = win->GZZWidth;
     inner_h = win->GZZHeight;
 
-    DBG_I("Window opened: inner %ldx%ld", inner_w, inner_h);
+    AB_I("Window opened: %ldx%ld", inner_w, inner_h);
 
     while (running) {
         /* Check for close */
@@ -142,12 +136,10 @@ int main(void)
         if (ball_x - ball_size/2 <= 0 || ball_x + ball_size/2 >= inner_w) {
             ball_dx = -ball_dx;
             ball_x += ball_dx;
-            DBG_D("Bounce X at %ld", ball_x);
         }
         if (ball_y - ball_size/2 <= 0 || ball_y + ball_size/2 >= inner_h) {
             ball_dy = -ball_dy;
             ball_y += ball_dy;
-            DBG_D("Bounce Y at %ld", ball_y);
         }
 
         /* Draw new ball */
@@ -155,22 +147,36 @@ int main(void)
 
         frame_count++;
 
-        /* Heartbeat every 60 frames */
+        /* Push variables every 60 frames */
         if ((frame_count % 60) == 0) {
-            dbg_heartbeat();
+            ab_push_var("ball_x");
+            ab_push_var("ball_y");
+            ab_push_var("frame_count");
+            ab_heartbeat();
         }
 
-        /* Poll for debug commands */
-        dbg_poll();
+        /* Log bounces (less frequent than every frame) */
+        if ((frame_count % 300) == 0) {
+            AB_D("Frame %lu pos=(%ld,%ld)", frame_count, ball_x, ball_y);
+        }
+
+        /* Poll for commands from bridge daemon */
+        ab_poll();
+
+        /* Check for CTRL-C break signal */
+        if (SetSignal(0L, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) {
+            AB_I("Break signal received");
+            running = FALSE;
+        }
 
         /* ~20fps delay */
         Delay(3);
     }
 
-    DBG_I("Bouncing Ball shutting down");
+    AB_I("Bouncing Ball shutting down");
 
     CloseWindow(win);
-    dbg_cleanup();
+    ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
 

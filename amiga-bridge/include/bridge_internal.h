@@ -75,6 +75,7 @@ int sys_list_devices(char *buf, int bufSize);
 int sys_list_volumes(char *buf, int bufSize);
 void sys_avail_mem(ULONG *chipFree, ULONG *fastFree);
 int sys_inspect_mem(APTR addr, ULONG size, UBYTE *outBuf, ULONG outBufSize);
+int sys_break_task(const char *name);
 
 /* ---- fs_access.c ---- */
 int fs_list_dir(const char *path, char *buf, int bufSize);

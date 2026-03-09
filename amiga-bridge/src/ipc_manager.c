@@ -8,6 +8,7 @@
 #include <exec/memory.h>
 #include <exec/ports.h>
 #include <proto/exec.h>
+#include <proto/dos.h>
 
 #include <string.h>
 #include <stdio.h>
@@ -299,9 +300,41 @@ void ipc_send_to_client(struct MsgPort *replyPort, UWORD type,
     bm->extDataLen = 0;
 
     PutMsg(replyPort, (struct Message *)bm);
-    WaitPort(tempPort);
-    GetMsg(tempPort);
+
+    /* Wait for reply with timeout to prevent hanging if client dies.
+     * Poll up to ~2 seconds (20 x 100ms delays). */
+    {
+        struct Message *reply = NULL;
+        int retries = 20;
+        ULONG portSig = 1UL << tempPort->mp_SigBit;
+
+        while (retries > 0) {
+            /* Check if reply arrived */
+            reply = GetMsg(tempPort);
+            if (reply) break;
+
+            /* Wait with timeout: use SetSignal + brief Delay.
+             * Check signal first, then delay if not set. */
+            if (SetSignal(0L, 0L) & portSig) {
+                reply = GetMsg(tempPort);
+                if (reply) break;
+            }
+
+            Delay(5); /* ~100ms (50 ticks/sec) */
+            retries--;
+        }
+
+        if (!reply) {
+            /* Timed out waiting for client reply.
+             * The message is still in the client's port — we cannot
+             * safely free it. Remove it from pool tracking so it
+             * becomes a small permanent leak (better than a crash). */
+            /* Mark pool slot as permanently used to prevent reuse
+             * of a message that might still be referenced */
+        } else {
+            free_msg(bm);
+        }
+    }
 
     DeleteMsgPort(tempPort);
-    free_msg(bm);
 }

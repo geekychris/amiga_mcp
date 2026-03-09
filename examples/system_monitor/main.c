@@ -1,16 +1,11 @@
 /*
- * System Monitor - Amiga Debug Library Demo
+ * System Monitor - AmigaBridge Client Demo
  *
- * Demonstrates all features of the debug library:
- * - Multi-level logging (DEBUG, INFO, WARN, ERROR)
- * - Variable registration and remote inspection
- * - Heartbeat with memory stats
- * - Memory dump on request
- * - Custom EXEC commands
- * - Polling for host commands
+ * Monitors Amiga system state (memory, tasks, CPU) and exposes
+ * everything via the bridge daemon for MCP server to read.
  *
- * This app monitors Amiga system state and exposes it
- * via the debug serial link for the MCP server to read.
+ * Demonstrates: logging, variable registration, heartbeat,
+ * memory dumps, and custom EXEC commands.
  */
 
 #include <exec/types.h>
@@ -27,13 +22,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "debug.h"
+#include "bridge_client.h"
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
 extern struct ExecBase *SysBase;
 
-/* Monitored state - all exposed as debug variables */
+/* Monitored state - all exposed as variables */
 static ULONG frame = 0;
 static LONG chip_free = 0;
 static LONG fast_free = 0;
@@ -54,45 +49,32 @@ static char status_msg[64] = "starting";
 /* Custom command handler */
 static void cmd_handler(ULONG id, const char *data)
 {
-    char response[256];
-    int len;
-
     if (strcmp(data, "snapshot") == 0) {
-        /* Send all variables at once */
-        dbg_send_var("chip_free");
-        dbg_send_var("fast_free");
-        dbg_send_var("task_count");
-        dbg_send_var("cpu_usage");
-        dbg_send_var("status_msg");
-        len = snprintf(response, sizeof(response),
-                      "CMD|%lu|ok|Snapshot sent: chip=%ld fast=%ld tasks=%ld cpu=%ld%%\n",
-                      id, chip_free, fast_free, task_count, cpu_usage);
-        extern int serial_write(const char *buf, int len);
-        serial_write(response, len);
+        /* Push all variables at once */
+        ab_push_var("chip_free");
+        ab_push_var("fast_free");
+        ab_push_var("task_count");
+        ab_push_var("cpu_usage");
+        ab_push_var("status_msg");
+        AB_I("Snapshot: chip=%ld fast=%ld tasks=%ld cpu=%ld%%",
+             chip_free, fast_free, task_count, cpu_usage);
+        ab_cmd_respond(id, "ok", "Snapshot sent");
     }
     else if (strcmp(data, "memmap") == 0) {
-        /* Send a dump of low chip memory (system vectors) */
-        dbg_send_mem((APTR)0x00000004, 64);
-        len = snprintf(response, sizeof(response),
-                      "CMD|%lu|ok|Memory map sent (ExecBase pointer region)\n", id);
-        extern int serial_write(const char *buf, int len);
-        serial_write(response, len);
+        /* Send a dump of low chip memory (ExecBase pointer region) */
+        ab_send_mem((APTR)0x00000004, 64);
+        AB_I("Memory map sent (ExecBase pointer region)");
+        ab_cmd_respond(id, "ok", "Memory map sent");
     }
     else if (strncmp(data, "msg ", 4) == 0) {
         strncpy(status_msg, data + 4, sizeof(status_msg) - 1);
         status_msg[sizeof(status_msg) - 1] = '\0';
-        DBG_I("Status message set to: %s", status_msg);
-        len = snprintf(response, sizeof(response),
-                      "CMD|%lu|ok|Status message updated\n", id);
-        extern int serial_write(const char *buf, int len);
-        serial_write(response, len);
+        AB_I("Status message set to: %s", status_msg);
+        ab_cmd_respond(id, "ok", "Status message updated");
     }
     else {
-        len = snprintf(response, sizeof(response),
-                      "CMD|%lu|err|Unknown command: %s (try: snapshot, memmap, msg <text>)\n",
-                      id, data);
-        extern int serial_write(const char *buf, int len);
-        serial_write(response, len);
+        AB_W("Unknown command: %s", data);
+        ab_cmd_respond(id, "err", "Unknown command (try: snapshot, memmap, msg <text>)");
     }
 }
 
@@ -187,31 +169,33 @@ int main(void)
         return 1;
     }
 
-    /* Initialize debug link */
-    if (dbg_init(9600) != 0) {
-        printf("Debug init failed - continuing without debug\n");
+    /* Connect to AmigaBridge daemon (also sets task name) */
+    if (ab_init("system_monitor") != 0) {
+        printf("Bridge: NOT FOUND\n");
+    } else {
+        printf("Bridge: CONNECTED\n");
     }
 
-    DBG_I("System Monitor starting");
+    AB_I("System Monitor starting");
 
     /* Register all variables */
-    dbg_register_var("frame", DBG_TYPE_U32, &frame);
-    dbg_register_var("chip_free", DBG_TYPE_I32, &chip_free);
-    dbg_register_var("fast_free", DBG_TYPE_I32, &fast_free);
-    dbg_register_var("chip_largest", DBG_TYPE_I32, &chip_largest);
-    dbg_register_var("fast_largest", DBG_TYPE_I32, &fast_largest);
-    dbg_register_var("task_count", DBG_TYPE_I32, &task_count);
-    dbg_register_var("cpu_usage", DBG_TYPE_I32, &cpu_usage);
-    dbg_register_var("status_msg", DBG_TYPE_STR, status_msg);
+    ab_register_var("frame", AB_TYPE_U32, &frame);
+    ab_register_var("chip_free", AB_TYPE_I32, &chip_free);
+    ab_register_var("fast_free", AB_TYPE_I32, &fast_free);
+    ab_register_var("chip_largest", AB_TYPE_I32, &chip_largest);
+    ab_register_var("fast_largest", AB_TYPE_I32, &fast_largest);
+    ab_register_var("task_count", AB_TYPE_I32, &task_count);
+    ab_register_var("cpu_usage", AB_TYPE_I32, &cpu_usage);
+    ab_register_var("status_msg", AB_TYPE_STR, status_msg);
 
-    dbg_set_cmd_handler(cmd_handler);
+    ab_set_cmd_handler(cmd_handler);
 
     /* Get initial stats for display scale */
     update_stats();
     prev_chip = chip_free;
     prev_tasks = task_count;
 
-    DBG_I("Initial chip: %ld, fast: %ld, tasks: %ld",
+    AB_I("Initial chip: %ld, fast: %ld, tasks: %ld",
            chip_free, fast_free, task_count);
 
     /* Open window */
@@ -220,7 +204,7 @@ int main(void)
         WA_Top, 20,
         WA_Width, WIN_W,
         WA_Height, WIN_H,
-        WA_Title, (ULONG)"System Monitor - Debug Demo",
+        WA_Title, (ULONG)"System Monitor",
         WA_CloseGadget, TRUE,
         WA_DragBar, TRUE,
         WA_DepthGadget, TRUE,
@@ -230,15 +214,15 @@ int main(void)
         TAG_DONE);
 
     if (!win) {
-        DBG_E("Failed to open window");
-        dbg_cleanup();
+        AB_E("Failed to open window");
+        ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
     }
 
     rp = win->RPort;
-    DBG_I("Window opened successfully");
+    AB_I("Window opened");
     strncpy(status_msg, "running", sizeof(status_msg));
 
     /* Main loop */
@@ -249,10 +233,17 @@ int main(void)
             ReplyMsg((struct Message *)msg);
             if (class == IDCMP_CLOSEWINDOW) {
                 loop = FALSE;
-                DBG_I("Close requested");
+                AB_I("Close requested");
             }
         }
         if (!loop) break;
+
+        /* Check for CTRL-C break signal */
+        if (SetSignal(0L, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) {
+            AB_I("Break signal received");
+            loop = FALSE;
+            break;
+        }
 
         /* Update system stats */
         update_stats();
@@ -278,38 +269,42 @@ int main(void)
 
         /* Log significant changes */
         if (chip_free < prev_chip - 10000) {
-            DBG_W("Chip memory dropped: %ld -> %ld (-%ld)",
+            AB_W("Chip memory dropped: %ld -> %ld (-%ld)",
                    prev_chip, chip_free, prev_chip - chip_free);
         }
         if (task_count != prev_tasks) {
-            DBG_I("Task count changed: %ld -> %ld", prev_tasks, task_count);
+            AB_I("Task count changed: %ld -> %ld", prev_tasks, task_count);
         }
         prev_chip = chip_free;
         prev_tasks = task_count;
 
-        /* Heartbeat every 60 frames */
+        /* Heartbeat + push key vars every 60 frames */
         if (frame % 60 == 0) {
-            dbg_heartbeat();
+            ab_push_var("chip_free");
+            ab_push_var("fast_free");
+            ab_push_var("task_count");
+            ab_push_var("cpu_usage");
+            ab_heartbeat();
         }
 
         /* Detailed stats log every 300 frames */
         if (frame % 300 == 0) {
-            DBG_I("Stats: chip=%ld fast=%ld tasks=%ld cpu=%ld%%",
+            AB_I("Stats: chip=%ld fast=%ld tasks=%ld cpu=%ld%%",
                    chip_free, fast_free, task_count, cpu_usage);
         }
 
-        /* Poll for debug commands from host */
-        dbg_poll();
+        /* Poll for commands from bridge daemon */
+        ab_poll();
 
         /* ~10fps update rate */
         Delay(5);
     }
 
     strncpy(status_msg, "shutting down", sizeof(status_msg));
-    DBG_I("System Monitor shutting down");
+    AB_I("System Monitor shutting down");
 
     CloseWindow(win);
-    dbg_cleanup();
+    ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
 

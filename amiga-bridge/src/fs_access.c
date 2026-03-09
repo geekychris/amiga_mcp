@@ -65,9 +65,14 @@ int fs_list_dir(const char *path, char *buf, int bufSize)
     sprintf(buf, "DIR|%s|", path);
     pos = strlen(buf);
 
-    /* Save position for count insertion */
+    /* Reserve 5 chars for count, then fill entries */
     {
-        int countPos = pos;
+        int headerPos = pos;
+        char countStr[16];
+
+        memset(buf + pos, ' ', 5);
+        pos += 5;
+        buf[pos] = '\0';
 
         while (ExNext(lock, fib)) {
             const char *typeStr;
@@ -83,27 +88,30 @@ int fs_list_dir(const char *path, char *buf, int bufSize)
                     fib->fib_FileName,
                     (long)fib->fib_Size,
                     typeStr);
+            entry[sizeof(entry) - 1] = '\0';
             written = strlen(entry);
 
-            if (pos + written + 1 >= bufSize - 16) break;
+            if (pos + written + 1 >= bufSize - 2) break;
 
             if (count > 0) buf[pos++] = ',';
-            strcpy(buf + pos, entry);
+            memcpy(buf + pos, entry, written);
             pos += written;
+            buf[pos] = '\0';
             count++;
         }
 
-        /* Rebuild with count */
+        /* Patch count into reserved space */
+        sprintf(countStr, "%ld|", (long)count);
         {
-            char tmpbuf[BRIDGE_MAX_LINE];
-            char countStr[16];
-            int clen;
-            strcpy(tmpbuf, buf + countPos);
-            sprintf(countStr, "%ld|", (long)count);
-            clen = strlen(countStr);
-            strcpy(buf + countPos, countStr);
-            strcpy(buf + countPos + clen, tmpbuf);
-            pos += clen;
+            int clen = strlen(countStr);
+            int gap = 5 - clen;
+            if (gap > 0) {
+                int entryStart = headerPos + 5;
+                int entryLen = pos - entryStart;
+                memmove(buf + headerPos + clen, buf + entryStart, entryLen);
+                pos -= gap;
+            }
+            memcpy(buf + headerPos, countStr, clen);
         }
     }
 
@@ -244,12 +252,18 @@ int fs_file_info(const char *path, char *buf, int bufSize)
         typeStr = "FILE";
     }
 
-    sprintf(buf, "FILEINFO|%s|%ld|%s|%08lx|%s",
-            path,
-            (long)fib->fib_Size,
-            typeStr,
-            (unsigned long)fib->fib_Protection,
-            fib->fib_Comment);
+    sprintf(buf, "FILEINFO|");
+    strncat(buf, path, bufSize - 64);
+    {
+        char meta[64];
+        sprintf(meta, "|%ld|%s|%08lx|",
+                (long)fib->fib_Size,
+                typeStr,
+                (unsigned long)fib->fib_Protection);
+        strncat(buf, meta, bufSize - strlen(buf) - 1);
+    }
+    strncat(buf, fib->fib_Comment, bufSize - strlen(buf) - 1);
+    buf[bufSize - 1] = '\0';
     pos = strlen(buf);
 
     FreeMem(fib, sizeof(struct FileInfoBlock));
