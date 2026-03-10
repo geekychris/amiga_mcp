@@ -24,6 +24,11 @@ class AmigaState:
     connection_mode: str = "tcp"
     last_crash: dict[str, Any] | None = None
 
+    # Connection tracking timestamps (seconds since epoch)
+    serial_connected_at: float | None = None
+    last_bridge_message_at: float | None = None
+    last_heartbeat_at: float | None = None
+
     def add_log(self, msg: dict[str, Any]) -> None:
         self.logs.append(msg)
 

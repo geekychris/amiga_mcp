@@ -67,8 +67,22 @@
     border-radius: 50%;
     background: var(--red);
     transition: background 0.3s;
+    flex-shrink: 0;
   }
-  .conn-dot.connected { background: var(--green); }
+  .conn-dot.serial-only { background: var(--yellow); }
+  .conn-dot.bridge-active { background: var(--green); }
+  .conn-dot.bridge-stale { background: #cc8800; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .conn-dot.pulse { animation: pulse 0.5s ease-in-out 1; }
+  .emu-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+  .emu-dot.running { background: var(--green); }
   .sys-info {
     font-size: 11px;
     color: var(--text-dim);
@@ -590,9 +604,15 @@
     <h1>AmigaDevBench</h1>
     <span class="subtitle">Debug Console</span>
     <div class="sys-info" id="sysInfo">--</div>
-    <div class="conn-status">
-      <div class="conn-dot" id="connDot"></div>
-      <span id="connText">Disconnected</span>
+    <div class="conn-status" style="gap:12px;">
+      <div style="display:flex;align-items:center;gap:5px;">
+        <div class="emu-dot" id="emuDot" title="Emulator status"></div>
+        <span id="emuText" style="font-size:11px;color:var(--text-dim);">Emu: --</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connText">Disconnected</span>
+      </div>
     </div>
   </div>
 
@@ -606,6 +626,7 @@
     <div class="tab" data-tab="variables">Variables</div>
     <div class="tab" data-tab="shell">Shell</div>
     <div class="tab" data-tab="tools">Tools</div>
+    <div class="tab" data-tab="config">Config</div>
   </div>
 
   <!-- Content -->
@@ -641,6 +662,18 @@
             <button class="btn orange" onclick="doConnect()">Connect</button>
             <button class="btn" onclick="doDisconnect()">Disconnect</button>
           </div>
+        </div>
+        <div class="card">
+          <h3>Emulator</h3>
+          <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value" id="dashEmuStatus">--</span></div>
+          <div class="stat-row"><span class="stat-label">PID</span><span class="stat-value" id="dashEmuPid">--</span></div>
+          <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value" id="dashEmuUptime">--</span></div>
+          <div class="btn-group" style="margin-top:8px;">
+            <button class="btn" id="emuStartBtn" onclick="emuStart()">Start</button>
+            <button class="btn orange" onclick="emuRestart()">Restart</button>
+            <button class="btn" onclick="emuStop()">Stop</button>
+          </div>
+          <div id="emuMsg" style="font-size:11px;color:var(--text-dim);margin-top:6px;"></div>
         </div>
       </div>
       <div class="card" style="margin-top:12px;">
@@ -856,17 +889,17 @@
           <div id="toolDisasmResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre;max-height:400px;overflow:auto;color:var(--green);"></div>
         </div>
 
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Crash Report <span class="tool-help" title="Patches exec.library Alert() via SetFunction() to intercept guru meditations. Captures alert code, all 16 registers (D0-D7, A0-A7), SP, and 64 bytes of stack. Not installed by default - click Enable to activate.">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_last_crash</code></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Crash Report <span class="tool-help" title="Patches exec.library Alert() via SetFunction() to intercept guru meditations. Captures alert code, all 16 registers (D0-D7, A0-A7), SP, and 64 bytes of stack. Auto-enabled when bridge starts (configurable in Config tab).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_last_crash</code> | Auto-enabled on bridge start if configured</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
             <button class="btn" onclick="toolCrashEnable()" id="btnCrashEnable">Enable</button>
             <button class="btn" onclick="toolCrashDisable()" id="btnCrashDisable" style="display:none;">Disable</button>
             <button class="btn" onclick="toolCrash()">Check</button>
             <button class="btn" onclick="toolCrashTest()" style="background:var(--red);color:#fff;" title="Enables handler + triggers recoverable Alert()">Test</button>
+            <span id="toolCrashStatus" style="font-size:10px;color:var(--text-dim);"></span>
           </div>
-          <div id="toolCrashStatus" style="margin-top:4px;font-size:10px;color:var(--text-dim);"></div>
-          <div id="toolCrashResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--red);"></div>
+          <div id="toolCrashResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);"></div>
         </div>
 
         <div class="card" style="padding:14px;">
@@ -1037,6 +1070,46 @@
       </div>
     </div>
 
+    <!-- Config -->
+    <div class="tab-panel" id="panel-config">
+      <div class="dash-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="card" style="grid-column:span 1;">
+          <h3>DevBench Config</h3>
+          <div style="font-size:12px;">
+            <div class="stat-row"><span class="stat-label">Serial Mode</span>
+              <select id="cfgSerialMode" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;">
+                <option value="tcp">TCP</option><option value="pty">PTY</option>
+              </select>
+            </div>
+            <div class="stat-row"><span class="stat-label">Serial Host</span><input id="cfgSerialHost" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:140px;" value="127.0.0.1"></div>
+            <div class="stat-row"><span class="stat-label">Serial Port</span><input id="cfgSerialPort" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:80px;" value="1234" type="number"></div>
+            <div class="stat-row"><span class="stat-label">Emulator Binary</span><input id="cfgEmuBin" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:250px;"></div>
+            <div class="stat-row"><span class="stat-label">Emulator Config</span><input id="cfgEmuConf" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:350px;"></div>
+            <div class="stat-row"><span class="stat-label">Auto-start Emulator</span><input id="cfgAutoStart" type="checkbox"></div>
+            <div class="stat-row"><span class="stat-label">Auto-enable Crash Handler</span><input id="cfgCrashAutoEnable" type="checkbox" checked title="Auto-enable crash handler when bridge daemon starts"></div>
+            <div class="stat-row"><span class="stat-label">Deploy Dir</span><input id="cfgDeployDir" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:400px;"></div>
+            <div style="margin-top:10px;display:flex;gap:6px;">
+              <button class="btn orange" onclick="cfgSave()">Save Config</button>
+              <button class="btn" onclick="cfgLoad()">Reload</button>
+            </div>
+            <div id="cfgMsg" style="font-size:11px;color:var(--green);margin-top:6px;"></div>
+          </div>
+        </div>
+        <div class="card" style="grid-column:span 1;">
+          <h3>FS-UAE Emulator Config
+            <span style="font-size:11px;color:var(--text-dim);margin-left:8px;" id="emuConfPath"></span>
+          </h3>
+          <textarea id="emuConfigEditor" style="width:100%;height:400px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:12px;padding:8px;resize:vertical;"></textarea>
+          <div style="margin-top:8px;display:flex;gap:6px;">
+            <button class="btn orange" onclick="emuCfgSave()">Save FS-UAE Config</button>
+            <button class="btn" onclick="emuCfgLoad()">Reload</button>
+            <button class="btn orange" onclick="emuCfgSaveRestart()">Save &amp; Restart Emulator</button>
+          </div>
+          <div id="emuCfgMsg" style="font-size:11px;color:var(--green);margin-top:6px;"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 <script>
@@ -1072,6 +1145,12 @@ document.getElementById('tabBar').addEventListener('click', (e) => {
     if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
     if (typeof toolRefreshProjects === 'function') toolRefreshProjects();
     if (typeof toolRefreshTasks === 'function') toolRefreshTasks();
+  }
+  // Load config when switching to config tab
+  if (tabName === 'config') {
+    cfgLoad();
+    emuCfgLoad();
+    emuRefresh();
   }
 });
 
@@ -1137,23 +1216,100 @@ function connectSSE() {
     setConnected(false);
   });
 
+  eventSource.addEventListener('emulator_status', (e) => {
+    const data = JSON.parse(e.data);
+    updateEmulatorStatus(data);
+  });
+
+  eventSource.addEventListener('crash', (e) => {
+    const data = JSON.parse(e.data);
+    // Auto-show crash report in the tools tab
+    renderCrashReport({crash: data, alertDetail: data.alertDetail, pcAddr: null});
+    // Flash the tools tab to alert the user
+    const toolsTab = document.querySelector('[data-tab="tools"]');
+    if (toolsTab && !toolsTab.classList.contains('active')) {
+      toolsTab.style.color = 'var(--red)';
+      toolsTab.style.fontWeight = 'bold';
+      setTimeout(() => { toolsTab.style.color = ''; toolsTab.style.fontWeight = ''; }, 10000);
+    }
+  });
+
   eventSource.onerror = () => {
     console.log('SSE connection error, will retry...');
   };
 }
 
 // ─── Status Updates ───
-function setConnected(val) {
-  state.connected = val;
+// Tri-state connection: disconnected (red) / serial-only (yellow) / bridge-active (green) / bridge-stale (amber)
+let _lastBridgeMsg = null;
+let _connTimerStarted = false;
+const BRIDGE_STALE_SEC = 30;
+
+function updateConnectionState(data) {
+  state.connected = data.connected;
   const dot = document.getElementById('connDot');
   const text = document.getElementById('connText');
-  dot.className = 'conn-dot' + (val ? ' connected' : '');
-  text.textContent = val ? 'Connected' : 'Disconnected';
-  document.getElementById('dashSerial').textContent = val ? 'Active' : 'Inactive';
+
+  if (!data.connected) {
+    dot.className = 'conn-dot';
+    text.textContent = 'Disconnected';
+    text.style.color = 'var(--red)';
+    _lastBridgeMsg = null;
+  } else if (data.lastBridgeMessageAt) {
+    _lastBridgeMsg = data.lastBridgeMessageAt;
+    const silentSec = data.bridgeSilentSec || 0;
+    if (silentSec > BRIDGE_STALE_SEC) {
+      dot.className = 'conn-dot bridge-stale';
+      text.textContent = 'Bridge: silent ' + formatDuration(silentSec);
+      text.style.color = '#cc8800';
+    } else {
+      dot.className = 'conn-dot bridge-active';
+      text.textContent = 'Bridge: active';
+      text.style.color = 'var(--green)';
+    }
+  } else {
+    dot.className = 'conn-dot serial-only';
+    text.textContent = 'Serial: linked (no bridge)';
+    text.style.color = 'var(--yellow)';
+  }
+  document.getElementById('dashSerial').textContent = data.connected ? 'Active' : 'Inactive';
+
+  // Start a 1s timer to update "Xs ago" display
+  if (!_connTimerStarted) {
+    _connTimerStarted = true;
+    setInterval(() => {
+      if (_lastBridgeMsg && state.connected) {
+        const sec = Math.round((Date.now()/1000) - _lastBridgeMsg);
+        const dot = document.getElementById('connDot');
+        const text = document.getElementById('connText');
+        if (sec > BRIDGE_STALE_SEC) {
+          dot.className = 'conn-dot bridge-stale';
+          text.textContent = 'Bridge: silent ' + formatDuration(sec);
+          text.style.color = '#cc8800';
+        } else {
+          dot.className = 'conn-dot bridge-active';
+          text.textContent = 'Bridge: active (' + sec + 's ago)';
+          text.style.color = 'var(--green)';
+        }
+      }
+    }, 2000);
+  }
+}
+
+function formatDuration(sec) {
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec/60);
+  const s = sec % 60;
+  return m + 'm' + (s ? ' ' + s + 's' : '');
+}
+
+function setConnected(val) {
+  // Legacy compat - called from SSE connected/disconnected events
+  updateConnectionState({connected: val, lastBridgeMessageAt: _lastBridgeMsg, bridgeSilentSec: val ? 0 : null});
 }
 
 function updateStatus(data) {
-  setConnected(data.connected);
+  updateConnectionState(data);
   document.getElementById('dashHost').textContent = data.host || '--';
   document.getElementById('dashPort').textContent = data.port || '--';
   document.getElementById('dashLogCount').textContent = data.logCount || 0;
@@ -1169,6 +1325,15 @@ function updateHeartbeat(hb) {
   document.getElementById('dashFast').textContent = formatBytes(hb.freeFast);
   document.getElementById('sysInfo').textContent =
     'Chip: ' + formatBytes(hb.freeChip) + ' | Fast: ' + formatBytes(hb.freeFast);
+  // Update bridge status on heartbeat
+  _lastBridgeMsg = Date.now() / 1000;
+  const dot = document.getElementById('connDot');
+  dot.className = 'conn-dot bridge-active';
+  document.getElementById('connText').textContent = 'Bridge: active';
+  document.getElementById('connText').style.color = 'var(--green)';
+  // Pulse effect
+  dot.classList.add('pulse');
+  setTimeout(() => dot.classList.remove('pulse'), 500);
 }
 
 function updateClients(clients) {
@@ -1185,6 +1350,143 @@ function updateClients(clients) {
   if (typeof shellUpdateUI === 'function') shellUpdateUI();
   // Update client dropdowns in tools tab
   updateClientDropdowns(clients || []);
+}
+
+// ─── Emulator Management ───
+function updateEmulatorStatus(data) {
+  const dot = document.getElementById('emuDot');
+  const text = document.getElementById('emuText');
+  const statusEl = document.getElementById('dashEmuStatus');
+  const pidEl = document.getElementById('dashEmuPid');
+  const uptimeEl = document.getElementById('dashEmuUptime');
+  if (data.running) {
+    dot.className = 'emu-dot running';
+    text.textContent = 'Emu: running';
+    statusEl.textContent = 'Running';
+    statusEl.style.color = 'var(--green)';
+    pidEl.textContent = data.pid || '--';
+    uptimeEl.textContent = data.uptime ? formatDuration(Math.round(data.uptime)) : '--';
+  } else {
+    dot.className = 'emu-dot';
+    text.textContent = 'Emu: stopped';
+    statusEl.textContent = 'Stopped';
+    statusEl.style.color = 'var(--red)';
+    pidEl.textContent = '--';
+    uptimeEl.textContent = '--';
+  }
+}
+
+async function emuStart() {
+  document.getElementById('emuMsg').textContent = 'Starting emulator...';
+  try {
+    const r = await fetch('/api/emulator/start', {method:'POST'});
+    const d = await r.json();
+    document.getElementById('emuMsg').textContent = d.status || d.error || JSON.stringify(d);
+    emuRefresh();
+  } catch(e) { document.getElementById('emuMsg').textContent = 'Error: ' + e.message; }
+}
+
+async function emuStop() {
+  document.getElementById('emuMsg').textContent = 'Stopping emulator...';
+  try {
+    const r = await fetch('/api/emulator/stop', {method:'POST'});
+    const d = await r.json();
+    document.getElementById('emuMsg').textContent = d.status || d.error || JSON.stringify(d);
+    emuRefresh();
+  } catch(e) { document.getElementById('emuMsg').textContent = 'Error: ' + e.message; }
+}
+
+async function emuRestart() {
+  document.getElementById('emuMsg').textContent = 'Restarting emulator...';
+  try {
+    const r = await fetch('/api/emulator/restart', {method:'POST'});
+    const d = await r.json();
+    document.getElementById('emuMsg').textContent = d.status || d.error || JSON.stringify(d);
+    emuRefresh();
+  } catch(e) { document.getElementById('emuMsg').textContent = 'Error: ' + e.message; }
+}
+
+async function emuRefresh() {
+  try {
+    const r = await fetch('/api/emulator/status');
+    const d = await r.json();
+    updateEmulatorStatus(d);
+  } catch(e) {}
+}
+
+// ─── Config Management ───
+async function cfgLoad() {
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    if (d.serial) {
+      document.getElementById('cfgSerialMode').value = d.serial.mode || 'tcp';
+      document.getElementById('cfgSerialHost').value = d.serial.host || '';
+      document.getElementById('cfgSerialPort').value = d.serial.port || 1234;
+    }
+    if (d.emulator) {
+      document.getElementById('cfgEmuBin').value = d.emulator.binary || '';
+      document.getElementById('cfgEmuConf').value = d.emulator.config || '';
+      document.getElementById('cfgAutoStart').checked = d.emulator.auto_start || false;
+    }
+    if (d.paths) {
+      document.getElementById('cfgDeployDir').value = d.paths.deploy_dir || '';
+    }
+    if (d.bridge) {
+      document.getElementById('cfgCrashAutoEnable').checked = d.bridge.crash_handler_auto_enable !== false;
+    }
+  } catch(e) { console.error('Failed to load config:', e); }
+}
+
+async function cfgSave() {
+  const body = {
+    serial: {
+      mode: document.getElementById('cfgSerialMode').value,
+      host: document.getElementById('cfgSerialHost').value,
+      port: parseInt(document.getElementById('cfgSerialPort').value),
+    },
+    emulator: {
+      binary: document.getElementById('cfgEmuBin').value,
+      config: document.getElementById('cfgEmuConf').value,
+      auto_start: document.getElementById('cfgAutoStart').checked,
+    },
+    paths: {
+      deploy_dir: document.getElementById('cfgDeployDir').value,
+    },
+    bridge: {
+      crash_handler_auto_enable: document.getElementById('cfgCrashAutoEnable').checked,
+    },
+  };
+  try {
+    const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const d = await r.json();
+    document.getElementById('cfgMsg').textContent = d.status === 'saved' ? 'Config saved to ' + d.path : (d.error || 'Unknown error');
+    setTimeout(() => document.getElementById('cfgMsg').textContent = '', 5000);
+  } catch(e) { document.getElementById('cfgMsg').textContent = 'Error: ' + e.message; }
+}
+
+async function emuCfgLoad() {
+  try {
+    const r = await fetch('/api/emulator/config');
+    const d = await r.json();
+    document.getElementById('emuConfigEditor').value = d.config || '';
+    document.getElementById('emuConfPath').textContent = d.path || '';
+  } catch(e) { console.error('Failed to load emu config:', e); }
+}
+
+async function emuCfgSave() {
+  const content = document.getElementById('emuConfigEditor').value;
+  try {
+    const r = await fetch('/api/emulator/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({config: content})});
+    const d = await r.json();
+    document.getElementById('emuCfgMsg').textContent = d.status === 'saved' ? 'Saved' : (d.error || 'Unknown error');
+    setTimeout(() => document.getElementById('emuCfgMsg').textContent = '', 3000);
+  } catch(e) { document.getElementById('emuCfgMsg').textContent = 'Error: ' + e.message; }
+}
+
+async function emuCfgSaveRestart() {
+  await emuCfgSave();
+  await emuRestart();
 }
 
 // ─── Logs ───
@@ -1817,6 +2119,7 @@ async function toolCrashEnable() {
   document.getElementById('toolCrashStatus').textContent = 'Enabling...';
   await fetch('/api/crash/enable', {method: 'POST'});
   document.getElementById('toolCrashStatus').textContent = 'Crash handler active (Alert patched)';
+  document.getElementById('toolCrashStatus').style.color = 'var(--green)';
   document.getElementById('btnCrashEnable').style.display = 'none';
   document.getElementById('btnCrashDisable').style.display = '';
 }
@@ -1825,28 +2128,119 @@ async function toolCrashDisable() {
   document.getElementById('toolCrashStatus').textContent = 'Disabling...';
   await fetch('/api/crash/disable', {method: 'POST'});
   document.getElementById('toolCrashStatus').textContent = 'Crash handler removed';
+  document.getElementById('toolCrashStatus').style.color = 'var(--text-dim)';
   document.getElementById('btnCrashEnable').style.display = '';
   document.getElementById('btnCrashDisable').style.display = 'none';
 }
 
 async function toolCrash() {
-  document.getElementById('toolCrashResult').textContent = 'Checking...';
+  const el = document.getElementById('toolCrashResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Checking...</span>';
   const data = await api('/crash');
-  document.getElementById('toolCrashResult').textContent = data ? (data.report || 'No crash recorded') : 'No response';
+  if (!data || !data.crash) {
+    el.innerHTML = '<span style="color:var(--text-dim);">No crash recorded</span>';
+    return;
+  }
+  renderCrashReport(data);
+}
+
+function renderCrashReport(data) {
+  const el = document.getElementById('toolCrashResult');
+  const c = data.crash;
+  const alertNum = c.alertNum || '00000000';
+  const alertName = c.alertName || 'Unknown';
+  const alertDetail = data.alertDetail || '';
+  const dregs = c.dataRegs || [];
+  const aregs = c.addrRegs || [];
+  const sp = c.sp || '00000000';
+  const stack = c.stackHex || '';
+  const pcAddr = data.pcAddr || null;
+
+  let html = '<div style="border:1px solid var(--red);border-radius:4px;padding:8px;background:#1a0000;">';
+
+  // Alert header
+  html += '<div style="color:var(--red);font-size:13px;font-weight:bold;margin-bottom:6px;">';
+  html += '&#x26A0; GURU MEDITATION #' + escapeHtml(alertNum) + ' — ' + escapeHtml(alertName);
+  html += '</div>';
+
+  // Alert decode
+  if (alertDetail) {
+    html += '<div style="color:var(--yellow);font-size:11px;margin-bottom:8px;">' + escapeHtml(alertDetail) + '</div>';
+  }
+
+  // Registers in a grid
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px 12px;margin-bottom:8px;font-size:11px;">';
+  for (let i = 0; i < 8; i++) {
+    const val = dregs[i] || '--------';
+    html += '<div style="color:var(--accent-blue);">D' + i + ': <span style="color:var(--text-primary);">' + val + '</span></div>';
+  }
+  for (let i = 0; i < 7; i++) {
+    const val = aregs[i] || '--------';
+    html += '<div style="color:var(--accent-blue);">A' + i + ': <span style="color:var(--text-primary);">' + val + '</span></div>';
+  }
+  html += '<div style="color:var(--accent-blue);">SP: <span style="color:var(--text-primary);">' + sp + '</span></div>';
+  html += '</div>';
+
+  // Stack dump
+  if (stack) {
+    html += '<div style="margin-bottom:8px;"><span style="color:var(--text-dim);font-size:10px;">Stack (64 bytes from SP):</span><br>';
+    html += '<span style="color:var(--text-secondary);font-size:11px;">';
+    const groups = [];
+    for (let i = 0; i < stack.length; i += 8) groups.push(stack.substring(i, i + 8));
+    html += groups.join(' ');
+    html += '</span></div>';
+  }
+
+  // Action buttons
+  html += '<div style="display:flex;gap:6px;margin-top:6px;">';
+  if (pcAddr) {
+    html += '<button class="btn" onclick="crashDisasmAt(\'' + pcAddr + '\')" style="padding:3px 8px;font-size:11px;">Disassemble at $' + pcAddr + '</button>';
+  }
+  // Also offer disasm at each address register
+  for (let i = 0; i < aregs.length && i < 7; i++) {
+    try {
+      const addr = parseInt(aregs[i], 16);
+      if (addr > 0x1000 && addr < 0x10000000) {
+        html += '<button class="btn" onclick="crashDisasmAt(\'' + aregs[i] + '\')" style="padding:3px 8px;font-size:10px;color:var(--text-dim);">A' + i + '</button>';
+      }
+    } catch(e) {}
+  }
+  // Disasm from stack return address
+  if (stack.length >= 8) {
+    const retAddr = stack.substring(0, 8);
+    try {
+      const addr = parseInt(retAddr, 16);
+      if (addr > 0x1000 && addr < 0x10000000) {
+        html += '<button class="btn" onclick="crashDisasmAt(\'' + retAddr + '\')" style="padding:3px 8px;font-size:10px;color:var(--text-dim);">Stack ret</button>';
+      }
+    } catch(e) {}
+  }
+  html += '</div>';
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
+async function crashDisasmAt(addrHex) {
+  // Set the disassembler address and trigger it
+  document.getElementById('toolDisasmAddr').value = addrHex;
+  document.getElementById('toolDisasmCount').value = '30';
+  // Switch to disasm (scroll into view)
+  const disasmCard = document.getElementById('toolDisasmResult').closest('.card');
+  if (disasmCard) disasmCard.scrollIntoView({behavior: 'smooth'});
+  await toolDisasm();
 }
 
 async function toolCrashTest() {
   if (!confirm('This will enable the crash handler and trigger a recoverable guru meditation on the Amiga. Proceed?')) return;
-  document.getElementById('toolCrashResult').textContent = 'Enabling handler + triggering test alert...';
+  document.getElementById('toolCrashResult').innerHTML = '<span style="color:var(--text-dim);">Enabling handler + triggering test alert...</span>';
   const data = await fetch('/api/crashtest', {method: 'POST'}).then(r => r.json());
   document.getElementById('btnCrashEnable').style.display = 'none';
   document.getElementById('btnCrashDisable').style.display = '';
   document.getElementById('toolCrashStatus').textContent = 'Crash handler active (Alert patched)';
-  if (data && data.crash) {
-    toolCrash();
-  } else {
-    document.getElementById('toolCrashResult').textContent = data ? (data.status || data.error || JSON.stringify(data)) : 'No response';
-  }
+  document.getElementById('toolCrashStatus').style.color = 'var(--green)';
+  // Wait a moment then fetch crash report
+  setTimeout(toolCrash, 500);
 }
 
 async function toolResources() {
@@ -2635,6 +3029,8 @@ async function init() {
   varRefreshTimer = setInterval(() => {
     if (state.varAutoRefresh) refreshVars();
   }, 3000);
+  // Load emulator status
+  emuRefresh();
 }
 
 init();

@@ -22,7 +22,9 @@ from starlette.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from .builder import Builder
+from .config import DevBenchConfig
 from .deployer import Deployer
+from .emulator import EmulatorManager
 from .mcp_tools import mcp, init_tools
 from .protocol import format_hex_dump, level_name
 from .serial_conn import SerialConnection
@@ -37,6 +39,8 @@ _state: AmigaState | None = None
 _event_bus: EventBus | None = None
 _builder: Builder | None = None
 _deployer: Deployer | None = None
+_emulator: EmulatorManager | None = None
+_config: DevBenchConfig | None = None
 
 
 # ─── Web API Routes ───
@@ -54,8 +58,13 @@ async def api_events(request: Request) -> EventSourceResponse:
         # Send current status immediately
         yield {"event": "status", "data": json.dumps(_conn.get_status())}
 
+        # Include emulator status in initial push
+        if _emulator:
+            yield {"event": "emulator_status", "data": json.dumps(_emulator.get_status())}
+
         async with _event_bus.subscribe("log", "heartbeat", "var", "connected",
-                                        "disconnected", "clients", "tasks", "dir") as queue:
+                                        "disconnected", "clients", "tasks", "dir",
+                                        "emulator_status", "crash") as queue:
             while True:
                 try:
                     evt, data = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -92,6 +101,15 @@ async def api_events(request: Request) -> EventSourceResponse:
                     elif evt == "dir":
                         yield {"event": "dir", "data": json.dumps({
                             "path": data.get("path"), "entries": data.get("entries", []),
+                        })}
+                    elif evt == "emulator_status":
+                        yield {"event": "emulator_status", "data": json.dumps(data)}
+                    elif evt == "crash":
+                        # Enrich crash data with alert decode
+                        alert_hex = data.get("alertNum", "00000000")
+                        yield {"event": "crash", "data": json.dumps({
+                            **data,
+                            "alertDetail": _decode_alert(alert_hex),
                         })}
 
                 except asyncio.TimeoutError:
@@ -838,31 +856,51 @@ async def serve_index(request: Request) -> HTMLResponse:
 
 # ─── Application Factory ───
 
-def create_app(args: Any) -> Starlette:
+def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     """Create the Starlette application with MCP + Web API + static files."""
-    global _conn, _state, _event_bus, _builder, _deployer
+    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config
 
     _state = AmigaState()
     _event_bus = EventBus()
 
-    serial_host = args.serial_host or (
-        "127.0.0.1" if args.simulator or args.serial_host else None
-    )
-    use_tcp = serial_host is not None or args.simulator
+    # Use config if provided, fall back to args
+    if cfg:
+        _config = cfg
+        use_tcp = cfg.serial_mode == "tcp" or cfg.simulator
+        serial_host = cfg.serial_host if use_tcp else None
+    else:
+        _config = None
+        serial_host = args.serial_host or (
+            "127.0.0.1" if args.simulator or args.serial_host else None
+        )
+        use_tcp = serial_host is not None or args.simulator
 
     _conn = SerialConnection(
         state=_state,
         event_bus=_event_bus,
-        host=serial_host or "127.0.0.1",
-        port=args.serial_port,
-        pty_path=args.pty_path,
+        host=serial_host or cfg.serial_host if cfg else "127.0.0.1",
+        port=cfg.serial_port if cfg else args.serial_port,
+        pty_path=cfg.pty_path if cfg else args.pty_path,
     )
 
     if not use_tcp:
-        _conn.set_mode("pty", pty_path=args.pty_path)
+        _conn.set_mode("pty", pty_path=cfg.pty_path if cfg else args.pty_path)
 
-    _builder = Builder(args.project_root)
-    _deployer = Deployer(args.project_root, args.deploy_dir)
+    project_root = cfg.project_root if cfg else args.project_root
+    deploy_dir = cfg.deploy_dir if cfg else args.deploy_dir
+
+    _builder = Builder(project_root)
+    _deployer = Deployer(project_root, deploy_dir)
+
+    # Emulator manager
+    if cfg:
+        _emulator = EmulatorManager(
+            binary=cfg.emulator_binary,
+            config_file=cfg.emulator_config,
+            event_bus=_event_bus,
+        )
+    else:
+        _emulator = EmulatorManager(event_bus=_event_bus)
 
     # Initialize MCP tools with shared state
     init_tools(_conn, _state, _builder, _deployer, _event_bus)
@@ -875,6 +913,12 @@ def create_app(args: Any) -> Starlette:
     from mcp.server.fastmcp.server import StreamableHTTPASGIApp
     mcp_asgi_handler = StreamableHTTPASGIApp(session_manager)
 
+    _sim_mode = cfg.simulator if cfg else args.simulator
+    _sim_port = cfg.serial_port if cfg else args.serial_port
+    _srv_port = cfg.server_port if cfg else args.port
+    _pty = cfg.pty_path if cfg else args.pty_path
+    _emu_auto = cfg.emulator_auto_start if cfg else False
+
     @asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         """Combined lifespan: run MCP session manager + our startup."""
@@ -882,26 +926,37 @@ def create_app(args: Any) -> Starlette:
 
         async with session_manager.run():
             # Start simulator if requested
-            if args.simulator:
-                sim = AmigaSimulator(port=args.serial_port)
+            if _sim_mode:
+                sim = AmigaSimulator(port=_sim_port)
                 await sim.start()
                 await asyncio.sleep(0.2)
+
+            # Auto-start emulator if configured
+            if _emu_auto and _emulator and not _sim_mode:
+                logger.info("Auto-starting emulator...")
+                started = await _emulator.start()
+                if started:
+                    # Give FS-UAE time to boot and open TCP port
+                    logger.info("Waiting for emulator to boot...")
+                    await asyncio.sleep(3.0)
 
             # Print startup banner
             print()
             print("=" * 60)
             print("  Amiga DevBench")
             print("=" * 60)
-            print(f"  MCP endpoint:  http://localhost:{args.port}/mcp")
-            print(f"  Web UI:        http://localhost:{args.port}/")
-            print(f"  Health check:  http://localhost:{args.port}/health")
+            print(f"  MCP endpoint:  http://localhost:{_srv_port}/mcp")
+            print(f"  Web UI:        http://localhost:{_srv_port}/")
+            print(f"  Health check:  http://localhost:{_srv_port}/health")
             print(f"  Mode:          {'TCP' if use_tcp else 'PTY'}")
             if use_tcp:
                 print(f"  Serial:        {_conn._host}:{_conn._port}")
             else:
-                print(f"  PTY path:      {args.pty_path}")
-            if args.simulator:
-                print(f"  Simulator:     running on port {args.serial_port}")
+                print(f"  PTY path:      {_pty}")
+            if _sim_mode:
+                print(f"  Simulator:     running on port {_sim_port}")
+            if _emulator and _emulator.is_running:
+                print(f"  Emulator:      running (pid {_emulator.pid})")
             print("=" * 60)
             print()
 
@@ -911,17 +966,41 @@ def create_app(args: Any) -> Starlette:
                 if use_tcp:
                     logger.info("Auto-connected via TCP")
                 else:
-                    logger.info("PTY active: %s", args.pty_path)
+                    logger.info("PTY active: %s", _pty)
             except Exception as e:
                 logger.warning("Auto-connect failed: %s (use amiga_connect to retry)", e)
 
+            # Background task: listen for bridge READY and auto-enable crash handler
+            _auto_crash = cfg.crash_handler_auto_enable if cfg else False
+
+            async def _on_bridge_ready():
+                async with _event_bus.subscribe("ready") as queue:
+                    while True:
+                        try:
+                            evt, data = await queue.get()
+                            logger.info("Bridge READY received: %s", data)
+                            if _auto_crash and _conn and _conn.connected:
+                                logger.info("Auto-enabling crash handler...")
+                                await asyncio.sleep(0.5)
+                                _conn.send({"type": "CRASHINIT"})
+                        except asyncio.CancelledError:
+                            break
+                        except Exception as e:
+                            logger.error("Error in bridge ready handler: %s", e)
+
+            ready_task = asyncio.ensure_future(_on_bridge_ready())
+
             yield
+
+            ready_task.cancel()
 
             # Shutdown
             if _conn:
                 _conn.disconnect()
             if _builder:
                 await _builder.shutdown()
+            if _emulator and _emulator.is_running:
+                await _emulator.stop()
             if sim:
                 await sim.stop()
             logger.info("Shut down complete")
@@ -1102,21 +1181,111 @@ def create_app(args: Any) -> Starlette:
     async def api_tool_crash(request: Request) -> JSONResponse:
         if _state and _state.last_crash:
             c = _state.last_crash
-            report = f"Alert: ${c.get('alertNum', '?')} ({c.get('alertName', '?')})\n"
+            alert_num = c.get('alertNum', '00000000')
+            alert_name = c.get('alertName', 'Unknown')
+            alert_detail = _decode_alert(alert_num)
+
+            report = f"Alert: ${alert_num} ({alert_name})\n"
+            report += f"Type: {alert_detail}\n"
             dregs = c.get('dataRegs', [])
             aregs = c.get('addrRegs', [])
             if dregs:
                 report += "D0-D7: " + " ".join(dregs) + "\n"
             if aregs:
                 report += "A0-A7: " + " ".join(aregs) + "\n"
-            report += f"SP: ${c.get('sp', '?')}\n"
+            sp = c.get('sp', '00000000')
+            report += f"SP: ${sp}\n"
+
+            # PC is typically on the stack or in A5/A6 for Alert calls
+            # Try to find a likely PC from the address registers
+            pc_addr = None
+            if aregs and len(aregs) > 5:
+                # A5 often holds the caller's address
+                for reg_idx in [5, 4, 3, 2, 1, 0]:
+                    try:
+                        addr = int(aregs[reg_idx], 16)
+                        # Heuristic: looks like code if in ROM ($F80000+) or RAM ranges
+                        if 0x1000 < addr < 0x10000000:
+                            pc_addr = aregs[reg_idx]
+                            break
+                    except (ValueError, IndexError):
+                        pass
+
             stack = c.get('stackHex', '')
             if stack:
-                # Format stack hex as 4-byte groups
                 groups = [stack[i:i+8] for i in range(0, len(stack), 8)]
                 report += "Stack: " + " ".join(groups) + "\n"
-            return JSONResponse({"report": report, "crash": c})
+                # First long word on stack is often the return address (PC)
+                if len(stack) >= 8 and pc_addr is None:
+                    pc_addr = stack[:8]
+
+            return JSONResponse({
+                "report": report,
+                "crash": c,
+                "alertDetail": alert_detail,
+                "pcAddr": pc_addr,
+            })
         return JSONResponse({"report": "No crash recorded"})
+
+    def _decode_alert(alert_hex: str) -> str:
+        """Decode an AmigaOS alert number into human-readable description."""
+        try:
+            num = int(alert_hex, 16)
+        except ValueError:
+            return "Unknown alert"
+
+        dead = "DEADEND" if (num & 0x80000000) else "RECOVERABLE"
+
+        # Subsystem (bits 24-30)
+        subsys_map = {
+            0x00: "exec.library",
+            0x01: "exec.library",
+            0x02: "graphics.library",
+            0x03: "layers.library",
+            0x04: "intuition.library",
+            0x05: "math#?.library",
+            0x07: "dos.library",
+            0x08: "ramlib",
+            0x09: "icon.library",
+            0x0A: "expansion.library",
+            0x0B: "diskfont.library",
+            0x10: "audio.device",
+            0x11: "console.device",
+            0x12: "gameport.device",
+            0x13: "keyboard.device",
+            0x14: "trackdisk.device",
+            0x15: "timer.device",
+            0x20: "cia.resource",
+            0x21: "disk.resource",
+            0x22: "misc.resource",
+            0x30: "bootstrap",
+            0x31: "workbench",
+            0x32: "diskcopy",
+        }
+        subsys_code = (num >> 24) & 0x7F
+        subsys = subsys_map.get(subsys_code, f"subsystem ${subsys_code:02X}")
+
+        # General error type (bits 16-23)
+        general_map = {
+            0x01: "No memory",
+            0x02: "Make library failed",
+            0x03: "Open library failed",
+            0x04: "Open device failed",
+            0x05: "Open resource failed",
+            0x06: "I/O error",
+            0x07: "No signal",
+            0x08: "Bad parameter",
+            0x09: "Close library failed",
+            0x0A: "Close device failed",
+            0x0B: "Create process failed",
+        }
+        general_code = (num >> 16) & 0xFF
+        general = general_map.get(general_code, f"error ${general_code:02X}")
+
+        # Specific code (bits 0-15)
+        specific = num & 0xFFFF
+
+        return f"{dead} | {subsys} | {general} | specific=${specific:04X}"
 
     async def api_crash_enable(request: Request) -> JSONResponse:
         if not _conn or not _conn.connected:
@@ -1813,6 +1982,125 @@ def create_app(args: Any) -> Starlette:
 
         return JSONResponse({"status": "timeout", "output": "No response from Amiga"})
 
+    # ─── Emulator Management Endpoints ───
+
+    async def api_emulator_status(request: Request) -> JSONResponse:
+        if not _emulator:
+            return JSONResponse({"error": "Emulator manager not initialized"})
+        return JSONResponse(_emulator.get_status())
+
+    async def api_emulator_start(request: Request) -> JSONResponse:
+        if not _emulator:
+            return JSONResponse({"error": "Emulator manager not initialized"})
+        if _emulator.is_running:
+            return JSONResponse({"status": "already_running", "pid": _emulator.pid})
+        ok = await _emulator.start()
+        if ok:
+            return JSONResponse({"status": "started", "pid": _emulator.pid})
+        return JSONResponse({"error": "Failed to start emulator"})
+
+    async def api_emulator_stop(request: Request) -> JSONResponse:
+        if not _emulator:
+            return JSONResponse({"error": "Emulator manager not initialized"})
+        if not _emulator.is_running:
+            return JSONResponse({"status": "not_running"})
+        # Disconnect serial first so it can reconnect after restart
+        if _conn and _conn.connected:
+            _conn.disconnect()
+        await _emulator.stop()
+        return JSONResponse({"status": "stopped"})
+
+    async def api_emulator_restart(request: Request) -> JSONResponse:
+        if not _emulator:
+            return JSONResponse({"error": "Emulator manager not initialized"})
+        # Disconnect serial
+        if _conn and _conn.connected:
+            _conn.disconnect()
+        ok = await _emulator.restart()
+        if ok:
+            # Wait a bit then try reconnecting serial
+            await asyncio.sleep(3.0)
+            try:
+                await _conn.connect()
+            except Exception as e:
+                logger.warning("Serial reconnect after restart failed: %s", e)
+            return JSONResponse({"status": "restarted", "pid": _emulator.pid})
+        return JSONResponse({"error": "Failed to restart emulator"})
+
+    async def api_emulator_config_get(request: Request) -> JSONResponse:
+        if not _emulator:
+            return JSONResponse({"error": "Emulator manager not initialized"})
+        content = _emulator.read_config()
+        return JSONResponse({"config": content, "path": _emulator._config_file})
+
+    async def api_emulator_config_save(request: Request) -> JSONResponse:
+        if not _emulator:
+            return JSONResponse({"error": "Emulator manager not initialized"})
+        body = await request.json()
+        content = body.get("config", "")
+        if not content.strip():
+            return JSONResponse({"error": "Empty config"})
+        _emulator.write_config(content)
+        return JSONResponse({"status": "saved", "path": _emulator._config_file})
+
+    async def api_devbench_config_get(request: Request) -> JSONResponse:
+        if not _config:
+            return JSONResponse({"error": "No config loaded"})
+        return JSONResponse({
+            "serial": {
+                "mode": _config.serial_mode,
+                "host": _config.serial_host,
+                "port": _config.serial_port,
+                "pty_path": _config.pty_path,
+            },
+            "emulator": {
+                "binary": _config.emulator_binary,
+                "config": _config.emulator_config,
+                "auto_start": _config.emulator_auto_start,
+            },
+            "server": {
+                "port": _config.server_port,
+                "log_level": _config.log_level,
+            },
+            "paths": {
+                "project_root": _config.project_root,
+                "deploy_dir": _config.deploy_dir,
+            },
+            "bridge": {
+                "crash_handler_auto_enable": _config.crash_handler_auto_enable,
+            },
+        })
+
+    async def api_devbench_config_save(request: Request) -> JSONResponse:
+        if not _config:
+            return JSONResponse({"error": "No config loaded"})
+        body = await request.json()
+        # Update config fields
+        serial = body.get("serial", {})
+        if "host" in serial:
+            _config.serial_host = serial["host"]
+        if "port" in serial:
+            _config.serial_port = int(serial["port"])
+        if "mode" in serial:
+            _config.serial_mode = serial["mode"]
+        emu = body.get("emulator", {})
+        if "binary" in emu:
+            _config.emulator_binary = emu["binary"]
+        if "config" in emu:
+            _config.emulator_config = emu["config"]
+        if "auto_start" in emu:
+            _config.emulator_auto_start = bool(emu["auto_start"])
+        paths = body.get("paths", {})
+        if "deploy_dir" in paths:
+            _config.deploy_dir = paths["deploy_dir"]
+        bridge = body.get("bridge", {})
+        if "crash_handler_auto_enable" in bridge:
+            _config.crash_handler_auto_enable = bool(bridge["crash_handler_auto_enable"])
+        # Save to file
+        from .config import save_config
+        path = save_config(_config)
+        return JSONResponse({"status": "saved", "path": path})
+
     # Define routes
     routes = [
         # Web API
@@ -1875,6 +2163,16 @@ def create_app(args: Any) -> Starlette:
         Route("/api/file/view", api_file_view, methods=["GET"]),
         Route("/api/file/save", api_file_save, methods=["POST"]),
         Route("/api/file/run-with", api_file_run_with, methods=["POST"]),
+        # Emulator management
+        Route("/api/emulator/status", api_emulator_status, methods=["GET"]),
+        Route("/api/emulator/start", api_emulator_start, methods=["POST"]),
+        Route("/api/emulator/stop", api_emulator_stop, methods=["POST"]),
+        Route("/api/emulator/restart", api_emulator_restart, methods=["POST"]),
+        Route("/api/emulator/config", api_emulator_config_get, methods=["GET"]),
+        Route("/api/emulator/config", api_emulator_config_save, methods=["POST"]),
+        # DevBench config
+        Route("/api/config", api_devbench_config_get, methods=["GET"]),
+        Route("/api/config", api_devbench_config_save, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),
@@ -1931,11 +2229,14 @@ def _remove_pid_file() -> None:
         pass
 
 
-def run(args: Any) -> None:
+def run(args: Any, cfg: DevBenchConfig | None = None) -> None:
     """Run the server with uvicorn."""
     import atexit
 
-    log_level = getattr(logging, args.log_level.upper(), logging.INFO)
+    effective_log_level = cfg.log_level if cfg else args.log_level
+    effective_port = cfg.server_port if cfg else args.port
+
+    log_level = getattr(logging, effective_log_level.upper(), logging.INFO)
 
     logging.basicConfig(
         level=log_level,
@@ -1954,13 +2255,13 @@ def run(args: Any) -> None:
     _write_pid_file()
     atexit.register(_remove_pid_file)
 
-    app = create_app(args)
+    app = create_app(args, cfg)
 
     config = uvicorn.Config(
         app,
         host="0.0.0.0",
-        port=args.port,
-        log_level=args.log_level.lower(),
+        port=effective_port,
+        log_level=effective_log_level.lower(),
     )
     server = uvicorn.Server(config)
     server.run()

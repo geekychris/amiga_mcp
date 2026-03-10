@@ -97,6 +97,7 @@ class SerialConnection:
             self._line_buf = ""
             self._state.connected = True
             self._state.connection_mode = "tcp"
+            self._state.serial_connected_at = time.time()
             self._event_bus.publish("connected", {})
             logger.info("Connected to Amiga via TCP at %s:%d", self._host, self._port)
             # Start read loop
@@ -138,6 +139,7 @@ class SerialConnection:
                 self._line_buf = ""
                 self._state.connected = True
                 self._state.connection_mode = "pty"
+                self._state.serial_connected_at = time.time()
                 self._event_bus.publish("connected", {})
                 logger.info("PTY reconnected (reusing existing fd): %s", self._pty_path)
                 loop = asyncio.get_event_loop()
@@ -173,6 +175,7 @@ class SerialConnection:
             self._line_buf = ""
             self._state.connected = True
             self._state.connection_mode = "pty"
+            self._state.serial_connected_at = time.time()
             self._event_bus.publish("connected", {})
             logger.info("PTY ready: %s -> %s", self._pty_path, slave_name)
 
@@ -233,6 +236,9 @@ class SerialConnection:
 
         self._connected = False
         self._state.connected = False
+        self._state.serial_connected_at = None
+        self._state.last_bridge_message_at = None
+        self._state.last_heartbeat_at = None
         self._event_bus.publish("disconnected", {})
 
     def send(self, cmd: dict[str, Any]) -> None:
@@ -294,6 +300,9 @@ class SerialConnection:
     def _process_message(self, msg: dict[str, Any]) -> None:
         msg_type = msg["type"]
 
+        # Track that we received a message from the bridge
+        self._state.last_bridge_message_at = time.time()
+
         if msg_type == "LOG":
             self._state.add_log(msg)
             self._event_bus.publish("log", msg)
@@ -304,6 +313,7 @@ class SerialConnection:
 
         elif msg_type == "HB":
             self._state.last_heartbeat = msg
+            self._state.last_heartbeat_at = time.time()
             self._event_bus.publish("heartbeat", msg)
 
         elif msg_type == "MEM":
@@ -459,12 +469,20 @@ class SerialConnection:
                 self._schedule_reconnect()
 
     def get_status(self) -> dict[str, Any]:
+        now = time.time()
         result: dict[str, Any] = {
             "connected": self._connected,
             "mode": self._mode,
             "logCount": len(self._state.logs),
             "varCount": len(self._state.vars),
             "lastHeartbeat": self._state.last_heartbeat,
+            "serialConnectedAt": self._state.serial_connected_at,
+            "lastBridgeMessageAt": self._state.last_bridge_message_at,
+            "lastHeartbeatAt": self._state.last_heartbeat_at,
+            "bridgeSilentSec": (
+                round(now - self._state.last_bridge_message_at, 1)
+                if self._state.last_bridge_message_at else None
+            ),
         }
         if self._mode == "tcp":
             result["host"] = self._host

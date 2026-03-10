@@ -1,7 +1,7 @@
 DOCKER_IMAGE = amigadev/crosstools:m68k-amigaos
 DOCKER_RUN = docker run --rm -v $(PWD):/work -w /work $(DOCKER_IMAGE)
 
-.PHONY: all lib examples bridge clean mcp-server
+.PHONY: all lib examples bridge clean mcp-server start setup
 
 all: lib examples bridge
 
@@ -39,3 +39,9 @@ clean:
 
 mcp-server:
 	cd mcp-server && npm install && npm run build
+
+setup:
+	pip install -e amiga-devbench
+
+start:
+	python3 -m amiga_devbench
