@@ -975,7 +975,6 @@ All tools are available through Claude Code when connected to the MCP server.
 | `amiga_disassemble` | `address`, `count?` | Disassemble 68k code with LVO annotation |
 | `amiga_last_crash` | — | Read last crash report (registers, stack, alert code) |
 
-![img.png](doc_images/tools_page.png)
 ### Client Profiling
 
 | Tool | Parameters | Description |
@@ -1094,6 +1093,7 @@ Visual inspection and development tools arranged in a grid. Each tool has a `?` 
 - **Screen** — Custom screen (320x256, 5 bitplanes) with bridge integration
 - **Headless** — CLI-only program with bridge hooks, no GUI
 
+![img.png](doc_images/tools_page.png)
 ![img.png](doc_images/memory_info.png)
 ![img.png](doc_images/iff_sys_info.png)
 ### SSE Event Stream
