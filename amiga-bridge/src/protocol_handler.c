@@ -224,6 +224,20 @@ void protocol_parse_line(const char *line)
         sys_handle_readregs();
     } else if (strcmp(cmd, "SEARCH") == 0) {
         sys_handle_search(args);
+    } else if (strcmp(cmd, "LIBINFO") == 0) {
+        sys_handle_libinfo(args);
+    } else if (strcmp(cmd, "DEVINFO") == 0) {
+        sys_handle_devinfo(args);
+    } else if (strcmp(cmd, "LIBFUNCS") == 0) {
+        sys_handle_libfuncs(args);
+    } else if (strcmp(cmd, "SNOOPSTART") == 0) {
+        snoop_start();
+        send_ok("SNOOPSTART", "Snoop monitoring started");
+    } else if (strcmp(cmd, "SNOOPSTOP") == 0) {
+        snoop_stop();
+        send_ok("SNOOPSTOP", "Snoop monitoring stopped");
+    } else if (strcmp(cmd, "SNOOPSTATUS") == 0) {
+        snoop_handle_status();
     } else if (strcmp(cmd, "CRASHTEST") == 0) {
         /* Trigger a non-fatal Alert to test the crash handler */
         send_ok("CRASHTEST", "Triggering test alert...");

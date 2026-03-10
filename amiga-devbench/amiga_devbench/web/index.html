@@ -219,6 +219,7 @@
     line-height: 1.4;
   }
   .tool-help:hover { color: var(--text-primary); background: var(--accent-blue); }
+  .libdev-row:hover td { background: rgba(255,255,255,0.05); }
 
   /* Log viewer */
   .log-toolbar {
@@ -1067,6 +1068,34 @@
           <div id="sysinfoResult"></div>
         </div>
 
+        <!-- Library / Device Inspector -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Library / Device Inspector <span class="tool-help" title="Lists all loaded Amiga libraries and devices. Click any entry to see detailed info (version, open count, flags, base address, ID string).">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="libdev-type" onchange="libdevRefresh()" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;">
+              <option value="lib">Libraries</option>
+              <option value="dev">Devices</option>
+            </select>
+            <button class="btn" onclick="libdevRefresh()">Refresh</button>
+            <span id="libdevCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+          </div>
+          <div id="libdevList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="libdevDetail" style="font-family:var(--mono);font-size:11px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;"></div>
+        </div>
+
+        <!-- SnoopDos -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">SnoopDos <span class="tool-help" title="Monitor AmigaDOS system calls in real-time. Patches dos.library functions (Open, Close, Lock, LoadSeg, etc.) to intercept and log every call. Start monitoring, then use the Amiga normally to see what files and resources programs access.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <button class="btn" onclick="snoopStart()" id="btnSnoopStart">Start</button>
+            <button class="btn" onclick="snoopStop()" id="btnSnoopStop">Stop</button>
+            <button class="btn" onclick="snoopClear()">Clear</button>
+            <span id="snoopStatus" style="font-size:11px;color:var(--text-dim);margin-left:8px;">Inactive</span>
+            <span id="snoopCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;">0 events</span>
+          </div>
+          <div id="snoopLog" style="font-family:var(--mono);font-size:11px;max-height:350px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
+        </div>
+
       </div>
     </div>
 
@@ -1232,6 +1261,11 @@ function connectSSE() {
       toolsTab.style.fontWeight = 'bold';
       setTimeout(() => { toolsTab.style.color = ''; toolsTab.style.fontWeight = ''; }, 10000);
     }
+  });
+
+  eventSource.addEventListener('snoop', (e) => {
+    const data = JSON.parse(e.data);
+    handleSnoopEvent(data);
   });
 
   eventSource.onerror = () => {
@@ -3002,6 +3036,254 @@ async function toolSysInfo() {
 
     el.innerHTML = html || '<span style="color:var(--text-dim);">Not connected — start bridge on the Amiga first</span>';
   } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ─── Library / Device Inspector ───
+async function libdevRefresh() {
+  const type = document.getElementById('libdev-type').value;
+  const listEl = document.getElementById('libdevList');
+  const countEl = document.getElementById('libdevCount');
+  const detailEl = document.getElementById('libdevDetail');
+  listEl.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  detailEl.style.display = 'none';
+  try {
+    const endpoint = type === 'lib' ? '/api/tool/libs' : '/api/tool/devices';
+    const resp = await fetch(endpoint);
+    const data = await resp.json();
+    if (data.error) { listEl.textContent = data.error; countEl.textContent = ''; return; }
+    const items = type === 'lib' ? (data.libs || []) : (data.devices || []);
+    countEl.textContent = items.length + (type === 'lib' ? ' libraries' : ' devices');
+    if (items.length === 0) { listEl.innerHTML = '<span style="color:var(--text-dim);">None found</span>'; return; }
+    let html = '<table style="width:100%;border-collapse:collapse;">';
+    html += '<tr style="color:var(--text-dim);border-bottom:1px solid var(--border);"><td style="padding:2px 8px 2px 4px;">Name</td><td style="padding:2px 4px;">Version</td></tr>';
+    for (const item of items) {
+      const name = item.name || item;
+      const ver = item.version || '';
+      html += '<tr class="libdev-row" onclick="libdevGetInfo(\'' + escapeHtml(name).replace(/'/g, "\\'") + '\')" style="cursor:pointer;border-bottom:1px solid var(--border);">';
+      html += '<td style="padding:2px 8px 2px 4px;color:var(--cyan);">' + escapeHtml(name) + '</td>';
+      html += '<td style="padding:2px 4px;color:var(--text-dim);">' + escapeHtml(ver) + '</td>';
+      html += '</tr>';
+    }
+    html += '</table>';
+    listEl.innerHTML = html;
+  } catch(e) { listEl.textContent = 'Error: ' + e.message; countEl.textContent = ''; }
+}
+
+let _libdevCurrentName = '';
+let _libdevCurrentType = '';
+
+async function libdevGetInfo(name) {
+  const type = document.getElementById('libdev-type').value;
+  const detailEl = document.getElementById('libdevDetail');
+  _libdevCurrentName = name;
+  _libdevCurrentType = type;
+  detailEl.style.display = 'block';
+  detailEl.innerHTML = '<span style="color:var(--text-dim);">Querying ' + escapeHtml(name) + '...</span>';
+  const endpoint = type === 'lib' ? '/api/tool/libinfo' : '/api/tool/devinfo';
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name})
+    });
+    const data = await resp.json();
+    if (data.error) { detailEl.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data.error) + '</span>'; return; }
+    const numFuncs = data.negSize ? Math.floor(data.negSize / 6) : 0;
+    const fields = [
+      ['Name', data.name],
+      ['Version', (data.version !== undefined && data.revision !== undefined) ? data.version + '.' + data.revision : '--'],
+      ['Open Count', data.openCnt],
+      ['Flags', data.flags !== undefined ? '0x' + (data.flags >>> 0).toString(16) : '--'],
+      ['Functions', numFuncs + ' (' + (data.negSize || 0) + ' bytes jump table)'],
+      ['Data Size', (data.posSize || 0) + ' bytes'],
+      ['Base Addr', data.baseAddr ? ('$' + data.baseAddr) : '--'],
+      ['ID String', data.idString || '--'],
+    ];
+    let html = '<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 12px;">';
+    for (const [label, value] of fields) {
+      html += '<span style="color:var(--text-dim);">' + escapeHtml(label) + ':</span>';
+      html += '<span style="color:var(--text-primary);">' + escapeHtml(String(value ?? '--')) + '</span>';
+    }
+    html += '</div>';
+    // Action buttons
+    html += '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">';
+    if (numFuncs > 0) {
+      html += '<button class="btn" onclick="libdevShowFuncs()" style="padding:3px 8px;font-size:11px;">Show Jump Table</button>';
+    }
+    if (data.baseAddr) {
+      html += '<button class="btn" onclick="libdevDumpMem(\'' + data.baseAddr + '\')" style="padding:3px 8px;font-size:11px;">Dump Base Memory</button>';
+      const jtAddr = (parseInt(data.baseAddr, 16) - (data.negSize || 0)).toString(16);
+      html += '<button class="btn" onclick="libdevDumpMem(\'' + jtAddr + '\')" style="padding:3px 8px;font-size:11px;">Dump Jump Table</button>';
+    }
+    html += '</div>';
+    html += '<div id="libdevExtra" style="margin-top:8px;"></div>';
+    detailEl.innerHTML = html;
+  } catch(e) { detailEl.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(e.message) + '</span>'; }
+}
+
+async function libdevShowFuncs(startIdx) {
+  const extraEl = document.getElementById('libdevExtra');
+  if (!extraEl) return;
+  const start = startIdx || 0;
+  extraEl.innerHTML = '<span style="color:var(--text-dim);">Loading jump table...</span>';
+  try {
+    const resp = await fetch('/api/tool/libfuncs?name=' + encodeURIComponent(_libdevCurrentName) + '&type=' + (_libdevCurrentType === 'dev' ? 'dev' : 'lib') + '&start=' + start);
+    const data = await resp.json();
+    if (data.error) { extraEl.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data.error) + '</span>'; return; }
+    const funcs = data.funcs || [];
+    const total = data.totalFuncs || 0;
+    let html = '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;">Jump Table (' + total + ' functions)';
+    if (start > 0) html += ' — showing from #' + start;
+    html += '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;">';
+    html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:1px 6px;color:var(--text-dim);font-size:10px;">#</th><th style="text-align:left;padding:1px 6px;color:var(--text-dim);font-size:10px;">LVO</th><th style="text-align:left;padding:1px 6px;color:var(--text-dim);font-size:10px;">Target Address</th></tr>';
+    for (let i = 0; i < funcs.length; i++) {
+      const f = funcs[i];
+      const idx = start + i;
+      html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">';
+      html += '<td style="padding:1px 6px;color:var(--text-dim);">' + idx + '</td>';
+      html += '<td style="padding:1px 6px;color:var(--yellow);">' + f.lvo + '</td>';
+      html += '<td style="padding:1px 6px;color:var(--cyan);cursor:pointer;" onclick="libdevDisasm(\'' + f.addr + '\')" title="Click to disassemble">$' + f.addr + '</td>';
+      html += '</tr>';
+    }
+    html += '</table>';
+    // Pagination
+    const shown = start + funcs.length;
+    if (shown < total) {
+      html += '<button class="btn" onclick="libdevShowFuncs(' + shown + ')" style="margin-top:4px;padding:3px 8px;font-size:11px;">Load more (' + (total - shown) + ' remaining)</button>';
+    }
+    if (start > 0) {
+      html = '<button class="btn" onclick="libdevShowFuncs(0)" style="margin-bottom:4px;padding:3px 8px;font-size:11px;">Back to start</button>' + html;
+    }
+    extraEl.innerHTML = html;
+  } catch(e) { extraEl.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(e.message) + '</span>'; }
+}
+
+function libdevDumpMem(addrHex) {
+  // Navigate to the Disassembler/Memory card and set address
+  const addrInput = document.getElementById('toolDisasmAddr');
+  const countInput = document.getElementById('toolDisasmCount');
+  if (addrInput) { addrInput.value = addrHex; }
+  if (countInput) { countInput.value = '64'; }
+  // Switch to Tools tab if not already there
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const toolsBtn = document.querySelector('[data-tab="tools"]');
+  const toolsPanel = document.getElementById('panel-tools');
+  if (toolsBtn) toolsBtn.classList.add('active');
+  if (toolsPanel) toolsPanel.classList.add('active');
+  // Trigger disassembly
+  if (typeof toolDisasm === 'function') toolDisasm();
+}
+
+function libdevDisasm(addrHex) {
+  libdevDumpMem(addrHex);
+}
+
+// ─── SnoopDos ───
+let snoopEntries = [];
+let _snoopDirty = false;
+let _snoopRafId = null;
+
+async function snoopStart() {
+  document.getElementById('snoopStatus').textContent = 'Starting...';
+  document.getElementById('snoopStatus').style.color = 'var(--yellow)';
+  try {
+    const resp = await fetch('/api/tool/snoop/start', {method: 'POST'});
+    const data = await resp.json();
+    if (data.error) {
+      document.getElementById('snoopStatus').textContent = 'Error: ' + data.error;
+      document.getElementById('snoopStatus').style.color = 'var(--red)';
+    } else {
+      document.getElementById('snoopStatus').textContent = 'Active';
+      document.getElementById('snoopStatus').style.color = 'var(--green)';
+    }
+  } catch(e) {
+    document.getElementById('snoopStatus').textContent = 'Error';
+    document.getElementById('snoopStatus').style.color = 'var(--red)';
+  }
+}
+
+async function snoopStop() {
+  document.getElementById('snoopStatus').textContent = 'Stopping...';
+  try {
+    const resp = await fetch('/api/tool/snoop/stop', {method: 'POST'});
+    const data = await resp.json();
+    if (data.error) {
+      document.getElementById('snoopStatus').textContent = 'Error: ' + data.error;
+      document.getElementById('snoopStatus').style.color = 'var(--red)';
+    } else {
+      document.getElementById('snoopStatus').textContent = 'Inactive';
+      document.getElementById('snoopStatus').style.color = 'var(--text-dim)';
+    }
+  } catch(e) {
+    document.getElementById('snoopStatus').textContent = 'Error';
+    document.getElementById('snoopStatus').style.color = 'var(--red)';
+  }
+}
+
+function snoopClear() {
+  snoopEntries = [];
+  _snoopDirty = false;
+  renderSnoopLog();
+  document.getElementById('snoopCount').textContent = '0 events';
+}
+
+function handleSnoopEvent(data) {
+  snoopEntries.push(data);
+  if (snoopEntries.length > 500) snoopEntries.shift();
+  document.getElementById('snoopCount').textContent = snoopEntries.length + ' events';
+  // Throttle rendering: batch updates via requestAnimationFrame, max 2/sec
+  if (!_snoopDirty) {
+    _snoopDirty = true;
+    if (_snoopRafId) cancelAnimationFrame(_snoopRafId);
+    _snoopRafId = requestAnimationFrame(() => {
+      setTimeout(() => {
+        _snoopDirty = false;
+        _snoopRafId = null;
+        renderSnoopLog();
+      }, 400);
+    });
+  }
+}
+
+function snoopFuncColor(func) {
+  const f = (func || '').toLowerCase();
+  if (f.includes('open') || f.includes('loadseg')) return 'var(--green)';
+  if (f.includes('close') || f.includes('unloadseg')) return 'var(--red)';
+  if (f.includes('lock') || f.includes('unlock')) return 'var(--accent-blue)';
+  if (f.includes('read') || f.includes('fread')) return '#88ccff';
+  if (f.includes('write') || f.includes('fwrite')) return '#ffaa44';
+  if (f.includes('delete') || f.includes('rename')) return 'var(--yellow)';
+  return 'var(--text-primary)';
+}
+
+function renderSnoopLog() {
+  const el = document.getElementById('snoopLog');
+  if (snoopEntries.length === 0) {
+    el.innerHTML = '<span style="color:var(--text-dim);padding:4px;">No events captured. Start monitoring and use the Amiga.</span>';
+    return;
+  }
+  // Only render last 200 entries for performance
+  const start = Math.max(0, snoopEntries.length - 200);
+  let html = '<table style="width:100%;border-collapse:collapse;">';
+  html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:2px 6px;color:var(--text-dim);font-size:10px;">Function</th><th style="text-align:left;padding:2px 6px;color:var(--text-dim);font-size:10px;">Arg1</th><th style="text-align:left;padding:2px 6px;color:var(--text-dim);font-size:10px;">Arg2</th><th style="text-align:left;padding:2px 6px;color:var(--text-dim);font-size:10px;">Result</th></tr>';
+  for (let i = snoopEntries.length - 1; i >= start; i--) {
+    const e = snoopEntries[i];
+    const color = snoopFuncColor(e.func);
+    html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">';
+    html += '<td style="padding:2px 6px;color:' + color + ';white-space:nowrap;">' + escapeHtml(e.func || '') + '</td>';
+    html += '<td style="padding:2px 6px;color:var(--text-primary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(String(e.arg1 || '')) + '">' + escapeHtml(String(e.arg1 || '')) + '</td>';
+    html += '<td style="padding:2px 6px;color:var(--text-secondary);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(String(e.arg2 || '')) + '</td>';
+    html += '<td style="padding:2px 6px;color:var(--text-secondary);">' + escapeHtml(String(e.result || '')) + '</td>';
+    html += '</tr>';
+  }
+  if (start > 0) {
+    html += '<tr><td colspan="4" style="padding:4px 6px;color:var(--text-dim);font-size:10px;">' + start + ' older entries not shown</td></tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
+  el.scrollTop = 0;
 }
 
 // ─── Init ───

@@ -8,7 +8,7 @@ DAEMON_SRCS = src/main.c src/serial_io.c src/ipc_manager.c \
               src/client_registry.c src/protocol_handler.c \
               src/system_inspector.c src/fs_access.c \
               src/process_launcher.c src/gfx_inspector.c \
-              src/crash_handler.c
+              src/crash_handler.c src/snoop.c
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 DAEMON_BIN = amiga-bridge
 
@@ -30,6 +30,10 @@ $(DAEMON_BIN): $(DAEMON_OBJS)
 
 $(CLIENT_LIB): $(CLIENT_OBJS)
 	$(AR) rcs $@ $^
+
+# snoop.c needs -O2 so register __asm("d1") captures work correctly
+src/snoop.o: src/snoop.c
+	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -c -o $@ $<
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<

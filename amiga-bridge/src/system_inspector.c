@@ -678,3 +678,312 @@ void sys_handle_search(const char *args)
 
     protocol_send_raw(linebuf);
 }
+
+/*
+ * Get detailed info about a named library.
+ * Format: LIBINFO|name|version|revision|openCnt|flags|negSize|posSize|baseAddr|idString
+ */
+void sys_handle_libinfo(const char *name)
+{
+    struct Node *node;
+    struct Library *lib = NULL;
+    static char linebuf[BRIDGE_MAX_LINE];
+    static char idBuf[128];
+
+    if (!name || name[0] == '\0') {
+        protocol_send_raw("ERR|LIBINFO|Missing library name");
+        return;
+    }
+
+    Forbid();
+
+    for (node = SysBase->LibList.lh_Head;
+         node->ln_Succ != NULL;
+         node = node->ln_Succ) {
+        struct Library *l = (struct Library *)node;
+        const char *lname = l->lib_Node.ln_Name;
+        if (lname && (ULONG)lname >= 0x100 && strcmp(lname, name) == 0) {
+            lib = l;
+            break;
+        }
+    }
+
+    if (lib) {
+        const char *idStr = lib->lib_IdString;
+        if (!idStr || (ULONG)idStr < 0x100) {
+            idStr = "n/a";
+        }
+        /* Copy and sanitize idString - truncate and strip newlines/pipes */
+        {
+            int i;
+            int len = strlen(idStr);
+            if (len > 120) len = 120;
+            for (i = 0; i < len; i++) {
+                char c = idStr[i];
+                if (c == '|' || c == '\n' || c == '\r') c = ' ';
+                idBuf[i] = c;
+            }
+            /* Trim trailing spaces */
+            while (i > 0 && idBuf[i - 1] == ' ') i--;
+            idBuf[i] = '\0';
+        }
+
+        sprintf(linebuf, "LIBINFO|%s|%ld|%ld|%ld|%ld|%ld|%ld|%lx|%s",
+            name,
+            (long)lib->lib_Version,
+            (long)lib->lib_Revision,
+            (long)lib->lib_OpenCnt,
+            (long)lib->lib_Flags,
+            (long)lib->lib_NegSize,
+            (long)lib->lib_PosSize,
+            (unsigned long)lib,
+            idBuf);
+    } else {
+        sprintf(linebuf, "ERR|LIBINFO|Library not found: %s", name);
+    }
+
+    Permit();
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Get detailed info about a named device.
+ * Format: DEVINFO|name|version|revision|openCnt|flags|negSize|posSize|baseAddr|idString
+ */
+void sys_handle_devinfo(const char *name)
+{
+    struct Node *node;
+    struct Device *dev = NULL;
+    static char linebuf[BRIDGE_MAX_LINE];
+    static char idBuf[128];
+
+    if (!name || name[0] == '\0') {
+        protocol_send_raw("ERR|DEVINFO|Missing device name");
+        return;
+    }
+
+    Forbid();
+
+    for (node = SysBase->DeviceList.lh_Head;
+         node->ln_Succ != NULL;
+         node = node->ln_Succ) {
+        struct Device *d = (struct Device *)node;
+        const char *dname = d->dd_Library.lib_Node.ln_Name;
+        if (dname && (ULONG)dname >= 0x100 && strcmp(dname, name) == 0) {
+            dev = d;
+            break;
+        }
+    }
+
+    if (dev) {
+        struct Library *lib = &dev->dd_Library;
+        const char *idStr = lib->lib_IdString;
+        if (!idStr || (ULONG)idStr < 0x100) {
+            idStr = "n/a";
+        }
+        /* Copy and sanitize idString */
+        {
+            int i;
+            int len = strlen(idStr);
+            if (len > 120) len = 120;
+            for (i = 0; i < len; i++) {
+                char c = idStr[i];
+                if (c == '|' || c == '\n' || c == '\r') c = ' ';
+                idBuf[i] = c;
+            }
+            while (i > 0 && idBuf[i - 1] == ' ') i--;
+            idBuf[i] = '\0';
+        }
+
+        sprintf(linebuf, "DEVINFO|%s|%ld|%ld|%ld|%ld|%ld|%ld|%lx|%s",
+            name,
+            (long)lib->lib_Version,
+            (long)lib->lib_Revision,
+            (long)lib->lib_OpenCnt,
+            (long)lib->lib_Flags,
+            (long)lib->lib_NegSize,
+            (long)lib->lib_PosSize,
+            (unsigned long)dev,
+            idBuf);
+    } else {
+        sprintf(linebuf, "ERR|DEVINFO|Device not found: %s", name);
+    }
+
+    Permit();
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Dump jump table (function entry points) for a named library or device.
+ * Args format: name|type[|startIdx]
+ *   type = "lib" or "dev"
+ *   startIdx = optional, default 0
+ * Response: LIBFUNCS|name|totalFuncs|startIdx|count|lvo1:addr1,lvo2:addr2,...
+ * Each entry is ~15 chars, send up to 60 per response.
+ */
+void sys_handle_libfuncs(const char *args)
+{
+    static char linebuf[BRIDGE_MAX_LINE];
+    static char namebuf[64];
+    static char entry[20];
+    struct Library *lib = NULL;
+    struct Node *node;
+    const char *p;
+    int isDevice = 0;
+    int startIdx = 0;
+    int totalFuncs, count, i, pos;
+
+    if (!args || args[0] == '\0') {
+        protocol_send_raw("ERR|LIBFUNCS|Missing arguments (name|type[|startIdx])");
+        return;
+    }
+
+    /* Parse name */
+    p = strchr(args, '|');
+    if (!p) {
+        protocol_send_raw("ERR|LIBFUNCS|Missing type argument");
+        return;
+    }
+    {
+        int nlen = (int)(p - args);
+        if (nlen > 62) nlen = 62;
+        memcpy(namebuf, args, nlen);
+        namebuf[nlen] = '\0';
+    }
+    p++; /* skip past '|' */
+
+    /* Parse type */
+    if (strncmp(p, "dev", 3) == 0) {
+        isDevice = 1;
+    } else if (strncmp(p, "lib", 3) == 0) {
+        isDevice = 0;
+    } else {
+        protocol_send_raw("ERR|LIBFUNCS|Invalid type (use 'lib' or 'dev')");
+        return;
+    }
+
+    /* Parse optional startIdx */
+    p = strchr(p, '|');
+    if (p) {
+        startIdx = (int)strtol(p + 1, NULL, 10);
+        if (startIdx < 0) startIdx = 0;
+    }
+
+    /* Look up the library or device */
+    Forbid();
+
+    if (isDevice) {
+        for (node = SysBase->DeviceList.lh_Head;
+             node->ln_Succ != NULL;
+             node = node->ln_Succ) {
+            struct Device *d = (struct Device *)node;
+            const char *dname = d->dd_Library.lib_Node.ln_Name;
+            if (dname && (ULONG)dname >= 0x100 && strcmp(dname, namebuf) == 0) {
+                lib = &d->dd_Library;
+                break;
+            }
+        }
+    } else {
+        for (node = SysBase->LibList.lh_Head;
+             node->ln_Succ != NULL;
+             node = node->ln_Succ) {
+            struct Library *l = (struct Library *)node;
+            const char *lname = l->lib_Node.ln_Name;
+            if (lname && (ULONG)lname >= 0x100 && strcmp(lname, namebuf) == 0) {
+                lib = l;
+                break;
+            }
+        }
+    }
+
+    if (!lib) {
+        Permit();
+        sprintf(linebuf, "ERR|LIBFUNCS|%s not found: %s",
+                isDevice ? "Device" : "Library", namebuf);
+        protocol_send_raw(linebuf);
+        return;
+    }
+
+    /* Calculate number of functions from negSize.
+     * Jump table grows downward from base, each entry is 6 bytes:
+     * 2-byte JMP (0x4EF9) + 4-byte absolute address. */
+    totalFuncs = (int)lib->lib_NegSize / 6;
+
+    if (startIdx >= totalFuncs) {
+        Permit();
+        sprintf(linebuf, "ERR|LIBFUNCS|startIdx %ld >= totalFuncs %ld",
+                (long)startIdx, (long)totalFuncs);
+        protocol_send_raw(linebuf);
+        return;
+    }
+
+    /* Build header: LIBFUNCS|name|totalFuncs|startIdx|count|... */
+    count = totalFuncs - startIdx;
+    if (count > 60) count = 60;
+
+    sprintf(linebuf, "LIBFUNCS|%s|%ld|%ld|%ld|",
+            namebuf, (long)totalFuncs, (long)startIdx, (long)count);
+    pos = strlen(linebuf);
+
+    /* Read jump table entries */
+    {
+        UBYTE *base = (UBYTE *)lib;
+        int actualCount = 0;
+
+        for (i = 0; i < count; i++) {
+            int funcIdx = startIdx + i;
+            UBYTE *jmpEntry = base - (funcIdx + 1) * 6;
+            ULONG targetAddr;
+            long lvo = -(long)(funcIdx + 1) * 6;
+
+            /* Read the 4-byte target address at offset +2 in the entry */
+            targetAddr = *(ULONG *)(jmpEntry + 2);
+
+            if (i > 0) {
+                sprintf(entry, ",%ld:%lx", lvo, (unsigned long)targetAddr);
+            } else {
+                sprintf(entry, "%ld:%lx", lvo, (unsigned long)targetAddr);
+            }
+
+            if (pos + (int)strlen(entry) >= BRIDGE_MAX_LINE - 1) {
+                /* Truncate — update count to what we actually fit */
+                count = actualCount;
+                break;
+            }
+            strcpy(linebuf + pos, entry);
+            pos += strlen(entry);
+            actualCount++;
+        }
+        count = actualCount;
+    }
+
+    Permit();
+
+    /* Patch the count in the header if it was truncated.
+     * Rebuild header + data to ensure correct count field. */
+    {
+        static char databuf[BRIDGE_MAX_LINE];
+        static char hdr[80];
+        int hdrlen, pipes, hi, datalen;
+
+        /* Find where data starts (after 5th '|') */
+        pipes = 0;
+        for (hi = 0; hi < pos && pipes < 5; hi++) {
+            if (linebuf[hi] == '|') pipes++;
+        }
+        datalen = pos - hi;
+        memcpy(databuf, linebuf + hi, datalen);
+        databuf[datalen] = '\0';
+
+        sprintf(hdr, "LIBFUNCS|%s|%ld|%ld|%ld|",
+                namebuf, (long)totalFuncs, (long)startIdx, (long)count);
+        hdrlen = strlen(hdr);
+        memcpy(linebuf, hdr, hdrlen);
+        memcpy(linebuf + hdrlen, databuf, datalen);
+        linebuf[hdrlen + datalen] = '\0';
+    }
+
+    protocol_send_raw(linebuf);
+}

@@ -452,6 +452,21 @@ class SerialConnection:
         elif msg_type == "SEARCH":
             self._event_bus.publish("search", msg)
 
+        elif msg_type == "LIBINFO":
+            self._event_bus.publish("libinfo", msg)
+
+        elif msg_type == "DEVINFO":
+            self._event_bus.publish("devinfo", msg)
+
+        elif msg_type == "LIBFUNCS":
+            self._event_bus.publish("libfuncs", msg)
+
+        elif msg_type == "SNOOP":
+            self._event_bus.publish("snoop", msg)
+
+        elif msg_type == "SNOOPSTATE":
+            self._event_bus.publish("snoopstate", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

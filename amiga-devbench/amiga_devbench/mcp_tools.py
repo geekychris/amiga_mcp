@@ -344,6 +344,60 @@ async def amiga_list_libs() -> str:
     return "No response (bridge may not support LISTLIBS)"
 
 
+@mcp.tool()
+async def amiga_lib_info(name: str) -> str:
+    """Get detailed information about a specific Amiga library (version, openCnt, base address, etc)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "LIBINFO", "name": name})
+    async with bus.subscribe("libinfo", "err") as q:
+        try:
+            evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+            if evt == "err" and data.get("context") == "LIBINFO":
+                return f"Error: {data.get('message', 'Unknown')}"
+            if evt == "libinfo":
+                lines = [
+                    f"Library: {data.get('name', '?')}",
+                    f"  Version:   {data.get('version', '?')}.{data.get('revision', '?')}",
+                    f"  Open count: {data.get('openCnt', '?')}",
+                    f"  Flags:     0x{data.get('flags', 0):02x}",
+                    f"  Neg size:  {data.get('negSize', '?')} bytes (jump table)",
+                    f"  Pos size:  {data.get('posSize', '?')} bytes (data)",
+                    f"  Base addr: 0x{data.get('baseAddr', '?')}",
+                    f"  ID string: {data.get('idString', 'n/a')}",
+                ]
+                return "\n".join(lines)
+        except asyncio.TimeoutError:
+            pass
+    return "No response from bridge"
+
+
+@mcp.tool()
+async def amiga_dev_info(name: str) -> str:
+    """Get detailed information about a specific Amiga device (version, openCnt, base address, etc)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "DEVINFO", "name": name})
+    async with bus.subscribe("devinfo", "err") as q:
+        try:
+            evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+            if evt == "err" and data.get("context") == "DEVINFO":
+                return f"Error: {data.get('message', 'Unknown')}"
+            if evt == "devinfo":
+                lines = [
+                    f"Device: {data.get('name', '?')}",
+                    f"  Version:   {data.get('version', '?')}.{data.get('revision', '?')}",
+                    f"  Open count: {data.get('openCnt', '?')}",
+                    f"  Flags:     0x{data.get('flags', 0):02x}",
+                    f"  Neg size:  {data.get('negSize', '?')} bytes (jump table)",
+                    f"  Pos size:  {data.get('posSize', '?')} bytes (data)",
+                    f"  Base addr: 0x{data.get('baseAddr', '?')}",
+                    f"  ID string: {data.get('idString', 'n/a')}",
+                ]
+                return "\n".join(lines)
+        except asyncio.TimeoutError:
+            pass
+    return "No response from bridge"
+
+
 # ─── File System Tools ───
 
 @mcp.tool()

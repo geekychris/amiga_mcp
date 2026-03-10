@@ -122,6 +122,9 @@ void sys_handle_stackinfo(const char *taskname);
 void sys_handle_chipregs(void);
 void sys_handle_readregs(void);
 void sys_handle_search(const char *args);
+void sys_handle_libinfo(const char *name);
+void sys_handle_devinfo(const char *name);
+void sys_handle_libfuncs(const char *args);
 
 /* ---- fs_access.c ---- */
 int fs_list_dir(const char *path, char *buf, int bufSize);
@@ -149,6 +152,13 @@ void gfx_handle_setpalette(const char *args);
 void gfx_handle_copperlist(const char *args);
 void gfx_handle_sprites(const char *args);
 void gfx_handle_listwindows(const char *args);
+
+/* ---- snoop.c ---- */
+void snoop_start(void);
+void snoop_stop(void);
+void snoop_drain(void);         /* called from main loop to send buffered events */
+BOOL snoop_is_active(void);
+void snoop_handle_status(void); /* sends SNOOPSTATE response */
 
 /* ---- UI state (main.c) ---- */
 #define UI_MAX_LOG_LINES 5

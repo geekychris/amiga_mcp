@@ -6,7 +6,8 @@ Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
                DIR, FILE, FILEINFO, PROC, CLOG, CVAR, HOOKS, MEMREGS,
                CINFO, DEVICES, ERR, OK, SCRINFO, SCRDATA, PALETTE,
                COPPER, SPRITE, CRASH, RESOURCES, PERF, MEMMAP,
-               STACKINFO, CHIPREGS, REGS, SEARCH
+               STACKINFO, CHIPREGS, REGS, SEARCH, LIBINFO, DEVINFO,
+               SNOOP, SNOOPSTATE, LIBFUNCS
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
@@ -15,7 +16,8 @@ Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                WRITEMEM, SHUTDOWN, SCREENSHOT, PALETTE, SETPALETTE,
                COPPERLIST, SPRITES, LISTRESOURCES, GETPERF, LASTCRASH,
                LISTWINDOWS, MEMMAP, STACKINFO, CHIPREGS, READREGS,
-               SEARCH
+               SEARCH, LIBINFO, DEVINFO, LIBFUNCS, SNOOPSTART,
+               SNOOPSTOP, SNOOPSTATUS
 """
 
 from __future__ import annotations
@@ -526,6 +528,78 @@ def parse_message(line: str) -> dict[str, Any] | None:
             addresses = [a.strip() for a in parts[2].split(",") if a.strip()]
         return {"type": "SEARCH", "count": count, "addresses": addresses}
 
+    if msg_type == "LIBINFO":
+        # Format: LIBINFO|name|version|revision|openCnt|flags|negSize|posSize|baseAddr|idString
+        if len(parts) < 10:
+            return None
+        return {
+            "type": "LIBINFO",
+            "name": parts[1],
+            "version": _int(parts[2]),
+            "revision": _int(parts[3]),
+            "openCnt": _int(parts[4]),
+            "flags": _int(parts[5]),
+            "negSize": _int(parts[6]),
+            "posSize": _int(parts[7]),
+            "baseAddr": parts[8],
+            "idString": "|".join(parts[9:]),  # idString may contain pipes
+        }
+
+    if msg_type == "DEVINFO":
+        # Format: DEVINFO|name|version|revision|openCnt|flags|negSize|posSize|baseAddr|idString
+        if len(parts) < 10:
+            return None
+        return {
+            "type": "DEVINFO",
+            "name": parts[1],
+            "version": _int(parts[2]),
+            "revision": _int(parts[3]),
+            "openCnt": _int(parts[4]),
+            "flags": _int(parts[5]),
+            "negSize": _int(parts[6]),
+            "posSize": _int(parts[7]),
+            "baseAddr": parts[8],
+            "idString": "|".join(parts[9:]),
+        }
+
+    if msg_type == "SNOOP":
+        # Format: SNOOP|func|caller_hex|arg1|arg2|result|timestamp_tick
+        return {
+            "type": "SNOOP",
+            "func": parts[1] if len(parts) > 1 else "",
+            "caller": parts[2] if len(parts) > 2 else "",
+            "arg1": parts[3] if len(parts) > 3 else "",
+            "arg2": parts[4] if len(parts) > 4 else "",
+            "result": parts[5] if len(parts) > 5 else "",
+            "tick": _int(parts[6]) if len(parts) > 6 else 0,
+            "timestamp": now,
+        }
+
+    if msg_type == "SNOOPSTATE":
+        # Format: SNOOPSTATE|ON/OFF|eventCount|dropCount|buffered
+        return {
+            "type": "SNOOPSTATE",
+            "active": parts[1] == "ON" if len(parts) > 1 else False,
+            "eventCount": _int(parts[2]) if len(parts) > 2 else 0,
+            "dropCount": _int(parts[3]) if len(parts) > 3 else 0,
+            "buffered": _int(parts[4]) if len(parts) > 4 else 0,
+        }
+
+    if msg_type == "LIBFUNCS":
+        # Format: LIBFUNCS|name|totalFuncs|startIdx|count|lvo1:addr1,lvo2:addr2,...
+        name = parts[1] if len(parts) > 1 else ""
+        total = _int(parts[2]) if len(parts) > 2 else 0
+        start = _int(parts[3]) if len(parts) > 3 else 0
+        count = _int(parts[4]) if len(parts) > 4 else 0
+        funcs = []
+        if len(parts) > 5 and parts[5]:
+            for entry in parts[5].split(","):
+                entry = entry.strip()
+                if ":" in entry:
+                    lvo, addr = entry.split(":", 1)
+                    funcs.append({"lvo": _int(lvo), "addr": addr})
+        return {"type": "LIBFUNCS", "name": name, "totalFuncs": total, "startIdx": start, "count": count, "funcs": funcs}
+
     return None
 
 
@@ -625,6 +699,19 @@ def format_command(cmd: dict[str, Any]) -> str:
         return "READREGS"
     if t == "SEARCH":
         return f"SEARCH|{cmd['address']}|{cmd['size']}|{cmd['pattern']}"
+    if t == "LIBINFO":
+        return f"LIBINFO|{cmd['name']}"
+    if t == "DEVINFO":
+        return f"DEVINFO|{cmd['name']}"
+    if t == "LIBFUNCS":
+        start = cmd.get('start', 0)
+        return f"LIBFUNCS|{cmd['name']}|{cmd['libtype']}|{start}"
+    if t == "SNOOPSTART":
+        return "SNOOPSTART"
+    if t == "SNOOPSTOP":
+        return "SNOOPSTOP"
+    if t == "SNOOPSTATUS":
+        return "SNOOPSTATUS"
     raise ValueError(f"Unknown command type: {t}")
 
 

@@ -10,6 +10,7 @@
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <exec/execbase.h>
+#include <devices/timer.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
@@ -45,6 +46,12 @@ static ULONG hb_counter = 0;
 
 /* Window */
 static struct Window *win = NULL;
+
+/* Timer for periodic wake-up (snoop drain, heartbeat) */
+static struct MsgPort *timerPort = NULL;
+static struct timerequest *timerReq = NULL;
+static BOOL timerOpen = FALSE;
+static ULONG timerSig = 0;
 
 /* Window dimensions */
 #define WIN_WIDTH  310
@@ -270,6 +277,25 @@ int main(int argc, char **argv)
 
     /* Crash handler NOT installed at startup - enable via CRASHINIT command */
 
+    /* Set up periodic timer (200ms) for snoop drain and heartbeat */
+    timerPort = CreateMsgPort();
+    if (timerPort) {
+        timerReq = (struct timerequest *)CreateIORequest(timerPort,
+                    sizeof(struct timerequest));
+        if (timerReq) {
+            if (OpenDevice((CONST_STRPTR)TIMERNAME, UNIT_VBLANK,
+                           (struct IORequest *)timerReq, 0) == 0) {
+                timerOpen = TRUE;
+                timerSig = 1UL << timerPort->mp_SigBit;
+                /* Fire first timer */
+                timerReq->tr_node.io_Command = TR_ADDREQUEST;
+                timerReq->tr_time.tv_secs = 0;
+                timerReq->tr_time.tv_micro = 200000; /* 200ms */
+                SendIO((struct IORequest *)timerReq);
+            }
+        }
+    }
+
     /* Send READY to host */
     if (g_serial_connected) {
         protocol_send_raw("READY|1.0");
@@ -285,7 +311,7 @@ int main(int argc, char **argv)
 
     /* Main loop */
     while (running) {
-        signals = serialSig | ipcSig | winSig | SIGBREAKF_CTRL_C;
+        signals = serialSig | ipcSig | winSig | timerSig | SIGBREAKF_CTRL_C;
 
         received = Wait(signals);
 
@@ -329,11 +355,28 @@ int main(int argc, char **argv)
             ipc_process();
         }
 
-        /* Heartbeat counter */
-        hb_counter++;
-        if (hb_counter >= HB_INTERVAL && g_serial_connected) {
-            hb_counter = 0;
-            send_heartbeat();
+        /* Timer tick — periodic 200ms wake-up */
+        if (timerOpen && (received & timerSig)) {
+            /* Collect the timer message */
+            GetMsg(timerPort);
+
+            /* Drain snoop ring buffer */
+            if (g_serial_connected && snoop_is_active()) {
+                snoop_drain();
+            }
+
+            /* Heartbeat (every ~5 seconds = 25 timer ticks) */
+            hb_counter++;
+            if (hb_counter >= 25 && g_serial_connected) {
+                hb_counter = 0;
+                send_heartbeat();
+            }
+
+            /* Re-arm timer */
+            timerReq->tr_node.io_Command = TR_ADDREQUEST;
+            timerReq->tr_time.tv_secs = 0;
+            timerReq->tr_time.tv_micro = 200000;
+            SendIO((struct IORequest *)timerReq);
         }
 
         /* Redraw UI if dirty */
@@ -359,7 +402,18 @@ int main(int argc, char **argv)
     }
 
     /* Clean up in reverse order */
+    snoop_stop();
     crash_cleanup();
+
+    /* Clean up timer */
+    if (timerOpen) {
+        AbortIO((struct IORequest *)timerReq);
+        WaitIO((struct IORequest *)timerReq);
+        CloseDevice((struct IORequest *)timerReq);
+    }
+    if (timerReq) DeleteIORequest((struct IORequest *)timerReq);
+    if (timerPort) DeleteMsgPort(timerPort);
+
     serial_close();
     ipc_cleanup();
 

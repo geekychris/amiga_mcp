@@ -64,7 +64,7 @@ async def api_events(request: Request) -> EventSourceResponse:
 
         async with _event_bus.subscribe("log", "heartbeat", "var", "connected",
                                         "disconnected", "clients", "tasks", "dir",
-                                        "emulator_status", "crash") as queue:
+                                        "emulator_status", "crash", "snoop") as queue:
             while True:
                 try:
                     evt, data = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -111,6 +111,8 @@ async def api_events(request: Request) -> EventSourceResponse:
                             **data,
                             "alertDetail": _decode_alert(alert_hex),
                         })}
+                    elif evt == "snoop":
+                        yield {"event": "snoop", "data": json.dumps(data)}
 
                 except asyncio.TimeoutError:
                     # Send keepalive comment
@@ -1360,6 +1362,154 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         except Exception as e:
             return JSONResponse({"error": str(e)})
 
+    # ─── Library / Device List & Info ───
+
+    async def api_tool_list_libs(request: Request) -> JSONResponse:
+        """List all loaded libraries."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "LISTLIBS"})
+        msg = await _event_bus.wait_for("libs", timeout=5.0)
+        if msg:
+            return JSONResponse({"libs": msg.get("libs", []), "count": msg.get("count", 0)})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_list_devices(request: Request) -> JSONResponse:
+        """List all loaded devices."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "LISTDEVS"})
+        msg = await _event_bus.wait_for("devices", timeout=5.0)
+        if msg:
+            return JSONResponse({"devices": msg.get("devices", []), "count": msg.get("count", 0)})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_libinfo(request: Request) -> JSONResponse:
+        """Get detailed info about a specific library."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        name = body.get("name", "")
+        if not name:
+            return JSONResponse({"error": "Missing library name"}, status_code=400)
+
+        _conn.send({"type": "LIBINFO", "name": name})
+
+        async with _event_bus.subscribe("libinfo", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err" and data.get("context") == "LIBINFO":
+                    return JSONResponse({"error": data.get("message", "Unknown error")}, status_code=404)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_devinfo(request: Request) -> JSONResponse:
+        """Get detailed info about a specific device."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        name = body.get("name", "")
+        if not name:
+            return JSONResponse({"error": "Missing device name"}, status_code=400)
+
+        _conn.send({"type": "DEVINFO", "name": name})
+
+        async with _event_bus.subscribe("devinfo", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err" and data.get("context") == "DEVINFO":
+                    return JSONResponse({"error": data.get("message", "Unknown error")}, status_code=404)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_libfuncs(request: Request) -> JSONResponse:
+        """Get jump table entries for a library or device."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        name = request.query_params.get("name", "")
+        libtype = request.query_params.get("type", "lib")
+        start = int(request.query_params.get("start", "0"))
+        if not name:
+            return JSONResponse({"error": "Missing name"}, status_code=400)
+
+        _conn.send({"type": "LIBFUNCS", "name": name, "libtype": libtype, "start": start})
+
+        async with _event_bus.subscribe("libfuncs", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err" and data.get("context") == "LIBFUNCS":
+                    return JSONResponse({"error": data.get("message", "Unknown error")}, status_code=404)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ─── SnoopDos ───
+
+    async def api_tool_snoop_start(request: Request) -> JSONResponse:
+        """Start SnoopDos monitoring."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "SNOOPSTART"})
+        async with _event_bus.subscribe("ok", "err") as q:
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return JSONResponse({"error": "Timeout"}, status_code=504)
+                try:
+                    evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                    ctx = data.get("context", "")
+                    if ctx == "SNOOPSTART":
+                        if evt == "err":
+                            return JSONResponse({"error": data.get("message")}, status_code=500)
+                        return JSONResponse({"status": "started"})
+                    # Not our response, keep waiting
+                except asyncio.TimeoutError:
+                    return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_snoop_stop(request: Request) -> JSONResponse:
+        """Stop SnoopDos monitoring."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "SNOOPSTOP"})
+        async with _event_bus.subscribe("ok", "err") as q:
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return JSONResponse({"error": "Timeout"}, status_code=504)
+                try:
+                    evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                    ctx = data.get("context", "")
+                    if ctx == "SNOOPSTOP":
+                        if evt == "err":
+                            return JSONResponse({"error": data.get("message")}, status_code=500)
+                        return JSONResponse({"status": "stopped"})
+                except asyncio.TimeoutError:
+                    return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_snoop_status(request: Request) -> JSONResponse:
+        """Get SnoopDos monitoring status."""
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "SNOOPSTATUS"})
+        async with _event_bus.subscribe("snoopstate") as q:
+            try:
+                _, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
     # ─── New Tool Endpoints ───
 
     async def api_tool_memory_search(request: Request) -> JSONResponse:
@@ -2158,6 +2308,15 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/tools/snapshot", api_tool_snapshot, methods=["POST"]),
         Route("/api/tools/bootlog", api_tool_bootlog, methods=["GET"]),
         Route("/api/tools/sysinfo", api_tool_sysinfo, methods=["GET"]),
+        # Library/Device info and SnoopDos
+        Route("/api/tool/libs", api_tool_list_libs, methods=["GET"]),
+        Route("/api/tool/devices", api_tool_list_devices, methods=["GET"]),
+        Route("/api/tool/libinfo", api_tool_libinfo, methods=["POST"]),
+        Route("/api/tool/devinfo", api_tool_devinfo, methods=["POST"]),
+        Route("/api/tool/libfuncs", api_tool_libfuncs, methods=["GET"]),
+        Route("/api/tool/snoop/start", api_tool_snoop_start, methods=["POST"]),
+        Route("/api/tool/snoop/stop", api_tool_snoop_stop, methods=["POST"]),
+        Route("/api/tool/snoop/status", api_tool_snoop_status, methods=["GET"]),
         # Files tab endpoints
         Route("/api/file/execute", api_file_execute, methods=["POST"]),
         Route("/api/file/view", api_file_view, methods=["GET"]),
