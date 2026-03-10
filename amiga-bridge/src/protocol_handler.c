@@ -73,16 +73,16 @@ static void send_err(const char *context, const char *detail)
     int clen = strlen(context);
     int dlen = detail ? strlen(detail) : 0;
 
-    /* "ERR|context: detail" - truncate detail if needed */
-    if (4 + clen + 2 + dlen >= BRIDGE_MAX_LINE) {
-        dlen = BRIDGE_MAX_LINE - 4 - clen - 3;
+    /* "ERR|context|detail" - truncate detail if needed */
+    if (4 + clen + 1 + dlen >= BRIDGE_MAX_LINE) {
+        dlen = BRIDGE_MAX_LINE - 4 - clen - 2;
         if (dlen < 0) dlen = 0;
     }
 
     strcpy(buf, "ERR|");
     strcat(buf, context);
     if (detail && dlen > 0) {
-        strcat(buf, ": ");
+        strcat(buf, "|");
         strncat(buf, detail, dlen);
     }
     send_line(buf);
@@ -1396,19 +1396,22 @@ static void handle_writemem(const char *args)
 
     addr = strtoul(args, NULL, 16);
 
-    /* Validate address is in known memory */
-    if (addr < 0x100) {
+    /* Reject only NULL and I/O/ROM ranges */
+    if (addr < 4) {
         send_err("WRITEMEM", "address too low");
         return;
     }
-
-    {
-        ULONG memType = TypeOfMem((APTR)addr);
-        /* Only allow writing to RAM, not ROM or I/O */
-        if (memType == 0) {
-            send_err("WRITEMEM", "address not in RAM");
-            return;
-        }
+    if (addr >= 0xBF0000 && addr < 0xC00000) {
+        send_err("WRITEMEM", "CIA registers - use caution");
+        return;
+    }
+    if (addr >= 0xDFF000 && addr < 0xE00000) {
+        send_err("WRITEMEM", "custom chip registers - use caution");
+        return;
+    }
+    if (addr >= 0xF80000) {
+        send_err("WRITEMEM", "ROM is read-only");
+        return;
     }
 
     /* Decode hex data */

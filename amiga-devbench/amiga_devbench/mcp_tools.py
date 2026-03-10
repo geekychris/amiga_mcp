@@ -205,7 +205,7 @@ async def amiga_inspect_memory(address: str, size: int) -> str:
     expected = min(size, 4096)
     chunks: list[dict] = []
 
-    async with bus.subscribe("mem") as queue:
+    async with bus.subscribe("mem", "err") as queue:
         conn.send({"type": "INSPECT", "address": address, "size": expected})
         deadline = asyncio.get_event_loop().time() + 15.0
         while True:
@@ -214,10 +214,13 @@ async def amiga_inspect_memory(address: str, size: int) -> str:
                 break
             try:
                 evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
-                chunks.append(data)
-                received = sum(c["size"] for c in chunks)
-                if received >= expected:
-                    break
+                if evt == "err" and "INSPECT" in data.get("context", ""):
+                    return data.get("message") or "Address not accessible"
+                if evt == "mem":
+                    chunks.append(data)
+                    received = sum(c["size"] for c in chunks)
+                    if received >= expected:
+                        break
             except asyncio.TimeoutError:
                 break
 

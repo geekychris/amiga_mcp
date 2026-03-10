@@ -34,8 +34,12 @@ static LONG chip_free = 0;
 static LONG fast_free = 0;
 static LONG chip_largest = 0;
 static LONG fast_largest = 0;
+static LONG chip_total = 0;
+static LONG fast_total = 0;
 static LONG task_count = 0;
 static LONG cpu_usage = 0;       /* simulated 0-100 */
+static LONG update_delay = 5;    /* ticks between updates (~10fps default) */
+static LONG log_interval = 300;  /* frames between detailed stats log */
 static char status_msg[64] = "starting";
 
 /* Display state */
@@ -129,6 +133,8 @@ static void update_stats(void)
     fast_free = (LONG)AvailMem(MEMF_FAST);
     chip_largest = (LONG)AvailMem(MEMF_CHIP | MEMF_LARGEST);
     fast_largest = (LONG)AvailMem(MEMF_FAST | MEMF_LARGEST);
+    chip_total = (LONG)AvailMem(MEMF_CHIP | MEMF_TOTAL);
+    fast_total = (LONG)AvailMem(MEMF_FAST | MEMF_TOTAL);
     task_count = count_tasks();
 }
 
@@ -209,8 +215,12 @@ int main(void)
     ab_register_var("fast_free", AB_TYPE_I32, &fast_free);
     ab_register_var("chip_largest", AB_TYPE_I32, &chip_largest);
     ab_register_var("fast_largest", AB_TYPE_I32, &fast_largest);
+    ab_register_var("chip_total", AB_TYPE_I32, &chip_total);
+    ab_register_var("fast_total", AB_TYPE_I32, &fast_total);
     ab_register_var("task_count", AB_TYPE_I32, &task_count);
     ab_register_var("cpu_usage", AB_TYPE_I32, &cpu_usage);
+    ab_register_var("update_delay", AB_TYPE_I32, &update_delay);
+    ab_register_var("log_interval", AB_TYPE_I32, &log_interval);
     ab_register_var("status_msg", AB_TYPE_STR, status_msg);
 
     ab_set_cmd_handler(cmd_handler);
@@ -292,8 +302,8 @@ int main(void)
         snprintf(buf, sizeof(buf), "Frame: %lu  Status: %s", frame, status_msg);
         draw_text(rp, TEXT_Y, buf);
 
-        draw_bar(rp, TEXT_Y + 10, chip_free, 512000, 2, "Chip");
-        draw_bar(rp, TEXT_Y + 30, fast_free, 1048576, 3, "Fast");
+        draw_bar(rp, TEXT_Y + 10, chip_free, chip_total > 0 ? chip_total : 512000, 2, "Chip");
+        draw_bar(rp, TEXT_Y + 30, fast_free, fast_total > 0 ? fast_total : 1048576, 3, "Fast");
         draw_bar(rp, TEXT_Y + 50, cpu_usage, 100, 1, "CPU%");
 
         snprintf(buf, sizeof(buf), "Tasks: %ld  Chip largest: %ld  Fast largest: %ld",
@@ -315,13 +325,15 @@ int main(void)
         if (frame % 60 == 0) {
             ab_push_var("chip_free");
             ab_push_var("fast_free");
+            ab_push_var("chip_total");
+            ab_push_var("fast_total");
             ab_push_var("task_count");
             ab_push_var("cpu_usage");
             ab_heartbeat();
         }
 
-        /* Detailed stats log every 300 frames */
-        if (frame % 300 == 0) {
+        /* Detailed stats log every log_interval frames */
+        if (log_interval > 0 && (frame % (ULONG)log_interval) == 0) {
             AB_I("Stats: chip=%ld fast=%ld tasks=%ld cpu=%ld%%",
                    chip_free, fast_free, task_count, cpu_usage);
         }
@@ -329,8 +341,8 @@ int main(void)
         /* Poll for commands from bridge daemon */
         ab_poll();
 
-        /* ~10fps update rate */
-        Delay(5);
+        /* Adjustable update rate */
+        Delay(update_delay < 1 ? 1 : update_delay);
     }
 
     strncpy(status_msg, "shutting down", sizeof(status_msg));

@@ -202,7 +202,7 @@ async def api_memory(request: Request) -> JSONResponse:
 
     chunks: list[dict] = []
 
-    async with _event_bus.subscribe("mem") as queue:
+    async with _event_bus.subscribe("mem", "err") as queue:
         try:
             _conn.send({"type": "INSPECT", "address": address, "size": size})
         except Exception:
@@ -215,10 +215,14 @@ async def api_memory(request: Request) -> JSONResponse:
                 break
             try:
                 evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
-                chunks.append(data)
-                received = sum(c["size"] for c in chunks)
-                if received >= size:
-                    break
+                if evt == "err" and "INSPECT" in data.get("context", ""):
+                    msg = data.get("message") or data.get("context") or "Address not accessible"
+                    return JSONResponse({"error": msg})
+                if evt == "mem":
+                    chunks.append(data)
+                    received = sum(c["size"] for c in chunks)
+                    if received >= size:
+                        break
             except asyncio.TimeoutError:
                 break
 
@@ -627,9 +631,10 @@ async def api_write_memory(request: Request) -> JSONResponse:
                 evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
                 ctx = data.get("context", "")
                 if "WRITEMEM" in ctx:
+                    msg = data.get("message") or ctx or ("Written" if evt == "ok" else "Write failed")
                     return JSONResponse({
                         "status": "ok" if evt == "ok" else "error",
-                        "message": data.get("message", ""),
+                        "message": msg,
                     })
             except asyncio.TimeoutError:
                 break

@@ -366,33 +366,15 @@ int sys_inspect_mem(APTR addr, ULONG size, UBYTE *outBuf, ULONG outBufSize)
     ULONG a = (ULONG)addr;
     ULONG copySize;
 
-    if (!addr || size == 0) return -1;
+    if (size == 0) return -1;
     if (size > outBufSize) size = outBufSize;
     if (size > 256) size = 256;
 
-    /* Reject NULL */
-    if (a < 4) return -1;
-
-    /* Allow known address ranges on the Amiga:
-     * $000004-$0000FF: Exception vectors (readable)
-     * $000100+: Validated by TypeOfMem for RAM
-     * $BF0000-$BFFFFF: CIA chips (byte access, odd addresses only)
-     * $F80000-$FFFFFF: ROM (Kickstart)
-     *
-     * Custom chip registers ($DFF000) are NOT allowed for reads.
-     * They require word-aligned 16-bit access, and many have side
-     * effects (clearing interrupts, resetting DMA) that can crash
-     * the display or system. */
-    if (a >= 0x100) {
-        ULONG memType = TypeOfMem(addr);
-        if (memType == 0) {
-            /* Not in Exec memory list - allow known safe ranges */
-            int allowed = 0;
-            if (a >= 0xF80000)                     allowed = 1; /* ROM */
-            if (a >= 0xBF0000 && a < 0xC00000)     allowed = 1; /* CIA */
-            if (!allowed) return -1;
-        }
-    }
+    /* Reject known dangerous ranges, allow everything else.
+     * Custom chip registers ($DFF000) require word access and have
+     * side effects - block them. Everything else is fair game for
+     * a debug tool: chip RAM, fast RAM, CIA, ROM, vectors. */
+    if (a >= 0xDFF000 && a < 0xE00000) return -1;  /* Custom chips */
 
     copySize = size;
 

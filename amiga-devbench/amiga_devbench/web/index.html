@@ -619,10 +619,8 @@
       <div style="margin-bottom:8px;">
         <span style="font-size:11px;color:var(--text-dim);margin-right:8px;">Hardware:</span>
         <div class="mem-bookmarks" style="display:inline-flex;">
-          <span class="bookmark" onclick="setMemBookmark('00DFF000',256)">Custom Regs ($DFF000)</span>
-          <span class="bookmark" onclick="setMemBookmark('00DFF100',128)">Custom Hi ($DFF100)</span>
-          <span class="bookmark" onclick="setMemBookmark('00BFE001',256)">CIA-A ($BFE001)</span>
-          <span class="bookmark" onclick="setMemBookmark('00BFD000',256)">CIA-B ($BFD000)</span>
+          <span class="bookmark" onclick="setMemBookmark('00BFE001',16)">CIA-A ($BFE001)</span>
+          <span class="bookmark" onclick="setMemBookmark('00BFD000',16)">CIA-B ($BFD000)</span>
         </div>
       </div>
       <div style="margin-bottom:12px;">
@@ -630,8 +628,7 @@
         <div class="mem-bookmarks" style="display:inline-flex;">
           <span class="bookmark" onclick="setMemBookmark('00000004',64)">ExecBase Ptr ($4)</span>
           <span class="bookmark" onclick="setMemBookmark('00F80000',256)">ROM Start ($F80000)</span>
-          <span class="bookmark" onclick="setMemBookmark('00000000',256)">Low Memory ($0)</span>
-          <span class="bookmark" onclick="setMemBookmark('00C00000',256)">Slow RAM ($C00000)</span>
+          <span class="bookmark" onclick="setMemBookmark('00000004',256)">Vectors ($4)</span>
         </div>
       </div>
       <div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
