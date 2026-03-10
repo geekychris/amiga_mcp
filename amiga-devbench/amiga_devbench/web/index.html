@@ -163,6 +163,47 @@
   .btn.small { padding: 4px 10px; font-size: 11px; }
   .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
 
+  /* Tool help bubble */
+  .tool-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--border);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: bold;
+    cursor: help;
+    position: relative;
+    vertical-align: middle;
+    margin-left: 4px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .tool-help:hover::after {
+    content: attr(title);
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-secondary);
+    white-space: normal;
+    width: 280px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    line-height: 1.4;
+  }
+  .tool-help:hover { color: var(--text-primary); background: var(--accent-blue); }
+
   /* Log viewer */
   .log-toolbar {
     display: flex;
@@ -496,6 +537,7 @@
     <div class="tab" data-tab="memory">Memory</div>
     <div class="tab" data-tab="variables">Variables</div>
     <div class="tab" data-tab="shell">Shell</div>
+    <div class="tab" data-tab="tools">Tools</div>
   </div>
 
   <!-- Content -->
@@ -693,6 +735,127 @@
       </div>
     </div>
 
+    <!-- Tools -->
+    <div class="tab-panel" id="panel-tools">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Screenshot <span class="tool-help" title="Captures the Amiga display as PNG by reading planar bitplane data and converting to chunky pixels. Choose 'Whole Screen' for the frontmost screen, or pick a window. Images saved to /tmp/amiga-screenshots/.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_screenshot</code></div>
+          <select id="toolScrWindow" style="width:100%;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;margin-bottom:6px;">
+            <option value="">Whole Screen</option>
+          </select>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" onclick="toolRefreshWindows()" title="Refresh window list" style="padding:4px 8px;">&#x21bb;</button>
+            <button class="btn" onclick="toolScreenshot()" style="flex:1;">Capture</button>
+          </div>
+          <div id="toolScrResult" style="margin-top:8px;font-size:11px;color:var(--text-dim);"></div>
+          <div id="toolScrPreview" style="margin-top:8px;"></div>
+          <div id="toolScrHistory" style="margin-top:8px;font-size:11px;"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Palette <span class="tool-help" title="Reads the OCS/ECS 12-bit color palette from the front screen's ColorMap via GetRGB4(). Workbench uses 4 colors, custom screens up to 32 (5 planes) or 256 (AGA).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_get_palette</code></div>
+          <button class="btn" onclick="toolPalette()">Read Palette</button>
+          <div id="toolPalResult" style="margin-top:8px;font-size:11px;"></div>
+        </div>
+
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Copper List <span class="tool-help" title="Reads GfxBase->ActiView->LOFCprList and decodes each 4-byte instruction: MOVE (write to custom chip register), WAIT (pause until beam position), SKIP. The copper is the Amiga's display coprocessor that programs hardware per-scanline.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_copper_list</code></div>
+          <button class="btn" onclick="toolCopper()">Read Copper</button>
+          <div id="toolCopperResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre;max-height:300px;overflow:auto;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Sprite Inspector <span class="tool-help" title="Reads the 8 hardware sprite channels by scanning the copper list for SPRxPT writes and checking GfxBase->SimpleSprites[] for Intuition-managed sprites (mouse pointer). Shows position, size, and attach mode.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_sprites</code></div>
+          <button class="btn" onclick="toolSprites()">Read Sprites</button>
+          <div id="toolSprResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Disassembler <span class="tool-help" title="Reads memory from the Amiga via INSPECT and disassembles 68000 machine code. Supports all 68k addressing modes and annotates known exec/dos/intuition/graphics library calls (LVOs). Try $FC0000 for Kickstart ROM.">?</span></h3>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label style="font-size:11px;color:var(--text-secondary);">Addr:</label>
+            <input type="text" id="toolDisasmAddr" placeholder="hex address" value="FC0000" style="width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <label style="font-size:11px;color:var(--text-secondary);">Count:</label>
+            <input type="number" id="toolDisasmCount" value="20" min="1" max="200" style="width:55px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <button class="btn" onclick="toolDisasm()">Disasm</button>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">MCP: <code>amiga_disassemble</code></div>
+          <div id="toolDisasmResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre;max-height:400px;overflow:auto;color:var(--green);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Crash Report <span class="tool-help" title="Patches exec.library Alert() via SetFunction() to intercept guru meditations. Captures alert code, all 16 registers (D0-D7, A0-A7), SP, and 64 bytes of stack. Not installed by default - click Enable to activate.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_last_crash</code></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn" onclick="toolCrashEnable()" id="btnCrashEnable">Enable</button>
+            <button class="btn" onclick="toolCrashDisable()" id="btnCrashDisable" style="display:none;">Disable</button>
+            <button class="btn" onclick="toolCrash()">Check</button>
+            <button class="btn" onclick="toolCrashTest()" style="background:var(--red);color:#fff;" title="Enables handler + triggers recoverable Alert()">Test</button>
+          </div>
+          <div id="toolCrashStatus" style="margin-top:4px;font-size:10px;color:var(--text-dim);"></div>
+          <div id="toolCrashResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--red);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Resource Tracker <span class="tool-help" title="Queries a bridge client for tracked resources. Apps using ab_track_alloc/free and ab_track_open/close report allocations and open handles. Shows leaked resources (allocated but never freed).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_list_resources</code></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="toolResClient" class="client-dropdown" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select client...</option>
+            </select>
+            <button class="btn" onclick="toolResources()">Check</button>
+          </div>
+          <div id="toolResResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Performance Profiler <span class="tool-help" title="Queries a bridge client for perf data. ab_perf_frame_start/end tracks frame timing (avg/min/max). ab_perf_section_start/end measures named code sections. Uses VHPOSR ($DFF006) for ~64us precision.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_perf_report</code></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="toolPerfClient" class="client-dropdown" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select client...</option>
+            </select>
+            <button class="btn" onclick="toolPerf()">Report</button>
+          </div>
+          <div id="toolPerfResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Build &amp; Run <span class="tool-help" title="Full dev cycle: cross-compile via Docker, deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), launch new binary. One click from code change to running on the Amiga.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_run</code></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="toolRunProject" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select project...</option>
+            </select>
+            <button class="btn" onclick="toolRefreshProjects()" title="Refresh project list" style="padding:4px 8px;">&#x21bb;</button>
+            <button class="btn" onclick="toolRun()">Run</button>
+          </div>
+          <div id="toolRunResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">New Project <span class="tool-help" title="Creates examples/&lt;name&gt;/ with Makefile + main.c. Window: Intuition window on Workbench. Screen: custom screen (320x256x5). Headless: CLI-only with bridge hooks. All include bridge client integration.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_create_project</code></div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="toolNewName" placeholder="Project name" style="flex:1;min-width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <select id="toolNewTemplate" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="window">Window</option>
+              <option value="screen">Screen</option>
+              <option value="headless">Headless</option>
+            </select>
+            <button class="btn" onclick="toolNewProject()">Create</button>
+          </div>
+          <div id="toolNewResult" style="margin-top:8px;font-size:11px;color:var(--text-dim);"></div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 
 <script>
@@ -720,7 +883,14 @@ document.getElementById('tabBar').addEventListener('click', (e) => {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   tab.classList.add('active');
-  document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  const tabName = tab.dataset.tab;
+  document.getElementById('panel-' + tabName).classList.add('active');
+  // Auto-refresh clients & windows when switching to tools tab
+  if (tabName === 'tools') {
+    api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
+    if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
+    if (typeof toolRefreshProjects === 'function') toolRefreshProjects();
+  }
 });
 
 // ─── API Helpers ───
@@ -831,6 +1001,8 @@ function updateClients(clients) {
   }
   // Update shell tab status
   if (typeof shellUpdateUI === 'function') shellUpdateUI();
+  // Update client dropdowns in tools tab
+  updateClientDropdowns(clients || []);
 }
 
 // ─── Logs ───
@@ -1344,6 +1516,216 @@ function formatSize(n) {
 function escapeHtml(s) {
   if (typeof s !== 'string') return String(s ?? '');
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Tools ───
+function updateClientDropdowns(clients) {
+  document.querySelectorAll('select.client-dropdown').forEach(sel => {
+    const prev = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    (clients || []).forEach(c => {
+      const opt = document.createElement('option');
+      // Strip (id) suffix for API calls, keep full name as display
+      const name = c.replace(/\(\d+\)$/, '');
+      opt.value = name;
+      opt.textContent = c;
+      sel.add(opt);
+    });
+    if (prev) sel.value = prev;
+  });
+}
+
+async function toolRefreshWindows() {
+  const sel = document.getElementById('toolScrWindow');
+  const prev = sel.value;
+  const data = await api('/windows');
+  // Keep "Whole Screen" option, rebuild the rest
+  while (sel.options.length > 1) sel.remove(1);
+  if (data && data.windows) {
+    data.windows.forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = w;
+      opt.textContent = w;
+      sel.add(opt);
+    });
+  }
+  // Restore previous selection if still available
+  if (prev) sel.value = prev;
+}
+
+async function toolScreenshot() {
+  const win = document.getElementById('toolScrWindow').value;
+  document.getElementById('toolScrResult').textContent = 'Capturing...';
+  document.getElementById('toolScrPreview').innerHTML = '';
+  const params = win ? '?window=' + encodeURIComponent(win) : '';
+  const data = await api('/screenshot' + params);
+  if (data && data.viewUrl) {
+    document.getElementById('toolScrResult').innerHTML = 'Saved: ' + escapeHtml(data.filename) +
+      ' (' + data.width + 'x' + data.height + ', ' + data.depth + ' planes)';
+    document.getElementById('toolScrPreview').innerHTML =
+      '<a href="' + data.viewUrl + '" target="_blank">' +
+      '<img src="' + data.viewUrl + '&t=' + Date.now() + '" style="max-width:100%;image-rendering:pixelated;border:1px solid var(--border);cursor:pointer;" title="Click to open full size">' +
+      '</a>';
+    // Refresh history
+    toolScreenshotHistory();
+  } else {
+    document.getElementById('toolScrResult').textContent = data ? (data.error || JSON.stringify(data)) : 'No response';
+  }
+}
+
+async function toolScreenshotHistory() {
+  const data = await api('/screenshot/list');
+  const el = document.getElementById('toolScrHistory');
+  if (data && data.screenshots && data.screenshots.length > 1) {
+    el.innerHTML = '<div style="margin-top:4px;color:var(--text-secondary);">Recent:</div>' +
+      data.screenshots.slice(0, 5).map(s =>
+        '<a href="' + s.viewUrl + '" target="_blank" style="color:var(--text-link);margin-right:8px;">' + escapeHtml(s.filename) + '</a>'
+      ).join(' ');
+  }
+}
+
+async function toolPalette() {
+  document.getElementById('toolPalResult').innerHTML = 'Reading...';
+  const data = await api('/palette');
+  if (data && data.colors) {
+    let html = '<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:6px;">';
+    data.colors.forEach((c, i) => {
+      const r = ((c >> 8) & 0xF) * 17, g = ((c >> 4) & 0xF) * 17, b = (c & 0xF) * 17;
+      html += '<div style="width:28px;height:28px;background:rgb('+r+','+g+','+b+');border:1px solid var(--border);cursor:pointer;position:relative;" title="Color '+i+': R='+((c>>8)&0xF)+' G='+((c>>4)&0xF)+' B='+(c&0xF)+'">';
+      html += '<span style="font-size:8px;color:' + (r+g+b > 384 ? '#000' : '#fff') + ';position:absolute;bottom:0;right:1px;">' + i + '</span></div>';
+    });
+    html += '</div>';
+    document.getElementById('toolPalResult').innerHTML = html;
+  } else {
+    document.getElementById('toolPalResult').textContent = data ? (data.error || JSON.stringify(data)) : 'No response';
+  }
+}
+
+async function toolCopper() {
+  document.getElementById('toolCopperResult').textContent = 'Reading...';
+  const data = await api('/copper');
+  if (data && data.listing && Array.isArray(data.listing)) {
+    const lines = data.listing.map(inst => {
+      const addr = '$' + (inst.address || 0).toString(16).toUpperCase().padStart(8, '0');
+      return addr + '  ' + (inst.raw || '') + '  ' + (inst.text || inst.type || '');
+    });
+    document.getElementById('toolCopperResult').textContent = lines.join('\n');
+  } else {
+    document.getElementById('toolCopperResult').textContent = data ? (data.error || JSON.stringify(data)) : 'No response';
+  }
+}
+
+async function toolSprites() {
+  document.getElementById('toolSprResult').textContent = 'Reading...';
+  const data = await api('/sprites');
+  document.getElementById('toolSprResult').textContent = data ? (data.listing || data.error || JSON.stringify(data)) : 'No response';
+}
+
+async function toolDisasm() {
+  const addr = document.getElementById('toolDisasmAddr').value;
+  const count = document.getElementById('toolDisasmCount').value || 20;
+  document.getElementById('toolDisasmResult').textContent = 'Reading...';
+  const data = await api('/disasm?address=' + encodeURIComponent(addr) + '&count=' + count);
+  document.getElementById('toolDisasmResult').textContent = data ? (data.listing || data.error || JSON.stringify(data)) : 'No response';
+}
+
+async function toolCrashEnable() {
+  document.getElementById('toolCrashStatus').textContent = 'Enabling...';
+  await fetch('/api/crash/enable', {method: 'POST'});
+  document.getElementById('toolCrashStatus').textContent = 'Crash handler active (Alert patched)';
+  document.getElementById('btnCrashEnable').style.display = 'none';
+  document.getElementById('btnCrashDisable').style.display = '';
+}
+
+async function toolCrashDisable() {
+  document.getElementById('toolCrashStatus').textContent = 'Disabling...';
+  await fetch('/api/crash/disable', {method: 'POST'});
+  document.getElementById('toolCrashStatus').textContent = 'Crash handler removed';
+  document.getElementById('btnCrashEnable').style.display = '';
+  document.getElementById('btnCrashDisable').style.display = 'none';
+}
+
+async function toolCrash() {
+  document.getElementById('toolCrashResult').textContent = 'Checking...';
+  const data = await api('/crash');
+  document.getElementById('toolCrashResult').textContent = data ? (data.report || 'No crash recorded') : 'No response';
+}
+
+async function toolCrashTest() {
+  if (!confirm('This will enable the crash handler and trigger a recoverable guru meditation on the Amiga. Proceed?')) return;
+  document.getElementById('toolCrashResult').textContent = 'Enabling handler + triggering test alert...';
+  const data = await fetch('/api/crashtest', {method: 'POST'}).then(r => r.json());
+  document.getElementById('btnCrashEnable').style.display = 'none';
+  document.getElementById('btnCrashDisable').style.display = '';
+  document.getElementById('toolCrashStatus').textContent = 'Crash handler active (Alert patched)';
+  if (data && data.crash) {
+    toolCrash();
+  } else {
+    document.getElementById('toolCrashResult').textContent = data ? (data.status || data.error || JSON.stringify(data)) : 'No response';
+  }
+}
+
+async function toolResources() {
+  const client = document.getElementById('toolResClient').value;
+  if (!client) { document.getElementById('toolResResult').textContent = 'Select a client'; return; }
+  document.getElementById('toolResResult').textContent = 'Checking...';
+  const data = await api('/resources?client=' + encodeURIComponent(client));
+  document.getElementById('toolResResult').textContent = data ? (data.report || data.error || JSON.stringify(data)) : 'No response';
+}
+
+async function toolPerf() {
+  const client = document.getElementById('toolPerfClient').value;
+  if (!client) { document.getElementById('toolPerfResult').textContent = 'Select a client'; return; }
+  document.getElementById('toolPerfResult').textContent = 'Checking...';
+  const data = await api('/perf?client=' + encodeURIComponent(client));
+  document.getElementById('toolPerfResult').textContent = data ? (data.report || data.error || JSON.stringify(data)) : 'No response';
+}
+
+async function toolRefreshProjects() {
+  const sel = document.getElementById('toolRunProject');
+  const prev = sel.value;
+  const data = await api('/projects');
+  while (sel.options.length > 1) sel.remove(1);
+  if (data && data.projects) {
+    data.projects.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = 'examples/' + p;
+      opt.textContent = p;
+      sel.add(opt);
+    });
+  }
+  if (prev) sel.value = prev;
+}
+
+async function toolRun() {
+  const project = document.getElementById('toolRunProject').value;
+  if (!project) { document.getElementById('toolRunResult').textContent = 'Select a project'; return; }
+  document.getElementById('toolRunResult').textContent = 'Building...';
+  const data = await fetch('/api/run-cycle', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project: project})
+  }).then(r => r.json());
+  if (data) {
+    let lines = [];
+    if (data.build) lines.push('Build: ' + (data.build.success ? 'OK' : 'FAIL') + ' (' + data.build.duration_ms + 'ms)');
+    if (data.deploy) lines.push('Deploy: ' + (data.deploy.success ? 'OK' : 'FAIL'));
+    if (data.stop) lines.push('Stop: ' + data.stop.status);
+    if (data.launch) lines.push('Launch: ' + data.launch.status + ' ' + data.launch.command);
+    if (data.client) lines.push('Client: ' + (data.client.connected ? 'CONNECTED' : 'not connected'));
+    document.getElementById('toolRunResult').textContent = lines.join('\n');
+  }
+}
+
+async function toolNewProject() {
+  const name = document.getElementById('toolNewName').value;
+  const tmpl = document.getElementById('toolNewTemplate').value;
+  if (!name) { document.getElementById('toolNewResult').textContent = 'Enter a project name'; return; }
+  document.getElementById('toolNewResult').textContent = 'Creating...';
+  const data = await fetch('/api/create-project', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name, template: tmpl})
+  }).then(r => r.json());
+  document.getElementById('toolNewResult').textContent = data ? (data.message || data.error || JSON.stringify(data)) : 'No response';
 }
 
 // ─── Shell ───

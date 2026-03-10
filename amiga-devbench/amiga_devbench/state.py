@@ -22,6 +22,7 @@ class AmigaState:
     clients: list[str] = field(default_factory=list)
     connected: bool = False
     connection_mode: str = "tcp"
+    last_crash: dict[str, Any] | None = None
 
     def add_log(self, msg: dict[str, Any]) -> None:
         self.logs.append(msg)

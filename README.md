@@ -945,6 +945,33 @@ All tools are available through Claude Code when connected to the MCP server.
 |---|---|---|
 | `amiga_exec` | `command` | Send expression to client's command handler |
 
+### Graphics & Hardware Inspection
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_screenshot` | `window?` | Capture screen or window as PNG (planar→chunky conversion) |
+| `amiga_get_palette` | `screen?` | Read OCS/ECS 12-bit color palette via GetRGB4() |
+| `amiga_set_palette` | `index`, `r`, `g`, `b` | Set a palette color (4-bit per channel) |
+| `amiga_copper_list` | — | Read and decode copper list (MOVE/WAIT/SKIP instructions) |
+| `amiga_sprites` | — | Read 8 hardware sprite channels (copper + SimpleSprites) |
+| `amiga_disassemble` | `address`, `count?` | Disassemble 68k code with LVO annotation |
+| `amiga_last_crash` | — | Read last crash report (registers, stack, alert code) |
+
+![img.png](doc_images/tools_page.png)
+### Client Profiling
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_list_resources` | `client` | Query client resource tracking (alloc/free, open/close) |
+| `amiga_perf_report` | `client` | Query client performance data (frame timing, sections) |
+
+### Project Scaffolding
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_create_project` | `name`, `template?` | Create new example project (window/screen/headless) |
+| `amiga_run` | `project`, `command?` | Deploy and launch (skip build) |
+
 ---
 
 ## Web UI Reference
@@ -993,6 +1020,41 @@ of the Amiga system.
 - Inline edit — click Edit, type new value, press Enter or click Set
 - Auto-refresh toggle (3-second interval via SSE + polling)
 - Auto-refresh pauses while editing to prevent input clobbering
+
+#### Shell Tab
+Remote AmigaDOS shell via the `shell_proxy` bridge client.
+
+- **Launch Shell Proxy** button — builds, deploys, and starts the shell proxy on the Amiga
+- Terminal-style interface with scrolling output (green text on dark background)
+- Type AmigaDOS commands (`dir`, `type`, `list`, `assign`, etc.) and see output in real-time
+- Commands execute on the Amiga via the bridge protocol, output streams back over serial
+- Status indicator shows connection state
+![img.png](doc_images/shell_tab.png)
+#### Tools Tab
+Visual inspection and development tools arranged in a grid. Each tool has a `?` tooltip with detailed help.
+
+**Screenshot** — Captures the Amiga display as PNG. Select a window from the dropdown or choose "Whole Screen" for the frontmost screen. Reads planar bitplane data from chip RAM and converts to chunky pixels on the host. Screenshots saved to `/tmp/amiga-screenshots/` with clickable preview links and history.
+
+**Palette** — Reads the OCS/ECS 12-bit color palette from the frontmost screen's ColorMap via `GetRGB4()`. Displays color swatches with hex values. Workbench uses 4 colors; custom screens up to 32 (5 bitplanes) or 256 (AGA).
+
+**Copper List** — Reads and decodes the copper list from `GfxBase->ActiView->LOFCprList`. Shows each 4-byte instruction: MOVE (write to custom chip register with named register), WAIT (wait for beam position), or SKIP. Spans 2 grid columns for readability.
+
+**Sprite Inspector** — Reads the 8 hardware sprite channels by scanning the copper list for SPRxPT register writes and checking `GfxBase->SimpleSprites[]` for Intuition-managed sprites (mouse pointer). Shows position, size, and attach mode.
+
+**Disassembler** — Reads memory from the Amiga and disassembles 68000 machine code. Enter a hex address and instruction count. Supports all 68k addressing modes and annotates known Exec/DOS/Intuition/Graphics library calls (LVOs). Spans 2 grid columns. Try `$FC0000` for Kickstart ROM.
+
+**Crash Report** — Intercepts guru meditations by patching `exec.library Alert()` via `SetFunction()`. Not installed by default — click **Enable** to activate, **Disable** to remove. When a crash occurs, captures alert code, alert name, all 16 registers (D0-D7, A0-A7), stack pointer, and 64 bytes of stack data. Click **Test** to trigger a recoverable alert.
+
+**Resource Tracker** — Queries a bridge client's tracked resources. Select a client from the dropdown. Apps using `ab_track_alloc()`/`ab_track_free()` and `ab_track_open()`/`ab_track_close()` report allocations and open handles. Shows leaked resources.
+
+**Performance Profiler** — Queries a bridge client's performance data. Select a client from the dropdown. `ab_perf_frame_start()`/`ab_perf_frame_end()` tracks frame timing (avg/min/max). `ab_perf_section_start()`/`ab_perf_section_end()` measures named code sections. Uses `VHPOSR ($DFF006)` for ~64us precision.
+
+**Build & Run** — Full development cycle in one click: cross-compile via Docker, deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), then launch. Select a project from the dropdown (populated from the `examples/` directory).
+
+**New Project** — Scaffolds a new example project with Makefile and main.c. Three templates:
+- **Window** — Intuition window on the Workbench screen with bridge integration
+- **Screen** — Custom screen (320x256, 5 bitplanes) with bridge integration
+- **Headless** — CLI-only program with bridge hooks, no GUI
 
 ### SSE Event Stream
 
@@ -1060,10 +1122,8 @@ working in this project directory.
 
 - **Source-level debugging**: Map addresses to C source lines using DWARF/STABS debug info from the cross-compiler. Show source context in memory inspector.
 - **Breakpoint support**: Use 68k TRAP instructions or the ILLEGAL opcode to implement software breakpoints. Bridge daemon could patch/unpatch code at runtime.
-- **Register inspection**: Read 68k CPU registers (D0-D7, A0-A7, SR, PC) via a trap handler on the Amiga side.
 - **Stack trace**: Walk the 68k stack frames to produce symbolic backtraces when an app crashes or hits a breakpoint.
 - **Watchpoints**: Monitor memory addresses for changes and notify the host when values change (polled or via custom exception handler).
-- **Disassembler**: Add a 68k disassembly view to the memory inspector — show instructions alongside hex bytes.
 
 ### Build & Workflow
 
@@ -1086,20 +1146,15 @@ working in this project directory.
 - **Memory map visualization**: Graphical view of the Amiga memory map showing chip/fast/ROM regions, allocated blocks, and registered memory regions.
 - **Variable graphing**: Plot variable values over time (e.g., chart free memory or CPU usage).
 - **Custom chip register viewer**: Word-aligned read-only view of specific safe custom chip registers with field-level decoding (e.g., DMACON bits).
-- **Copper list viewer**: Parse and display the Copper instruction list for display debugging.
 - **Sprite editor**: Visual sprite data editor using memory write.
 - **Sound register viewer**: Paula chip register inspection for audio debugging.
-- **Screen capture**: Capture the Amiga display via chip RAM bitplane data and render in the browser.
 - **File editor**: Text editor for Amiga files (currently only hex view).
-- **Terminal**: Interactive AmigaDOS shell in the browser via the SCRIPT command.
 - **Dark/light theme toggle**: Currently dark-only.
 
 ### Client Library
 
 - **Automatic variable push**: Option to push all registered variables on every heartbeat without manual `ab_push_var()` calls.
 - **Structured logging**: Log with key=value pairs for easier filtering and search on the host.
-- **Performance counters**: Built-in frame timing, memory allocation tracking, and per-frame profiling.
-- **Crash handler**: Install a custom 68k exception handler that captures register state and stack trace before the system goes down, transmitting it over serial.
 - **C++ support**: Wrapper classes with RAII for automatic cleanup.
 - **Lua/REXX scripting**: Execute scripts on the Amiga that interact with registered variables and hooks.
 

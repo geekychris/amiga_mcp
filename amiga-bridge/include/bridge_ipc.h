@@ -20,6 +20,8 @@
 #define ABMSG_HOOK_UNREGISTER 11
 #define ABMSG_MEMREG_REGISTER   12
 #define ABMSG_MEMREG_UNREGISTER 13
+#define ABMSG_RESOURCE_LIST     14
+#define ABMSG_PERF_DATA         15
 
 /* Message types daemon->client */
 #define ABMSG_CMD_FORWARD  20
@@ -27,6 +29,8 @@
 #define ABMSG_VAR_SET      22
 #define ABMSG_SHUTDOWN     23
 #define ABMSG_HOOK_CALL    24
+#define ABMSG_GET_RESOURCES 25
+#define ABMSG_GET_PERF      26
 
 /* Log levels */
 #define AB_DEBUG 0
@@ -46,6 +50,9 @@
 #define AB_MAX_VARS 32
 #define AB_MAX_HOOKS 16
 #define AB_MAX_MEMREGIONS 8
+#define AB_MAX_RESOURCES 64
+#define AB_MAX_PERF_SECTIONS 8
+#define AB_PERF_FRAME_HISTORY 60
 
 struct BridgeMsg {
     struct Message  msg;        /* Standard exec message (has reply port) */

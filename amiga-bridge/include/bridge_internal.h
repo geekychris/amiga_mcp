@@ -132,6 +132,19 @@ int fs_makedir(const char *path);
 int proc_launch(ULONG cmdId, const char *command, char *resultBuf, int bufSize);
 int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSize);
 
+/* ---- crash_handler.c ---- */
+void crash_init(void);
+void crash_cleanup(void);
+int crash_get_last(char *buf, int bufSize);
+
+/* ---- gfx_inspector.c ---- */
+void gfx_handle_screenshot(const char *args);
+void gfx_handle_palette(const char *args);
+void gfx_handle_setpalette(const char *args);
+void gfx_handle_copperlist(const char *args);
+void gfx_handle_sprites(const char *args);
+void gfx_handle_listwindows(const char *args);
+
 /* ---- UI state (main.c) ---- */
 #define UI_MAX_LOG_LINES 5
 #define UI_MAX_LOG_LEN   50

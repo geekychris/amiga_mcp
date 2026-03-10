@@ -268,6 +268,8 @@ int main(int argc, char **argv)
         serial_start_read();
     }
 
+    /* Crash handler NOT installed at startup - enable via CRASHINIT command */
+
     /* Send READY to host */
     if (g_serial_connected) {
         protocol_send_raw("READY|1.0");
@@ -357,6 +359,7 @@ int main(int argc, char **argv)
     }
 
     /* Clean up in reverse order */
+    crash_cleanup();
     serial_close();
     ipc_cleanup();
 

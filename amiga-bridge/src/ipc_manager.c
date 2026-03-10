@@ -312,6 +312,32 @@ void ipc_process(void)
             ReplyMsg(msg);
             break;
 
+        case ABMSG_RESOURCE_LIST:
+            /* Client is sending resource list (response to query) */
+            ce = client_find(bm->clientId);
+            if (ce) {
+                static char resbuf[BRIDGE_MAX_LINE];
+                sprintf(resbuf, "RESOURCES|%s|%s", ce->name, bm->data);
+                resbuf[BRIDGE_MAX_LINE - 1] = '\0';
+                protocol_send_raw(resbuf);
+                ce->msgCount++;
+            }
+            ReplyMsg(msg);
+            break;
+
+        case ABMSG_PERF_DATA:
+            /* Client is sending perf data (response to query) */
+            ce = client_find(bm->clientId);
+            if (ce) {
+                static char perfbuf[BRIDGE_MAX_LINE];
+                sprintf(perfbuf, "PERF|%s|%s", ce->name, bm->data);
+                perfbuf[BRIDGE_MAX_LINE - 1] = '\0';
+                protocol_send_raw(perfbuf);
+                ce->msgCount++;
+            }
+            ReplyMsg(msg);
+            break;
+
         case ABMSG_CMD_RESPONSE:
             ce = client_find(bm->clientId);
             if (ce) {

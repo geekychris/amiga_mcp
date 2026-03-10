@@ -389,6 +389,44 @@ class SerialConnection:
         elif msg_type == "ERR":
             self._event_bus.publish("err", msg)
 
+        elif msg_type == "SCRINFO":
+            self._event_bus.publish("scrinfo", msg)
+
+        elif msg_type == "SCRDATA":
+            self._event_bus.publish("scrdata", msg)
+
+        elif msg_type == "PALETTE":
+            self._event_bus.publish("palette", msg)
+
+        elif msg_type == "COPPER":
+            self._event_bus.publish("copper", msg)
+
+        elif msg_type == "SPRITE":
+            self._event_bus.publish("sprite", msg)
+
+        elif msg_type == "CRASH":
+            self._state.last_crash = msg
+            self._state.add_log({
+                "type": "LOG", "level": "E", "tick": 0,
+                "message": f"CRASH: {msg.get('alertName', '?')} (0x{msg.get('alertNum', '?')})",
+                "timestamp": msg.get("timestamp", ""),
+            })
+            self._event_bus.publish("crash", msg)
+            self._event_bus.publish("log", {
+                "type": "LOG", "level": "E", "tick": 0,
+                "message": f"CRASH: {msg.get('alertName', '?')} (0x{msg.get('alertNum', '?')})",
+                "timestamp": msg.get("timestamp", ""),
+            })
+
+        elif msg_type == "RESOURCES":
+            self._event_bus.publish("resources", msg)
+
+        elif msg_type == "PERF":
+            self._event_bus.publish("perf", msg)
+
+        elif msg_type == "WINLIST":
+            self._event_bus.publish("winlist", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

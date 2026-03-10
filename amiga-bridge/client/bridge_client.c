@@ -51,6 +51,55 @@ struct MemRegEntry {
 };
 static struct MemRegEntry memreg_table[AB_MAX_MEMREGIONS];
 
+/* ---- Resource Tracker ---- */
+#define RES_TYPE_MEM    0
+#define RES_TYPE_HANDLE 1
+#define RES_STATE_OPEN   0
+#define RES_STATE_CLOSED 1
+
+struct ResourceEntry {
+    BOOL  active;
+    UBYTE resType;   /* RES_TYPE_MEM or RES_TYPE_HANDLE */
+    UBYTE state;     /* RES_STATE_OPEN or RES_STATE_CLOSED */
+    char  tag[32];
+    APTR  ptr;
+    ULONG size;      /* Only for MEM type */
+};
+static struct ResourceEntry res_table[AB_MAX_RESOURCES];
+
+/* ---- Performance Profiler ---- */
+struct PerfSection {
+    BOOL  active;
+    char  label[24];
+    ULONG start_vhpos;
+    ULONG total;     /* Accumulated ticks */
+    ULONG min_val;
+    ULONG max_val;
+    ULONG count;
+};
+static struct PerfSection perf_sections[AB_MAX_PERF_SECTIONS];
+
+static ULONG perf_frame_start_vhpos = 0;
+static ULONG perf_frame_times[AB_PERF_FRAME_HISTORY];
+static int perf_frame_head = 0;
+static int perf_frame_count = 0;
+static ULONG perf_frame_min = 0xFFFFFFFF;
+static ULONG perf_frame_max = 0;
+static ULONG perf_frame_total = 0;
+static ULONG perf_frame_num = 0;
+
+/*
+ * Read VHPOSR ($DFF006) for sub-frame timing.
+ * Returns vertical position in high byte, horizontal in low byte.
+ * On PAL: V ranges 0-312, H ranges 0-226.
+ * Each line is ~63.5us, giving roughly 64us resolution.
+ */
+static ULONG read_vhpos(void)
+{
+    volatile ULONG *vposr = (volatile ULONG *)0xDFF004;
+    return *vposr;  /* Read VPOSR+VHPOSR as 32-bit for full V position */
+}
+
 /* Client state */
 static struct MsgPort *reply_port = NULL;
 static struct MsgPort *daemon_port = NULL;
@@ -242,6 +291,22 @@ int ab_init(const char *appName)
         memreg_table[i].active = FALSE;
     }
 
+    /* Initialize resource tracker */
+    for (i = 0; i < AB_MAX_RESOURCES; i++) {
+        res_table[i].active = FALSE;
+    }
+
+    /* Initialize perf sections */
+    for (i = 0; i < AB_MAX_PERF_SECTIONS; i++) {
+        perf_sections[i].active = FALSE;
+    }
+    perf_frame_head = 0;
+    perf_frame_count = 0;
+    perf_frame_min = 0xFFFFFFFF;
+    perf_frame_max = 0;
+    perf_frame_total = 0;
+    perf_frame_num = 0;
+
     /* Find the daemon's public port */
     Forbid();
     daemon_port = FindPort((CONST_STRPTR)BRIDGE_PORT_NAME);
@@ -323,6 +388,16 @@ void ab_cleanup(void)
     /* Clear memreg table */
     for (i = 0; i < AB_MAX_MEMREGIONS; i++) {
         memreg_table[i].active = FALSE;
+    }
+
+    /* Clear resource tracker */
+    for (i = 0; i < AB_MAX_RESOURCES; i++) {
+        res_table[i].active = FALSE;
+    }
+
+    /* Clear perf sections */
+    for (i = 0; i < AB_MAX_PERF_SECTIONS; i++) {
+        perf_sections[i].active = FALSE;
     }
 }
 
@@ -595,6 +670,78 @@ static void process_daemon_msg(struct Message *msg)
         ReplyMsg(msg);
         break;
 
+    case ABMSG_GET_RESOURCES:
+        /* Daemon is requesting resource list */
+        {
+            int ri, pos = 0, cnt = 0;
+            /* Format: "count|type:tag:ptr:size:state,..." */
+            for (ri = 0; ri < AB_MAX_RESOURCES; ri++) {
+                if (res_table[ri].active) cnt++;
+            }
+            pos = sprintf(bm->data, "%ld|", (long)cnt);
+            for (ri = 0; ri < AB_MAX_RESOURCES; ri++) {
+                if (!res_table[ri].active) continue;
+                if (pos > 0 && bm->data[pos - 1] != '|') {
+                    if (pos < AB_MAX_DATA - 1)
+                        bm->data[pos++] = ',';
+                }
+                pos += sprintf(bm->data + pos, "%s:%s:%08lx:%lu:%s",
+                    res_table[ri].resType == RES_TYPE_MEM ? "MEM" : "HANDLE",
+                    res_table[ri].tag,
+                    (unsigned long)res_table[ri].ptr,
+                    (unsigned long)res_table[ri].size,
+                    res_table[ri].state == RES_STATE_OPEN ? "OPEN" : "CLOSED");
+                if (pos >= AB_MAX_DATA - 2) break;
+            }
+            bm->data[pos] = '\0';
+            bm->dataLen = pos + 1;
+            bm->result = 0;
+        }
+        ReplyMsg(msg);
+        break;
+
+    case ABMSG_GET_PERF:
+        /* Daemon is requesting performance data */
+        {
+            int pi, pos;
+            ULONG frame_avg = 0;
+            if (perf_frame_num > 0) {
+                frame_avg = perf_frame_total / perf_frame_num;
+            }
+            pos = sprintf(bm->data, "%lu|%lu|%lu|%lu|",
+                (unsigned long)frame_avg,
+                (unsigned long)(perf_frame_min == 0xFFFFFFFF ? 0 : perf_frame_min),
+                (unsigned long)perf_frame_max,
+                (unsigned long)perf_frame_num);
+
+            /* Append sections: label:avg:min:max:count,... */
+            for (pi = 0; pi < AB_MAX_PERF_SECTIONS; pi++) {
+                if (!perf_sections[pi].active) continue;
+                if (pos > 0 && bm->data[pos - 1] != '|') {
+                    if (pos < AB_MAX_DATA - 1)
+                        bm->data[pos++] = ',';
+                }
+                {
+                    ULONG savg = 0;
+                    if (perf_sections[pi].count > 0) {
+                        savg = perf_sections[pi].total / perf_sections[pi].count;
+                    }
+                    pos += sprintf(bm->data + pos, "%s:%lu:%lu:%lu:%lu",
+                        perf_sections[pi].label,
+                        (unsigned long)savg,
+                        (unsigned long)(perf_sections[pi].min_val == 0xFFFFFFFF ? 0 : perf_sections[pi].min_val),
+                        (unsigned long)perf_sections[pi].max_val,
+                        (unsigned long)perf_sections[pi].count);
+                }
+                if (pos >= AB_MAX_DATA - 2) break;
+            }
+            bm->data[pos] = '\0';
+            bm->dataLen = pos + 1;
+            bm->result = 0;
+        }
+        ReplyMsg(msg);
+        break;
+
     case ABMSG_SHUTDOWN:
         /* Daemon is shutting down */
         connected = FALSE;
@@ -757,4 +904,172 @@ void ab_unregister_memregion(const char *name)
     }
 
     send_simple(ABMSG_MEMREG_UNREGISTER, 0, name, strlen(name) + 1);
+}
+
+/* ---- Resource Tracker ---- */
+
+void ab_track_alloc(const char *tag, APTR ptr, ULONG size)
+{
+    int i;
+    if (!ptr) return;
+
+    for (i = 0; i < AB_MAX_RESOURCES; i++) {
+        if (!res_table[i].active) {
+            res_table[i].active = TRUE;
+            res_table[i].resType = RES_TYPE_MEM;
+            res_table[i].state = RES_STATE_OPEN;
+            strncpy(res_table[i].tag, tag ? tag : "mem", 31);
+            res_table[i].tag[31] = '\0';
+            res_table[i].ptr = ptr;
+            res_table[i].size = size;
+            return;
+        }
+    }
+    /* Table full - silently drop */
+}
+
+void ab_track_free(APTR ptr)
+{
+    int i;
+    if (!ptr) return;
+
+    for (i = 0; i < AB_MAX_RESOURCES; i++) {
+        if (res_table[i].active &&
+            res_table[i].ptr == ptr &&
+            res_table[i].state == RES_STATE_OPEN) {
+            res_table[i].state = RES_STATE_CLOSED;
+            return;
+        }
+    }
+}
+
+void ab_track_open(const char *tag, APTR handle)
+{
+    int i;
+    if (!handle) return;
+
+    for (i = 0; i < AB_MAX_RESOURCES; i++) {
+        if (!res_table[i].active) {
+            res_table[i].active = TRUE;
+            res_table[i].resType = RES_TYPE_HANDLE;
+            res_table[i].state = RES_STATE_OPEN;
+            strncpy(res_table[i].tag, tag ? tag : "handle", 31);
+            res_table[i].tag[31] = '\0';
+            res_table[i].ptr = handle;
+            res_table[i].size = 0;
+            return;
+        }
+    }
+}
+
+void ab_track_close(APTR handle)
+{
+    int i;
+    if (!handle) return;
+
+    for (i = 0; i < AB_MAX_RESOURCES; i++) {
+        if (res_table[i].active &&
+            res_table[i].ptr == handle &&
+            res_table[i].state == RES_STATE_OPEN) {
+            res_table[i].state = RES_STATE_CLOSED;
+            return;
+        }
+    }
+}
+
+/* ---- Performance Profiler ---- */
+
+void ab_perf_frame_start(void)
+{
+    perf_frame_start_vhpos = read_vhpos();
+}
+
+void ab_perf_frame_end(void)
+{
+    ULONG end = read_vhpos();
+    ULONG delta;
+
+    /* Handle wrap-around: VPOSR+VHPOSR is a 32-bit value where
+     * bits 16-24 are vertical position. If end < start, a new
+     * frame started (V wrapped from ~312 to 0). */
+    if (end >= perf_frame_start_vhpos) {
+        delta = end - perf_frame_start_vhpos;
+    } else {
+        /* Wrapped - assume one full frame (~312 lines * 256 hpos) */
+        delta = (0x013F00 - perf_frame_start_vhpos) + end;
+    }
+
+    /* Store in ring buffer */
+    perf_frame_times[perf_frame_head] = delta;
+    perf_frame_head = (perf_frame_head + 1) % AB_PERF_FRAME_HISTORY;
+    if (perf_frame_count < AB_PERF_FRAME_HISTORY) {
+        perf_frame_count++;
+    }
+
+    /* Update stats */
+    perf_frame_total += delta;
+    perf_frame_num++;
+    if (delta < perf_frame_min) perf_frame_min = delta;
+    if (delta > perf_frame_max) perf_frame_max = delta;
+}
+
+void ab_perf_section_start(const char *label)
+{
+    int i;
+    if (!label) return;
+
+    /* Find existing section or allocate new one */
+    for (i = 0; i < AB_MAX_PERF_SECTIONS; i++) {
+        if (perf_sections[i].active &&
+            strcmp(perf_sections[i].label, label) == 0) {
+            perf_sections[i].start_vhpos = read_vhpos();
+            return;
+        }
+    }
+
+    /* Allocate new section */
+    for (i = 0; i < AB_MAX_PERF_SECTIONS; i++) {
+        if (!perf_sections[i].active) {
+            perf_sections[i].active = TRUE;
+            strncpy(perf_sections[i].label, label, 23);
+            perf_sections[i].label[23] = '\0';
+            perf_sections[i].start_vhpos = read_vhpos();
+            perf_sections[i].total = 0;
+            perf_sections[i].min_val = 0xFFFFFFFF;
+            perf_sections[i].max_val = 0;
+            perf_sections[i].count = 0;
+            return;
+        }
+    }
+}
+
+void ab_perf_section_end(const char *label)
+{
+    int i;
+    ULONG end, delta;
+
+    if (!label) return;
+
+    end = read_vhpos();
+
+    for (i = 0; i < AB_MAX_PERF_SECTIONS; i++) {
+        if (perf_sections[i].active &&
+            strcmp(perf_sections[i].label, label) == 0) {
+            if (end >= perf_sections[i].start_vhpos) {
+                delta = end - perf_sections[i].start_vhpos;
+            } else {
+                delta = (0x013F00 - perf_sections[i].start_vhpos) + end;
+            }
+
+            perf_sections[i].total += delta;
+            perf_sections[i].count++;
+            if (delta < perf_sections[i].min_val) {
+                perf_sections[i].min_val = delta;
+            }
+            if (delta > perf_sections[i].max_val) {
+                perf_sections[i].max_val = delta;
+            }
+            return;
+        }
+    }
 }

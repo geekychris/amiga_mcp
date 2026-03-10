@@ -51,6 +51,9 @@ static void handle_clientinfo(const char *args);
 static void handle_stop(const char *args);
 static void handle_script(const char *args);
 static void handle_writemem(const char *args);
+static void handle_listresources(const char *args);
+static void handle_getperf(const char *args);
+static void handle_lastcrash(void);
 
 static void send_line(const char *line)
 {
@@ -187,6 +190,34 @@ void protocol_parse_line(const char *line)
         handle_script(args);
     } else if (strcmp(cmd, "WRITEMEM") == 0) {
         handle_writemem(args);
+    } else if (strcmp(cmd, "SCREENSHOT") == 0) {
+        gfx_handle_screenshot(args);
+    } else if (strcmp(cmd, "PALETTE") == 0) {
+        gfx_handle_palette(args);
+    } else if (strcmp(cmd, "SETPALETTE") == 0) {
+        gfx_handle_setpalette(args);
+    } else if (strcmp(cmd, "COPPERLIST") == 0) {
+        gfx_handle_copperlist(args);
+    } else if (strcmp(cmd, "SPRITES") == 0) {
+        gfx_handle_sprites(args);
+    } else if (strcmp(cmd, "LISTWINDOWS") == 0) {
+        gfx_handle_listwindows(args);
+    } else if (strcmp(cmd, "LISTRESOURCES") == 0) {
+        handle_listresources(args);
+    } else if (strcmp(cmd, "GETPERF") == 0) {
+        handle_getperf(args);
+    } else if (strcmp(cmd, "LASTCRASH") == 0) {
+        handle_lastcrash();
+    } else if (strcmp(cmd, "CRASHINIT") == 0) {
+        crash_init();
+        send_ok("CRASHINIT", "Crash handler installed");
+    } else if (strcmp(cmd, "CRASHREMOVE") == 0) {
+        crash_cleanup();
+        send_ok("CRASHREMOVE", "Crash handler removed");
+    } else if (strcmp(cmd, "CRASHTEST") == 0) {
+        /* Trigger a non-fatal Alert to test the crash handler */
+        send_ok("CRASHTEST", "Triggering test alert...");
+        Alert(0x00010000); /* AG_NoMemory, recoverable */
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
         /* The main loop will exit via CTRL-C or window close */
@@ -1468,5 +1499,179 @@ static void handle_writemem(const char *args)
         sprintf(detail, "%08lx|%lu", (unsigned long)addr,
                 (unsigned long)datalen);
         send_ok("WRITEMEM", detail);
+    }
+}
+
+/*
+ * LISTRESOURCES|clientname
+ * Request resource tracking data from a client.
+ * Response: RESOURCES|client|count|type:tag:ptr:size:state,...
+ */
+static void handle_listresources(const char *args)
+{
+    struct ClientEntry *ce;
+    const char *clientName = args;
+
+    if (!clientName || clientName[0] == '\0') {
+        send_err("LISTRESOURCES", "client name required");
+        return;
+    }
+
+    ce = client_find_by_name(clientName);
+    if (!ce) {
+        send_err("LISTRESOURCES", "client not found");
+        return;
+    }
+
+    /* Send request to client */
+    ipc_send_to_client(ce->replyPort, ABMSG_GET_RESOURCES,
+                       ce->clientId, 0, NULL, 0);
+
+    /* The client will reply with resource data in the BridgeMsg.
+     * ipc_send_to_client waits for reply, so after it returns
+     * we need to read the reply data. However, the current
+     * ipc_send_to_client doesn't return the reply data.
+     * Use a different approach: send msg and get reply. */
+
+    /* For now, use a direct approach with a temp port */
+    {
+        struct MsgPort *tempPort;
+        struct BridgeMsg sendMsg;
+        struct Message *reply;
+        int retries;
+
+        tempPort = CreateMsgPort();
+        if (!tempPort) {
+            send_err("LISTRESOURCES", "cannot create port");
+            return;
+        }
+
+        memset(&sendMsg, 0, sizeof(sendMsg));
+        sendMsg.msg.mn_Length = sizeof(struct BridgeMsg);
+        sendMsg.msg.mn_ReplyPort = tempPort;
+        sendMsg.version = 1;
+        sendMsg.type = ABMSG_GET_RESOURCES;
+        sendMsg.clientId = ce->clientId;
+
+        PutMsg(ce->replyPort, (struct Message *)&sendMsg);
+
+        /* Wait for reply with timeout */
+        reply = NULL;
+        retries = 20;
+        while (retries > 0) {
+            reply = GetMsg(tempPort);
+            if (reply) break;
+            if (SetSignal(0L, 0L) & (1UL << tempPort->mp_SigBit)) {
+                reply = GetMsg(tempPort);
+                if (reply) break;
+            }
+            Delay(5);
+            retries--;
+        }
+
+        if (reply) {
+            struct BridgeMsg *rbm = (struct BridgeMsg *)reply;
+            static char resbuf[BRIDGE_MAX_LINE];
+            int pos;
+
+            /* Format: RESOURCES|client|data_from_client */
+            pos = sprintf(resbuf, "RESOURCES|%s|%s",
+                          ce->name, rbm->data);
+            resbuf[BRIDGE_MAX_LINE - 1] = '\0';
+            send_line(resbuf);
+        } else {
+            send_err("LISTRESOURCES", "client timeout");
+        }
+
+        DeleteMsgPort(tempPort);
+    }
+}
+
+/*
+ * GETPERF|clientname
+ * Request performance profiling data from a client.
+ * Response: PERF|client|frame_avg|frame_min|frame_max|frame_count|section1:avg:min:max:count,...
+ */
+static void handle_getperf(const char *args)
+{
+    struct ClientEntry *ce;
+    const char *clientName = args;
+
+    if (!clientName || clientName[0] == '\0') {
+        send_err("GETPERF", "client name required");
+        return;
+    }
+
+    ce = client_find_by_name(clientName);
+    if (!ce) {
+        send_err("GETPERF", "client not found");
+        return;
+    }
+
+    {
+        struct MsgPort *tempPort;
+        struct BridgeMsg sendMsg;
+        struct Message *reply;
+        int retries;
+
+        tempPort = CreateMsgPort();
+        if (!tempPort) {
+            send_err("GETPERF", "cannot create port");
+            return;
+        }
+
+        memset(&sendMsg, 0, sizeof(sendMsg));
+        sendMsg.msg.mn_Length = sizeof(struct BridgeMsg);
+        sendMsg.msg.mn_ReplyPort = tempPort;
+        sendMsg.version = 1;
+        sendMsg.type = ABMSG_GET_PERF;
+        sendMsg.clientId = ce->clientId;
+
+        PutMsg(ce->replyPort, (struct Message *)&sendMsg);
+
+        reply = NULL;
+        retries = 20;
+        while (retries > 0) {
+            reply = GetMsg(tempPort);
+            if (reply) break;
+            if (SetSignal(0L, 0L) & (1UL << tempPort->mp_SigBit)) {
+                reply = GetMsg(tempPort);
+                if (reply) break;
+            }
+            Delay(5);
+            retries--;
+        }
+
+        if (reply) {
+            struct BridgeMsg *rbm = (struct BridgeMsg *)reply;
+            static char perfbuf[BRIDGE_MAX_LINE];
+
+            /* Format: PERF|client|data_from_client
+             * Client data format: frame_avg|frame_min|frame_max|frame_count|sections... */
+            sprintf(perfbuf, "PERF|%s|%s", ce->name, rbm->data);
+            perfbuf[BRIDGE_MAX_LINE - 1] = '\0';
+            send_line(perfbuf);
+        } else {
+            send_err("GETPERF", "client timeout");
+        }
+
+        DeleteMsgPort(tempPort);
+    }
+}
+
+/*
+ * LASTCRASH
+ * Returns the last crash/guru meditation info captured by the crash handler.
+ * Response: CRASH|alert_hex|alert_name|D0:...:D7|A0:...:A7|SP|stack_hex
+ *       or: ERR|LASTCRASH|no crash data
+ */
+static void handle_lastcrash(void)
+{
+    static char buf[BRIDGE_MAX_LINE];
+
+    if (crash_get_last(buf, BRIDGE_MAX_LINE) == 0) {
+        send_line(buf);
+    } else {
+        send_err("LASTCRASH", "no crash data");
     }
 }

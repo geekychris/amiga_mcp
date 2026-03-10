@@ -4,13 +4,16 @@ Line-based text protocol over serial/TCP, pipe-delimited fields.
 
 Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
                DIR, FILE, FILEINFO, PROC, CLOG, CVAR, HOOKS, MEMREGS,
-               CINFO, DEVICES, ERR, OK
+               CINFO, DEVICES, ERR, OK, SCRINFO, SCRDATA, PALETTE,
+               COPPER, SPRITE, CRASH, RESOURCES, PERF
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
                DOSCOMMAND, RUN, BREAK, LISTHOOKS, CALLHOOK,
                LISTMEMREGS, READMEMREG, CLIENTINFO, STOP, SCRIPT,
-               WRITEMEM, SHUTDOWN
+               WRITEMEM, SHUTDOWN, SCREENSHOT, PALETTE, SETPALETTE,
+               COPPERLIST, SPRITES, LISTRESOURCES, GETPERF, LASTCRASH,
+               LISTWINDOWS
 """
 
 from __future__ import annotations
@@ -302,6 +305,144 @@ def parse_message(line: str) -> dict[str, Any] | None:
                     devs.append({"name": entry, "version": ""})
         return {"type": "DEVICES", "count": count, "devices": devs}
 
+    if msg_type == "SCRINFO":
+        # Format: SCRINFO|width|height|depth|r0g0b0,r1g1b1,...
+        if len(parts) < 5:
+            return None
+        return {
+            "type": "SCRINFO",
+            "width": _int(parts[1]),
+            "height": _int(parts[2]),
+            "depth": _int(parts[3]),
+            "palette": parts[4],
+        }
+
+    if msg_type == "SCRDATA":
+        # Format: SCRDATA|row|plane|hex_data
+        if len(parts) < 4:
+            return None
+        return {
+            "type": "SCRDATA",
+            "row": _int(parts[1]),
+            "plane": _int(parts[2]),
+            "hexData": parts[3],
+        }
+
+    if msg_type == "PALETTE":
+        # Format: PALETTE|depth|r0g0b0,r1g1b1,...
+        if len(parts) < 3:
+            return None
+        return {
+            "type": "PALETTE",
+            "depth": _int(parts[1]),
+            "palette": parts[2],
+        }
+
+    if msg_type == "COPPER":
+        # Format: COPPER|addr_hex|count|hex_data
+        if len(parts) < 4:
+            return None
+        return {
+            "type": "COPPER",
+            "address": parts[1],
+            "count": _int(parts[2]),
+            "hexData": parts[3],
+        }
+
+    if msg_type == "SPRITE":
+        # Format: SPRITE|id|vstart|vstop|hstart|attached|hex_data
+        if len(parts) < 7:
+            return None
+        return {
+            "type": "SPRITE",
+            "id": _int(parts[1]),
+            "vstart": _int(parts[2]),
+            "vstop": _int(parts[3]),
+            "hstart": _int(parts[4]),
+            "attached": _int(parts[5]) != 0,
+            "hexData": parts[6],
+        }
+
+    if msg_type == "CRASH":
+        # Format: CRASH|alert_hex|alert_name|D0:D1:...:D7|A0:A1:...:A7|SP|stack_hex
+        return {
+            "type": "CRASH",
+            "alertNum": parts[1] if len(parts) > 1 else "00000000",
+            "alertName": parts[2] if len(parts) > 2 else "Unknown",
+            "dataRegs": parts[3].split(":") if len(parts) > 3 else [],
+            "addrRegs": parts[4].split(":") if len(parts) > 4 else [],
+            "sp": parts[5] if len(parts) > 5 else "00000000",
+            "stackHex": parts[6] if len(parts) > 6 else "",
+            "timestamp": now,
+        }
+
+    if msg_type == "RESOURCES":
+        # Format: RESOURCES|client|count|type:tag:ptr:size:state,...
+        client = parts[1] if len(parts) > 1 else ""
+        raw_data = parts[2] if len(parts) > 2 else ""
+        # The client data format is "count|entries"
+        res_parts = raw_data.split("|", 1)
+        count = _int(res_parts[0]) if res_parts else 0
+        resources: list[dict] = []
+        entries_raw = res_parts[1] if len(res_parts) > 1 else ""
+        if entries_raw:
+            for entry in entries_raw.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                rp = entry.split(":", 4)
+                if len(rp) >= 5:
+                    resources.append({
+                        "type": rp[0],
+                        "tag": rp[1],
+                        "ptr": rp[2],
+                        "size": _int(rp[3]),
+                        "state": rp[4],
+                    })
+                elif entry:
+                    resources.append({"type": "?", "tag": entry, "ptr": "0", "size": 0, "state": "?"})
+        return {"type": "RESOURCES", "client": client, "count": count, "resources": resources}
+
+    if msg_type == "PERF":
+        # Format: PERF|client|frame_avg|frame_min|frame_max|frame_count|section1:avg:min:max:count,...
+        client = parts[1] if len(parts) > 1 else ""
+        raw_data = parts[2] if len(parts) > 2 else ""
+        # Client data format: frame_avg|frame_min|frame_max|frame_count|sections...
+        perf_parts = raw_data.split("|")
+        frame_avg = _int(perf_parts[0]) if len(perf_parts) > 0 else 0
+        frame_min = _int(perf_parts[1]) if len(perf_parts) > 1 else 0
+        frame_max = _int(perf_parts[2]) if len(perf_parts) > 2 else 0
+        frame_count = _int(perf_parts[3]) if len(perf_parts) > 3 else 0
+        sections: list[dict] = []
+        if len(perf_parts) > 4 and perf_parts[4]:
+            for entry in perf_parts[4].split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                sp = entry.split(":", 4)
+                if len(sp) >= 5:
+                    sections.append({
+                        "label": sp[0],
+                        "avg": _int(sp[1]),
+                        "min": _int(sp[2]),
+                        "max": _int(sp[3]),
+                        "count": _int(sp[4]),
+                    })
+        return {
+            "type": "PERF",
+            "client": client,
+            "frameAvg": frame_avg,
+            "frameMin": frame_min,
+            "frameMax": frame_max,
+            "frameCount": frame_count,
+            "sections": sections,
+        }
+
+    if msg_type == "WINLIST":
+        # Format: WINLIST|title1|title2|...
+        windows = parts[1:] if len(parts) > 1 else []
+        return {"type": "WINLIST", "windows": windows}
+
     if msg_type == "CDBG":
         # Debug dump from client_debug_dump - pass through as LOG
         return {
@@ -376,6 +517,31 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"WRITEMEM|{cmd['address']}|{cmd['hexData']}"
     if t == "SHUTDOWN":
         return "SHUTDOWN"
+    if t == "SCREENSHOT":
+        window = cmd.get("window", "")
+        return f"SCREENSHOT|{window}" if window else "SCREENSHOT"
+    if t == "PALETTE":
+        return "PALETTE"
+    if t == "SETPALETTE":
+        return f"SETPALETTE|{cmd['index']}|{cmd['rgb']}"
+    if t == "COPPERLIST":
+        return "COPPERLIST"
+    if t == "SPRITES":
+        return "SPRITES"
+    if t == "LISTRESOURCES":
+        return f"LISTRESOURCES|{cmd['client']}"
+    if t == "GETPERF":
+        return f"GETPERF|{cmd['client']}"
+    if t == "LASTCRASH":
+        return "LASTCRASH"
+    if t == "LISTWINDOWS":
+        return "LISTWINDOWS"
+    if t == "CRASHINIT":
+        return "CRASHINIT"
+    if t == "CRASHREMOVE":
+        return "CRASHREMOVE"
+    if t == "CRASHTEST":
+        return "CRASHTEST"
     raise ValueError(f"Unknown command type: {t}")
 
 

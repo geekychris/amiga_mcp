@@ -644,6 +644,115 @@ async def api_write_memory(request: Request) -> JSONResponse:
     return JSONResponse({"status": "timeout"})
 
 
+async def api_run_cycle(request: Request) -> JSONResponse:
+    """Build, deploy, stop old instance, launch, and wait for client connect."""
+    assert _builder is not None and _deployer is not None
+    assert _conn is not None and _event_bus is not None
+
+    body = await request.json()
+    project = body.get("project", "")
+    if not project:
+        return JSONResponse({"error": "Missing 'project' field"}, status_code=400)
+
+    command = body.get("command")
+    binary_name = project.rstrip("/").split("/")[-1]
+    launch_command = command or f"Dropbox:Dev/{binary_name}"
+
+    result: dict[str, Any] = {"project": project, "binary": binary_name}
+
+    # 1. Build
+    build_result = await _builder.build(project)
+    result["build"] = {
+        "success": build_result.success,
+        "duration_ms": build_result.duration,
+        "output": build_result.output or "",
+        "errors": build_result.errors or "",
+    }
+    if not build_result.success:
+        return JSONResponse(result)
+
+    # 2. Deploy
+    deploy_result = _deployer.deploy(project)
+    result["deploy"] = {
+        "success": deploy_result.success,
+        "message": deploy_result.message,
+        "files": deploy_result.files if deploy_result.files else [],
+    }
+    if not deploy_result.success:
+        return JSONResponse(result)
+
+    # 3. Stop existing client (if connected)
+    stop_status = "skipped"
+    stop_message = ""
+    if _conn.connected:
+        try:
+            async with _event_bus.subscribe("ok", "err") as queue:
+                _conn.send({"type": "STOP", "name": binary_name})
+                deadline = asyncio.get_event_loop().time() + 2.0
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        stop_status = "timeout"
+                        break
+                    try:
+                        evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                        ctx = data.get("context", "")
+                        if "STOP" in ctx or "Client" in ctx:
+                            stop_status = "ok" if evt == "ok" else "error"
+                            stop_message = data.get("message", "")
+                            break
+                    except asyncio.TimeoutError:
+                        stop_status = "timeout"
+                        break
+        except Exception as e:
+            stop_status = "error"
+            stop_message = str(e)
+
+        await asyncio.sleep(0.3)
+    result["stop"] = {"status": stop_status, "message": stop_message}
+
+    # 4. Launch
+    launch_status = "skipped"
+    launch_output = ""
+    if _conn.connected:
+        cmd_id = int(time.time() * 1000) % 100000
+        try:
+            _conn.send({"type": "LAUNCH", "id": cmd_id, "command": launch_command})
+            msg = await _event_bus.wait_for(
+                "cmd", timeout=5.0,
+                predicate=lambda d: d.get("id") == cmd_id,
+            )
+            if msg:
+                launch_status = msg["status"]
+                launch_output = msg.get("data", "")
+            else:
+                launch_status = "sent"
+                launch_output = f"No response for: {launch_command}"
+        except Exception as e:
+            launch_status = "error"
+            launch_output = str(e)
+    result["launch"] = {"status": launch_status, "command": launch_command, "output": launch_output}
+
+    # 5. Wait for client to appear
+    client_connected = False
+    if _conn.connected:
+        for attempt in range(6):
+            await asyncio.sleep(0.5)
+            try:
+                _conn.send({"type": "LISTCLIENTS"})
+                clients_msg = await _event_bus.wait_for("clients", timeout=1.0)
+                if clients_msg:
+                    names = clients_msg.get("names", [])
+                    if binary_name in names:
+                        client_connected = True
+                        break
+            except Exception:
+                pass
+    result["client"] = {"connected": client_connected, "name": binary_name}
+
+    return JSONResponse(result)
+
+
 async def api_ping(request: Request) -> JSONResponse:
     assert _conn is not None and _event_bus is not None
     if not _conn.connected:
@@ -815,6 +924,271 @@ def create_app(args: Any) -> Starlette:
                 await sim.stop()
             logger.info("Shut down complete")
 
+    # ─── Tool API endpoints ───
+
+    # Fixed screenshot save path
+    _screenshot_dir = Path("/tmp/amiga-screenshots")
+    _screenshot_dir.mkdir(exist_ok=True)
+    _last_screenshot_path: list[str] = [""]  # mutable container for closure
+
+    async def api_tool_screenshot(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        window = request.query_params.get("window", "")
+        cmd = {"type": "SCREENSHOT"}
+        if window:
+            cmd["window"] = window
+        _conn.send(cmd)
+        # Collect SCRINFO + SCRDATA
+        scrinfo = await _event_bus.wait_for("scrinfo", timeout=5.0)
+        if not scrinfo:
+            return JSONResponse({"error": "No SCRINFO response"})
+        rows = scrinfo.get("height", 0)
+        depth = scrinfo.get("depth", 0)
+        total_lines = rows * depth
+        scrdata_lines = []
+        deadline = asyncio.get_event_loop().time() + 15.0
+        while len(scrdata_lines) < total_lines:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            msg = await _event_bus.wait_for("scrdata", timeout=remaining)
+            if msg:
+                scrdata_lines.append(msg)
+        try:
+            from .screenshot import save_screenshot
+            # Save to fixed location with timestamp
+            import datetime
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            label = window.replace(" ", "_") if window else "screen"
+            filename = f"{label}_{ts}.png"
+            save_path = str(_screenshot_dir / filename)
+            path = save_screenshot(scrinfo, scrdata_lines, save_path)
+            _last_screenshot_path[0] = path
+            return JSONResponse({
+                "path": path,
+                "filename": filename,
+                "viewUrl": f"/api/screenshot/view?file={filename}",
+                "width": scrinfo.get("width"),
+                "height": rows,
+                "depth": depth,
+            })
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+
+    async def api_screenshot_view(request: Request) -> Response:
+        filename = request.query_params.get("file", "")
+        if filename:
+            path = _screenshot_dir / filename
+        elif _last_screenshot_path[0]:
+            path = Path(_last_screenshot_path[0])
+        else:
+            return Response("No screenshot available", status_code=404)
+        if not path.exists():
+            return Response("Screenshot not found", status_code=404)
+        # Prevent path traversal
+        if not str(path.resolve()).startswith(str(_screenshot_dir.resolve())):
+            return Response("Invalid path", status_code=400)
+        content_type = "image/png" if str(path).endswith(".png") else "image/x-portable-pixmap"
+        return Response(path.read_bytes(), media_type=content_type)
+
+    async def api_screenshot_list(request: Request) -> JSONResponse:
+        files = sorted(_screenshot_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return JSONResponse({"screenshots": [
+            {"filename": f.name, "viewUrl": f"/api/screenshot/view?file={f.name}"}
+            for f in files[:20]
+        ]})
+
+    async def api_windows(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "LISTWINDOWS"})
+        msg = await _event_bus.wait_for("winlist", timeout=3.0)
+        if msg:
+            return JSONResponse({"windows": msg.get("windows", [])})
+        return JSONResponse({"windows": []})
+
+    async def api_tool_palette(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "PALETTE"})
+        msg = await _event_bus.wait_for("palette", timeout=5.0)
+        if msg:
+            # Parse palette string "rgb,rgb,..." into list of ints
+            palette_str = msg.get("palette", "")
+            colors = []
+            if palette_str:
+                for entry in palette_str.split(","):
+                    entry = entry.strip()
+                    if len(entry) >= 3:
+                        r = int(entry[0], 16)
+                        g = int(entry[1], 16)
+                        b = int(entry[2], 16)
+                        colors.append((r << 8) | (g << 4) | b)
+                    else:
+                        colors.append(0)
+            return JSONResponse({"depth": msg.get("depth"), "colors": colors})
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_copper(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "COPPERLIST"})
+        # Collect all COPPER chunks (bridge sends in multiple messages)
+        all_hex = ""
+        base_addr = 0
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            msg = await _event_bus.wait_for("copper", timeout=remaining)
+            if not msg:
+                break
+            hex_data = msg.get("hexData", "")
+            if not all_hex:
+                addr_str = msg.get("address", "0")
+                base_addr = int(addr_str, 16) if isinstance(addr_str, str) else addr_str
+            all_hex += hex_data
+        if not all_hex:
+            return JSONResponse({"error": "No copper list data"})
+        try:
+            from .copper import decode_copper_list
+            listing = decode_copper_list(all_hex, base_addr)
+            return JSONResponse({"listing": listing})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+
+    async def api_tool_sprites(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "SPRITES"})
+        lines = []
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            msg = await _event_bus.wait_for("sprite", timeout=remaining)
+            if msg:
+                lines.append(f"Sprite {msg.get('id',0)}: VSTART={msg.get('vstart',0)} VSTOP={msg.get('vstop',0)} HSTART={msg.get('hstart',0)} ATT={msg.get('attached',0)}")
+            else:
+                break
+        return JSONResponse({"listing": "\n".join(lines) if lines else "No sprite data"})
+
+    async def api_tool_disasm(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        addr_str = request.query_params.get("address", "0")
+        count = int(request.query_params.get("count", "20"))
+        addr = int(addr_str.replace("$", "").replace("0x", ""), 16)
+        size = min(count * 10, 4096)
+        cmd_id = int(time.time() * 1000) % 100000
+        _conn.send({"type": "INSPECT", "address": f"{addr:08X}", "size": str(size)})
+        msg = await _event_bus.wait_for("mem", timeout=5.0)
+        if msg:
+            try:
+                from .disasm import disassemble_hex, format_listing
+                hex_data = msg.get("hexData", "")
+                result = disassemble_hex(hex_data, addr, count)
+                listing = format_listing(result)
+                return JSONResponse({"listing": listing})
+            except Exception as e:
+                return JSONResponse({"error": str(e)})
+        return JSONResponse({"error": "No memory data response"})
+
+    async def api_tool_crash(request: Request) -> JSONResponse:
+        if _state and _state.last_crash:
+            c = _state.last_crash
+            report = f"Alert: ${c.get('alertNum', '?')} ({c.get('alertName', '?')})\n"
+            dregs = c.get('dataRegs', [])
+            aregs = c.get('addrRegs', [])
+            if dregs:
+                report += "D0-D7: " + " ".join(dregs) + "\n"
+            if aregs:
+                report += "A0-A7: " + " ".join(aregs) + "\n"
+            report += f"SP: ${c.get('sp', '?')}\n"
+            stack = c.get('stackHex', '')
+            if stack:
+                # Format stack hex as 4-byte groups
+                groups = [stack[i:i+8] for i in range(0, len(stack), 8)]
+                report += "Stack: " + " ".join(groups) + "\n"
+            return JSONResponse({"report": report, "crash": c})
+        return JSONResponse({"report": "No crash recorded"})
+
+    async def api_crash_enable(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CRASHINIT"})
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        return JSONResponse({"status": "Crash handler enabled"})
+
+    async def api_crash_disable(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CRASHREMOVE"})
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        return JSONResponse({"status": "Crash handler disabled"})
+
+    async def api_crashtest(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        # Auto-enable crash handler before testing
+        _conn.send({"type": "CRASHINIT"})
+        await _event_bus.wait_for("ok", timeout=3.0)
+        _conn.send({"type": "CRASHTEST"})
+        msg = await _event_bus.wait_for("crash", timeout=10.0)
+        if msg:
+            return JSONResponse({"status": "Crash captured", "crash": msg})
+        return JSONResponse({"status": "Alert sent but no crash data received (guru may have been dismissed)"})
+
+    async def api_tool_resources(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        client = request.query_params.get("client", "")
+        if not client:
+            return JSONResponse({"error": "Missing client parameter"})
+        _conn.send({"type": "LISTRESOURCES", "client": client})
+        msg = await _event_bus.wait_for("resources", timeout=5.0)
+        if msg:
+            return JSONResponse({"report": str(msg)})
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_perf(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        client = request.query_params.get("client", "")
+        if not client:
+            return JSONResponse({"error": "Missing client parameter"})
+        _conn.send({"type": "GETPERF", "client": client})
+        msg = await _event_bus.wait_for("perf", timeout=5.0)
+        if msg:
+            return JSONResponse({"report": str(msg)})
+        return JSONResponse({"error": "No response"})
+
+    async def api_projects(request: Request) -> JSONResponse:
+        root = str(_builder._root) if _builder else "."
+        examples_dir = Path(root) / "examples"
+        projects = []
+        if examples_dir.exists():
+            for d in sorted(examples_dir.iterdir()):
+                if d.is_dir() and (d / "Makefile").exists():
+                    projects.append(d.name)
+        return JSONResponse({"projects": projects})
+
+    async def api_tool_create_project(request: Request) -> JSONResponse:
+        body = await request.json()
+        name = body.get("name", "")
+        template = body.get("template", "window")
+        if not name:
+            return JSONResponse({"error": "Missing project name"}, status_code=400)
+        try:
+            from .scaffolder import create_project
+            result = create_project(str(_builder._root) if _builder else ".", name, template)
+            return JSONResponse({"message": result})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+
     # Define routes
     routes = [
         # Web API
@@ -839,10 +1213,28 @@ def create_app(args: Any) -> Starlette:
         Route("/api/memregions/read", api_read_memregion, methods=["POST"]),
         Route("/api/client-info", api_client_info, methods=["GET"]),
         Route("/api/stop", api_stop, methods=["POST"]),
+        Route("/api/run-cycle", api_run_cycle, methods=["POST"]),
         Route("/api/script", api_script, methods=["POST"]),
         Route("/api/memory/write", api_write_memory, methods=["POST"]),
         Route("/api/connect", api_connect, methods=["POST"]),
         Route("/api/disconnect", api_disconnect, methods=["POST"]),
+        # Tool endpoints
+        Route("/api/screenshot", api_tool_screenshot, methods=["GET"]),
+        Route("/api/screenshot/view", api_screenshot_view, methods=["GET"]),
+        Route("/api/screenshot/list", api_screenshot_list, methods=["GET"]),
+        Route("/api/windows", api_windows, methods=["GET"]),
+        Route("/api/palette", api_tool_palette, methods=["GET"]),
+        Route("/api/copper", api_tool_copper, methods=["GET"]),
+        Route("/api/sprites", api_tool_sprites, methods=["GET"]),
+        Route("/api/disasm", api_tool_disasm, methods=["GET"]),
+        Route("/api/crash", api_tool_crash, methods=["GET"]),
+        Route("/api/crash/enable", api_crash_enable, methods=["POST"]),
+        Route("/api/crash/disable", api_crash_disable, methods=["POST"]),
+        Route("/api/crashtest", api_crashtest, methods=["POST"]),
+        Route("/api/resources", api_tool_resources, methods=["GET"]),
+        Route("/api/perf", api_tool_perf, methods=["GET"]),
+        Route("/api/projects", api_projects, methods=["GET"]),
+        Route("/api/create-project", api_tool_create_project, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),

@@ -77,4 +77,32 @@ void ab_register_memregion(const char *name, APTR addr, ULONG size,
 /* Unregister a memory region */
 void ab_unregister_memregion(const char *name);
 
+/* ---- Resource Tracker ---- */
+
+/* Track a memory allocation for leak detection */
+void ab_track_alloc(const char *tag, APTR ptr, ULONG size);
+
+/* Track a memory free (marks allocation as freed) */
+void ab_track_free(APTR ptr);
+
+/* Track opening a resource handle (file, library, device, etc.) */
+void ab_track_open(const char *tag, APTR handle);
+
+/* Track closing a resource handle */
+void ab_track_close(APTR handle);
+
+/* ---- Performance Profiler ---- */
+
+/* Mark the start of a frame (call once per main loop iteration) */
+void ab_perf_frame_start(void);
+
+/* Mark the end of a frame */
+void ab_perf_frame_end(void);
+
+/* Mark the start of a named code section within a frame */
+void ab_perf_section_start(const char *label);
+
+/* Mark the end of a named code section */
+void ab_perf_section_end(const char *label);
+
 #endif /* BRIDGE_CLIENT_H */

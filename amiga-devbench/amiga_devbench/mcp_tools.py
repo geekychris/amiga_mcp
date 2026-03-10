@@ -10,10 +10,14 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .protocol import format_hex_dump, level_name
+from .disasm import disassemble_hex, format_listing
 from .state import AmigaState, EventBus
 from .serial_conn import SerialConnection
 from .builder import Builder
 from .deployer import Deployer
+from .scaffolder import create_project
+from .screenshot import save_screenshot, parse_palette
+from .copper import decode_copper_list, format_copper_list
 
 logger = logging.getLogger(__name__)
 
@@ -660,3 +664,557 @@ async def amiga_build_deploy_run(project: str, command: str | None = None) -> st
             result += f"\nLaunch command sent: {command}"
 
     return result
+
+
+@mcp.tool()
+async def amiga_run(project: str, command: str | None = None) -> str:
+    """Build, deploy, stop previous instance, and launch an Amiga program. One-shot development cycle."""
+    assert _builder is not None and _deployer is not None
+
+    steps: list[str] = []
+    binary_name = project.rstrip("/").split("/")[-1]
+    launch_command = command or f"Dropbox:Dev/{binary_name}"
+
+    # 1. Build
+    build_result = await _builder.build(project)
+    steps.append(f"Build: {'OK' if build_result.success else 'FAILED'} ({build_result.duration}ms)")
+    if not build_result.success:
+        if build_result.errors:
+            steps.append(f"Errors:\n{build_result.errors}")
+        return "\n".join(steps)
+
+    # 2. Deploy
+    deploy_result = _deployer.deploy(project)
+    steps.append(f"Deploy: {'OK' if deploy_result.success else 'FAILED'} - {deploy_result.message}")
+    if not deploy_result.success:
+        return "\n".join(steps)
+
+    # 3. Stop existing client (if connected)
+    if _conn and _conn.connected:
+        assert _event_bus is not None
+        try:
+            async with _event_bus.subscribe("ok", "err") as queue:
+                _conn.send({"type": "STOP", "name": binary_name})
+                deadline = asyncio.get_event_loop().time() + 2.0
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        break
+                    try:
+                        evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                        ctx = data.get("context", "")
+                        if "STOP" in ctx or "Client" in ctx:
+                            msg_text = data.get("message", binary_name)
+                            steps.append(f"Stop: [{evt}] {msg_text}")
+                            break
+                    except asyncio.TimeoutError:
+                        break
+                else:
+                    steps.append(f"Stop: sent (no confirmation)")
+        except Exception:
+            steps.append(f"Stop: skipped (send failed)")
+
+        # Brief pause to let the old process clean up
+        await asyncio.sleep(0.3)
+
+        # 4. Launch
+        cmd_id = int(time.time() * 1000) % 100000
+        try:
+            _conn.send({"type": "LAUNCH", "id": cmd_id, "command": launch_command})
+            msg = await _event_bus.wait_for(
+                "cmd", timeout=5.0,
+                predicate=lambda d: d.get("id") == cmd_id,
+            )
+            if msg:
+                steps.append(f"Launch: [{msg['status']}] {msg.get('data', '')}")
+            else:
+                steps.append(f"Launch: sent {launch_command} (no response)")
+        except Exception as e:
+            steps.append(f"Launch: failed ({e})")
+
+        # 5. Wait for client to appear
+        client_connected = False
+        for attempt in range(6):
+            await asyncio.sleep(0.5)
+            try:
+                _conn.send({"type": "LISTCLIENTS"})
+                clients_msg = await _event_bus.wait_for("clients", timeout=1.0)
+                if clients_msg:
+                    names = clients_msg.get("names", [])
+                    if binary_name in names:
+                        client_connected = True
+                        break
+            except Exception:
+                pass
+        steps.append(f"Client: {'connected' if client_connected else 'not detected (timeout)'}")
+    else:
+        steps.append("Stop: skipped (not connected to Amiga)")
+        steps.append("Launch: skipped (not connected to Amiga)")
+        steps.append("Client: skipped (not connected to Amiga)")
+
+    return "\n".join(steps)
+
+
+# ─── Project Scaffolding ───
+
+@mcp.tool()
+async def amiga_create_project(name: str, template: str = "window") -> str:
+    """Create a new Amiga project with boilerplate code. Templates: window, screen, headless."""
+    assert _builder is not None
+    project_root = _builder._root
+    return create_project(project_root, name, template)
+
+
+# ─── Disassembly Tool ───
+
+@mcp.tool()
+async def amiga_disassemble(address: str, count: int = 20) -> str:
+    """Disassemble 68k machine code at a memory address on the Amiga.
+    Returns an assembly listing with addresses, hex bytes, and mnemonics.
+    Annotates JSR/JMP through A6 with exec.library, dos.library, intuition.library,
+    and graphics.library LVO names when recognized."""
+    conn, state, bus = _require_connected()
+
+    # Read enough bytes: max 68k instruction is 10 bytes, plus we want some margin
+    read_size = min(count * 10, 4096)
+    addr_int = int(address, 16) if isinstance(address, str) else address
+    addr_hex = f"{addr_int:08X}"
+
+    chunks: list[dict] = []
+    async with bus.subscribe("mem", "err") as queue:
+        conn.send({"type": "INSPECT", "address": addr_hex, "size": read_size})
+        deadline = asyncio.get_event_loop().time() + 15.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "INSPECT" in data.get("context", ""):
+                    return f"Cannot read memory at ${addr_hex}: {data.get('message', 'not accessible')}"
+                if evt == "mem":
+                    chunks.append(data)
+                    received = sum(c["size"] for c in chunks)
+                    if received >= read_size:
+                        break
+            except asyncio.TimeoutError:
+                break
+
+    if not chunks:
+        return f"Timed out reading memory at ${addr_hex}"
+
+    hex_data = "".join(c["hexData"] for c in chunks)
+    instructions = disassemble_hex(hex_data, addr_int, count)
+    if not instructions:
+        return f"No instructions decoded at ${addr_hex}"
+
+    return format_listing(instructions)
+
+
+# ─── Screenshot Tool ───
+
+@mcp.tool()
+async def amiga_screenshot(window: str = "") -> str:
+    """Capture a screenshot of the Amiga screen or a specific window. Returns the image file path."""
+    conn, state, bus = _require_connected()
+
+    scrinfo_msg = None
+    scrdata_msgs: list[dict] = []
+    expected_total = 0
+
+    async with bus.subscribe("scrinfo", "scrdata", "err") as queue:
+        if window:
+            conn.send({"type": "SCREENSHOT", "window": window})
+        else:
+            conn.send({"type": "SCREENSHOT"})
+
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "SCREENSHOT" in data.get("context", ""):
+                    return f"Screenshot failed: {data.get('message', 'unknown error')}"
+                if evt == "scrinfo":
+                    scrinfo_msg = data
+                    expected_total = data["height"] * data["depth"]
+                elif evt == "scrdata":
+                    scrdata_msgs.append(data)
+                    if scrinfo_msg and len(scrdata_msgs) >= expected_total:
+                        break
+            except asyncio.TimeoutError:
+                break
+
+    if not scrinfo_msg:
+        return "Timed out waiting for screenshot header"
+
+    if not scrdata_msgs:
+        return f"Got header ({scrinfo_msg['width']}x{scrinfo_msg['height']}x{scrinfo_msg['depth']}) but no pixel data"
+
+    path = save_screenshot(scrinfo_msg, scrdata_msgs)
+    return f"Screenshot saved: {path} ({scrinfo_msg['width']}x{scrinfo_msg['height']}, {scrinfo_msg['depth']} planes, {len(scrdata_msgs)} rows received)"
+
+
+# ─── Palette Tools ───
+
+@mcp.tool()
+async def amiga_get_palette(screen: str = "") -> str:
+    """Read the color palette of the current Amiga screen."""
+    conn, state, bus = _require_connected()
+
+    async with bus.subscribe("palette", "err") as queue:
+        conn.send({"type": "PALETTE"})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "PALETTE" in data.get("context", ""):
+                    return f"Palette read failed: {data.get('message', 'unknown error')}"
+                if evt == "palette":
+                    depth = data["depth"]
+                    colors = parse_palette(data["palette"])
+                    num_colors = len(colors)
+                    lines = [f"Palette ({num_colors} colors, depth={depth}):"]
+                    for i, (r, g, b) in enumerate(colors):
+                        # Show both 4-bit and 8-bit values
+                        r4 = r // 17
+                        g4 = g // 17
+                        b4 = b // 17
+                        lines.append(
+                            f"  {i:2d}: ${r4:X}{g4:X}{b4:X}  "
+                            f"R={r:3d} G={g:3d} B={b:3d}  "
+                            f"#{r:02X}{g:02X}{b:02X}"
+                        )
+                    return "\n".join(lines)
+            except asyncio.TimeoutError:
+                break
+    return "Timed out waiting for palette data"
+
+
+@mcp.tool()
+async def amiga_set_palette(index: int, r: int, g: int, b: int) -> str:
+    """Set a color in the Amiga screen palette. r/g/b are 0-15 (OCS 4-bit RGB)."""
+    conn, state, bus = _require_connected()
+
+    if not (0 <= r <= 15 and 0 <= g <= 15 and 0 <= b <= 15):
+        return "Error: r, g, b must be 0-15"
+    if index < 0 or index > 255:
+        return "Error: index must be 0-255"
+
+    rgb_hex = f"{r:X}{g:X}{b:X}"
+
+    async with bus.subscribe("ok", "err") as queue:
+        conn.send({"type": "SETPALETTE", "index": index, "rgb": rgb_hex})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if "SETPALETTE" in data.get("context", ""):
+                    if evt == "ok":
+                        return f"Color {index} set to ${rgb_hex} (R={r} G={g} B={b})"
+                    return f"Error: {data.get('message', 'failed')}"
+            except asyncio.TimeoutError:
+                break
+    return "Set palette command sent (no confirmation)"
+
+
+# ─── Copper List Tool ───
+
+@mcp.tool()
+async def amiga_copper_list() -> str:
+    """Read and decode the current Amiga copper list."""
+    conn, state, bus = _require_connected()
+
+    copper_chunks: list[dict] = []
+
+    async with bus.subscribe("copper", "err") as queue:
+        conn.send({"type": "COPPERLIST"})
+        deadline = asyncio.get_event_loop().time() + 10.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "COPPERLIST" in data.get("context", ""):
+                    return f"Copper list read failed: {data.get('message', 'unknown error')}"
+                if evt == "copper":
+                    copper_chunks.append(data)
+                    # Check if last chunk contains END marker
+                    hex_data = data["hexData"]
+                    if "fffffffffe" in hex_data.lower() or "FFFFFFFFFE" in hex_data:
+                        break
+                    # Brief pause to collect more chunks
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0.5:
+                        break
+            except asyncio.TimeoutError:
+                break
+
+    if not copper_chunks:
+        return "Timed out waiting for copper list data"
+
+    # Combine all chunks
+    all_hex = ""
+    base_addr = int(copper_chunks[0]["address"], 16)
+    for chunk in copper_chunks:
+        all_hex += chunk["hexData"]
+
+    instructions = decode_copper_list(all_hex, base_addr)
+    return format_copper_list(instructions)
+
+
+# ─── Sprite Inspector Tool ───
+
+@mcp.tool()
+async def amiga_sprites() -> str:
+    """Inspect hardware sprite data and positions."""
+    conn, state, bus = _require_connected()
+
+    sprites: list[dict] = []
+
+    async with bus.subscribe("sprite", "err") as queue:
+        conn.send({"type": "SPRITES"})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "SPRITES" in data.get("context", ""):
+                    return f"Sprite inspection failed: {data.get('message', 'unknown error')}"
+                if evt == "sprite":
+                    sprites.append(data)
+                    # Keep collecting for a short time to get all sprites
+                    if len(sprites) >= 8:
+                        break
+            except asyncio.TimeoutError:
+                break
+
+    if not sprites:
+        return "No active sprites found (or timed out)"
+
+    lines = [f"Hardware Sprites ({len(sprites)} active):"]
+    lines.append(f"{'ID':>2s}  {'VStart':>6s}  {'VStop':>5s}  {'HStart':>6s}  {'Attach':>6s}  {'Height':>6s}  {'Data':>6s}")
+    lines.append("-" * 55)
+
+    for spr in sorted(sprites, key=lambda s: s["id"]):
+        height = spr["vstop"] - spr["vstart"] if spr["vstop"] > spr["vstart"] else 0
+        data_bytes = len(spr.get("hexData", "")) // 2
+        attached = "Yes" if spr.get("attached") else "No"
+
+        lines.append(
+            f"{spr['id']:2d}  {spr['vstart']:6d}  {spr['vstop']:5d}  "
+            f"{spr['hstart']:6d}  {attached:>6s}  {height:6d}  {data_bytes:6d}B"
+        )
+
+        # Show first few words of sprite data
+        hex_data = spr.get("hexData", "")
+        if hex_data:
+            # Show control words and first few data words
+            ctrl_hex = hex_data[:8]  # First 4 bytes = 2 control words
+            data_hex = hex_data[8:40]  # Next 16 bytes of image data
+            lines.append(f"      Ctrl: {ctrl_hex}  Data: {data_hex}{'...' if len(hex_data) > 40 else ''}")
+
+    return "\n".join(lines)
+
+
+# ─── Crash Catcher ───
+
+@mcp.tool()
+async def amiga_last_crash() -> str:
+    """Get details of the last Amiga crash/guru meditation caught by the bridge."""
+    conn, state, bus = _require_connected()
+
+    # First check cached crash data
+    if state.last_crash:
+        return _format_crash(state.last_crash)
+
+    # Query the bridge for last crash data
+    async with bus.subscribe("crash", "err") as queue:
+        conn.send({"type": "LASTCRASH"})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "crash":
+                    state.last_crash = data
+                    return _format_crash(data)
+                if evt == "err" and "LASTCRASH" in data.get("context", ""):
+                    return "No crash data recorded"
+            except asyncio.TimeoutError:
+                break
+
+    return "No crash data available"
+
+
+def _format_crash(crash: dict) -> str:
+    """Format crash data into a readable report."""
+    lines = [
+        "=== AMIGA CRASH REPORT ===",
+        f"Alert: 0x{crash.get('alertNum', '?')} ({crash.get('alertName', 'Unknown')})",
+        f"Time: {crash.get('timestamp', '?')}",
+        "",
+        "Data Registers:",
+    ]
+
+    dregs = crash.get("dataRegs", [])
+    for i, val in enumerate(dregs):
+        lines.append(f"  D{i}: 0x{val}")
+
+    lines.append("")
+    lines.append("Address Registers:")
+    aregs = crash.get("addrRegs", [])
+    for i, val in enumerate(aregs):
+        lines.append(f"  A{i}: 0x{val}")
+
+    lines.append("")
+    lines.append(f"Stack Pointer: 0x{crash.get('sp', '?')}")
+
+    stack_hex = crash.get("stackHex", "")
+    if stack_hex:
+        lines.append("")
+        lines.append("Stack Snapshot:")
+        sp = int(crash.get("sp", "0"), 16)
+        from .protocol import format_hex_dump
+        lines.append(format_hex_dump(f"{sp:08X}", stack_hex))
+
+    return "\n".join(lines)
+
+
+# ─── Resource Tracker ───
+
+@mcp.tool()
+async def amiga_list_resources(client: str) -> str:
+    """List tracked resources (allocations, open files) for an Amiga client. Shows potential leaks."""
+    conn, state, bus = _require_connected()
+
+    async with bus.subscribe("resources", "err") as queue:
+        conn.send({"type": "LISTRESOURCES", "client": client})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "LISTRESOURCES" in data.get("context", ""):
+                    return f"Error: {data.get('message', 'failed')}"
+                if evt == "resources":
+                    resources = data.get("resources", [])
+                    if not resources:
+                        return f"No tracked resources for {client}"
+
+                    lines = [f"Resources for {data.get('client', client)} ({len(resources)} tracked):"]
+                    lines.append(f"{'Type':<8s} {'Tag':<24s} {'Ptr':<12s} {'Size':>8s} {'State':<8s}")
+                    lines.append("-" * 65)
+
+                    leaks = 0
+                    for r in resources:
+                        state_str = r.get("state", "?")
+                        if state_str == "OPEN":
+                            leaks += 1
+                        lines.append(
+                            f"{r.get('type', '?'):<8s} "
+                            f"{r.get('tag', '?'):<24s} "
+                            f"0x{r.get('ptr', '0'):<10s} "
+                            f"{r.get('size', 0):>8d} "
+                            f"{state_str:<8s}"
+                        )
+
+                    open_res = [r for r in resources if r.get("state") == "OPEN"]
+                    closed_res = [r for r in resources if r.get("state") == "CLOSED"]
+                    lines.append("")
+                    lines.append(f"Open: {len(open_res)}, Closed: {len(closed_res)}")
+                    if open_res:
+                        lines.append(f"** {len(open_res)} potentially leaked resource(s) **")
+
+                    return "\n".join(lines)
+            except asyncio.TimeoutError:
+                break
+
+    return "Timed out waiting for resource data"
+
+
+# ─── Performance Profiler ───
+
+@mcp.tool()
+async def amiga_perf_report(client: str) -> str:
+    """Get performance profiling data from an Amiga client (frame timing, section timing)."""
+    conn, state, bus = _require_connected()
+
+    async with bus.subscribe("perf", "err") as queue:
+        conn.send({"type": "GETPERF", "client": client})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "GETPERF" in data.get("context", ""):
+                    return f"Error: {data.get('message', 'failed')}"
+                if evt == "perf":
+                    return _format_perf(data)
+            except asyncio.TimeoutError:
+                break
+
+    return "Timed out waiting for performance data"
+
+
+def _format_perf(perf: dict) -> str:
+    """Format performance data into a readable report."""
+    lines = [
+        f"=== PERFORMANCE REPORT: {perf.get('client', '?')} ===",
+        "",
+        "Frame Timing (VHPOS units, ~64us/line):",
+        f"  Avg: {perf.get('frameAvg', 0)}",
+        f"  Min: {perf.get('frameMin', 0)}",
+        f"  Max: {perf.get('frameMax', 0)}",
+        f"  Frames: {perf.get('frameCount', 0)}",
+    ]
+
+    # Convert VHPOS to approximate microseconds
+    # VHPOS high byte = line number, each line ~ 64us on PAL
+    frame_avg = perf.get("frameAvg", 0)
+    if frame_avg > 0:
+        avg_lines = frame_avg >> 8
+        avg_us = avg_lines * 64
+        lines.append(f"  (~{avg_us}us avg, ~{avg_us / 1000:.1f}ms)")
+
+        # Estimate FPS: PAL frame = 312 lines at 64us = ~20ms
+        if avg_us > 0:
+            fps = 1000000 / avg_us
+            lines.append(f"  (~{fps:.1f} fps)")
+
+    sections = perf.get("sections", [])
+    if sections:
+        lines.append("")
+        lines.append("Section Timing:")
+        lines.append(f"  {'Label':<20s} {'Avg':>8s} {'Min':>8s} {'Max':>8s} {'Count':>8s}")
+        lines.append("  " + "-" * 56)
+        for s in sections:
+            lines.append(
+                f"  {s.get('label', '?'):<20s} "
+                f"{s.get('avg', 0):>8d} "
+                f"{s.get('min', 0):>8d} "
+                f"{s.get('max', 0):>8d} "
+                f"{s.get('count', 0):>8d}"
+            )
+    else:
+        lines.append("")
+        lines.append("No named sections profiled")
+
+    return "\n".join(lines)
