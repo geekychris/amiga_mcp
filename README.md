@@ -245,6 +245,48 @@ graph TB
     style UVICORN fill:#e07020,color:#fff
 ```
 
+#### UI
+
+#### Dashboard
+![img.png](doc_images/img.png)
+
+#### Logs
+
+These logs from the amiga are transmitted over the bridge to the host
+
+![img_1.png](doc_images/img_1.png)
+
+#### Files
+
+You can traverse the file system on the amiga from the host
+
+![img_2.png](doc_images/img_2.png)
+
+#### Tasks
+
+![img_3.png](doc_images/img_3.png)
+
+#### Launching an app from the host on the amiga and setting process variables
+
+Using claude and the amiga dev mcp agent 
+
+![img_5.png](doc_images/img_5.png)
+
+![img_4.png](doc_images/img_4.png)
+
+#### Checking out the variables of the running app
+
+Instrumented apps can log to the host over the bridge.  We can also interact with registered process variables (both read and write):
+
+![img_6.png](doc_images/img_6.png)
+
+#### Memory editor
+
+Read and write to amiga memory from the host.
+
+![img_7.png](doc_images/img_7.png)
+
+
 | Module | Purpose |
 |---|---|
 | `server.py` | Starlette app, all HTTP/SSE endpoints, PID file singleton |
@@ -392,14 +434,14 @@ EndIf
 
 ```mermaid
 graph TB
-    subgraph "PTY Mode (default)"
-        DB1[amiga-devbench] -->|creates| PTY[/tmp/amiga-serial<br/>pseudo-terminal]
-        PTY -->|serial_port =| FSUAE1[FS-UAE]
+    subgraph PTY_Mode ["PTY Mode (default)"]
+        DB1["amiga-devbench"] -->|creates| PTY["PTY pseudo-terminal"]
+        PTY -->|"serial_port ="| FSUAE1["FS-UAE"]
     end
 
-    subgraph "TCP Mode"
-        FSUAE2[FS-UAE] -->|listens on| TCP[tcp://0.0.0.0:1234]
-        TCP -->|connects to| DB2[amiga-devbench<br/>--serial-host 127.0.0.1]
+    subgraph TCP_Mode ["TCP Mode"]
+        FSUAE2["FS-UAE"] -->|"listens on :1234"| TCP["TCP socket"]
+        TCP -->|connects to| DB2["amiga-devbench<br/>--serial-host"]
     end
 ```
 
