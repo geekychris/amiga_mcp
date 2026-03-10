@@ -938,6 +938,8 @@ All tools are available through Claude Code when connected to the MCP server.
 | `amiga_list_clients` | — | List connected bridge clients |
 | `amiga_list_tasks` | — | List all running tasks/processes |
 | `amiga_list_libs` | — | List loaded libraries with versions |
+| `amiga_lib_info` | `name` | Detailed library info: version, revision, openCnt, flags, negSize, posSize, base address, ID string |
+| `amiga_dev_info` | `name` | Detailed device info: same fields as lib_info but for devices |
 | `amiga_client_info` | `client` | Detailed info: vars, hooks, memregs |
 
 ### Filesystem
@@ -1084,6 +1086,19 @@ Visual inspection and development tools arranged in a grid. Each tool has a `?` 
 
 **Boot Log** — Shows the earliest log messages captured during this devbench session. Displays the first N log entries received over the serial link, which typically include bridge daemon startup messages and early client registrations. If devbench was started before the bridge, these represent the true boot sequence.
 
+**Library / Device Inspector** — Browse all loaded libraries and devices on the Amiga. Two tabs (Libraries / Devices) each show a clickable list populated from `exec.library`'s `LibList` and `DeviceList`. Click any entry to see detailed info: name, version.revision, open count, flags, negative size (jump table), positive size (data area), base address, and ID string. From the detail view:
+- **Show Jump Table** — lists every LVO entry in the library's jump table with its target address, paginated (60 per page). Each LVO is a 6-byte JMP instruction at a negative offset from the library base.
+- **Dump Base Memory** — reads raw memory at the library base address and opens it in the Disassembler panel for inspection.
+- **Dump Jump Table** — reads the negative-offset region (the actual jump table bytes) and opens it in the Disassembler.
+
+Useful for finding library versions, checking if a library is loaded, and reverse-engineering library entry points.
+
+**SnoopDos** — Real-time system call monitoring, inspired by the classic SnoopDos utility. Uses `SetFunction()` to patch 10 functions in `exec.library` and `dos.library`:
+- **exec.library**: `OpenLibrary`, `CloseLibrary`, `OpenDevice`, `CloseDevice`
+- **dos.library**: `Open`, `Close`, `Lock`, `UnLock`, `LoadSeg`, `UnLoadSeg`
+
+Click **Start** to install patches, **Stop** to remove them. While active, every call to a patched function is logged to a ring buffer on the Amiga side and streamed to the host at 200ms intervals. The log table shows: function name, caller address, arg1 (file path, library name, or BPTR address), arg2 (mode, version, etc.), result (OK/FAIL), and tick count. Status bar shows total event count, drop count (ring buffer overflow), and buffered count. The log is capped at 500 entries with rendering throttled for performance.
+
 **System Info Dashboard** — One-click system overview combining multiple queries. Shows free chip RAM, free fast RAM, number of connected bridge clients, loaded library count, running task count, and mounted volume count. Provides a quick health check of the Amiga system state.
 
 **Build & Run** — Full development cycle in one click: cross-compile via Docker (using a persistent container for ~10x speedup), deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), then launch. Select a project from the dropdown (populated from the `examples/` directory).
@@ -1108,6 +1123,11 @@ The web UI connects to `/api/events` for real-time updates:
 | `status` | `{connected, logCount, varCount}` | Connection status |
 | `clients` | `{names: [...]}` | Client list |
 | `tasks` | `{tasks: [...]}` | Tasks panel |
+| `snoop` | `{func, caller, arg1, arg2, result, tick}` | SnoopDos event log |
+| `snoopstate` | `{active, eventCount, dropCount, buffered}` | SnoopDos status |
+| `libinfo` | `{name, version, revision, openCnt, ...}` | Library detail response |
+| `devinfo` | `{name, version, revision, openCnt, ...}` | Device detail response |
+| `libfuncs` | `{name, page, totalPages, entries: [...]}` | Library jump table entries |
 | `connected` | `{}` | Status indicator → green |
 | `disconnected` | `{}` | Status indicator → red |
 
