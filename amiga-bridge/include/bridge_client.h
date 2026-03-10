@@ -4,7 +4,8 @@
 #include <exec/types.h>
 #include "bridge_ipc.h"
 
-/* Initialize bridge client - finds daemon, registers app
+/* Initialize bridge client - finds daemon, registers app.
+ * Also sets task name to appName for FindTask/BREAK.
  * appName: application name (max 32 chars)
  * Returns: 0 on success, -1 on failure */
 int ab_init(const char *appName);
@@ -53,5 +54,27 @@ void ab_set_cmd_handler(ab_cmd_handler_t handler);
 
 /* Respond to a command from host */
 void ab_cmd_respond(ULONG id, const char *status, const char *data);
+
+/* ---- Hook Registry ---- */
+
+/* Hook callback type - receives args, writes result into buf (max bufSize).
+ * Return 0 for success, non-zero for error. */
+typedef int (*ab_hook_fn_t)(const char *args, char *resultBuf, int bufSize);
+
+/* Register a callable hook that the host can invoke by name */
+void ab_register_hook(const char *name, const char *description,
+                      ab_hook_fn_t fn);
+
+/* Unregister a hook */
+void ab_unregister_hook(const char *name);
+
+/* ---- Memory Region Registry ---- */
+
+/* Register a named memory region for remote inspection */
+void ab_register_memregion(const char *name, APTR addr, ULONG size,
+                           const char *description);
+
+/* Unregister a memory region */
+void ab_unregister_memregion(const char *name);
 
 #endif /* BRIDGE_CLIENT_H */

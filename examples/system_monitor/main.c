@@ -46,6 +46,31 @@ static char status_msg[64] = "starting";
 #define BAR_H 12
 #define TEXT_Y 20
 
+/* Hook: take a snapshot of all stats
+ * NOTE: Do NOT call ab_log/ab_push_var inside hooks - it sends a message
+ * to the daemon which is waiting for OUR reply, causing deadlock. */
+static int hook_snapshot(const char *args, char *resultBuf, int bufSize)
+{
+    sprintf(resultBuf, "chip=%ld fast=%ld tasks=%ld cpu=%ld%%",
+            (long)chip_free, (long)fast_free, (long)task_count, (long)cpu_usage);
+    resultBuf[bufSize - 1] = '\0';
+    return 0;
+}
+
+/* Hook: set status message */
+static int hook_set_status(const char *args, char *resultBuf, int bufSize)
+{
+    if (args && args[0]) {
+        strncpy(status_msg, args, sizeof(status_msg) - 1);
+        status_msg[sizeof(status_msg) - 1] = '\0';
+        strncpy(resultBuf, "Status set", bufSize - 1);
+    } else {
+        strncpy(resultBuf, status_msg, bufSize - 1);
+    }
+    resultBuf[bufSize - 1] = '\0';
+    return 0;
+}
+
 /* Custom command handler */
 static void cmd_handler(ULONG id, const char *data)
 {
@@ -189,6 +214,14 @@ int main(void)
     ab_register_var("status_msg", AB_TYPE_STR, status_msg);
 
     ab_set_cmd_handler(cmd_handler);
+
+    /* Register hooks */
+    ab_register_hook("snapshot", "Push all stats and return summary", hook_snapshot);
+    ab_register_hook("set_status", "Set or get status message", hook_set_status);
+
+    /* Register memory region for stats inspection */
+    ab_register_memregion("stats", &chip_free, sizeof(LONG) * 5,
+                          "System stats (chip_free, fast_free, chip_largest, fast_largest, task_count)");
 
     /* Get initial stats for display scale */
     update_stats();

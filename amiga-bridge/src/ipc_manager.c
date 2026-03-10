@@ -12,6 +12,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "bridge_internal.h"
 
@@ -165,7 +166,18 @@ void ipc_process(void)
         case ABMSG_VAR_REGISTER:
             ce = client_find(bm->clientId);
             if (ce) {
-                /* data format: "name|type" - daemon just forwards to host */
+                /* data format: "name|type" */
+                char *vsep = strchr(bm->data, '|');
+                if (vsep) {
+                    char vname[34];
+                    int vnlen = (int)(vsep - bm->data);
+                    int vtype;
+                    if (vnlen > 33) vnlen = 33;
+                    strncpy(vname, bm->data, vnlen);
+                    vname[vnlen] = '\0';
+                    vtype = (int)strtol(vsep + 1, NULL, 10);
+                    client_add_var(ce, vname, vtype);
+                }
                 ce->msgCount++;
             }
             ReplyMsg(msg);
@@ -174,6 +186,7 @@ void ipc_process(void)
         case ABMSG_VAR_UNREGISTER:
             ce = client_find(bm->clientId);
             if (ce) {
+                client_remove_var(ce, bm->data);
                 ce->msgCount++;
             }
             ReplyMsg(msg);
@@ -226,6 +239,74 @@ void ipc_process(void)
                     protocol_send_mem(bm->extData, bm->extDataLen,
                                       (const UBYTE *)bm->extData);
                 }
+                ce->msgCount++;
+            }
+            ReplyMsg(msg);
+            break;
+
+        case ABMSG_HOOK_REGISTER:
+            ce = client_find(bm->clientId);
+            if (ce) {
+                /* data format: "name|description" */
+                char *hsep = strchr(bm->data, '|');
+                if (hsep) {
+                    char hname[34];
+                    int hnlen = (int)(hsep - bm->data);
+                    if (hnlen > 33) hnlen = 33;
+                    strncpy(hname, bm->data, hnlen);
+                    hname[hnlen] = '\0';
+                    client_add_hook(ce, hname, hsep + 1);
+                }
+                ce->msgCount++;
+            }
+            ReplyMsg(msg);
+            break;
+
+        case ABMSG_HOOK_UNREGISTER:
+            ce = client_find(bm->clientId);
+            if (ce) {
+                client_remove_hook(ce, bm->data);
+                ce->msgCount++;
+            }
+            ReplyMsg(msg);
+            break;
+
+        case ABMSG_MEMREG_REGISTER:
+            ce = client_find(bm->clientId);
+            if (ce) {
+                /* data format: "name|addr_hex|size|description" */
+                char *s1 = strchr(bm->data, '|');
+                if (s1) {
+                    char mrname[34];
+                    int mnlen = (int)(s1 - bm->data);
+                    ULONG mraddr, mrsize;
+                    char *s2, *s3;
+                    const char *mrdesc = "";
+
+                    if (mnlen > 33) mnlen = 33;
+                    strncpy(mrname, bm->data, mnlen);
+                    mrname[mnlen] = '\0';
+
+                    mraddr = strtoul(s1 + 1, NULL, 16);
+                    s2 = strchr(s1 + 1, '|');
+                    if (s2) {
+                        mrsize = strtoul(s2 + 1, NULL, 10);
+                        s3 = strchr(s2 + 1, '|');
+                        if (s3) mrdesc = s3 + 1;
+                    } else {
+                        mrsize = 0;
+                    }
+                    client_add_memreg(ce, mrname, mraddr, mrsize, mrdesc);
+                }
+                ce->msgCount++;
+            }
+            ReplyMsg(msg);
+            break;
+
+        case ABMSG_MEMREG_UNREGISTER:
+            ce = client_find(bm->clientId);
+            if (ce) {
+                client_remove_memreg(ce, bm->data);
                 ce->msgCount++;
             }
             ReplyMsg(msg);

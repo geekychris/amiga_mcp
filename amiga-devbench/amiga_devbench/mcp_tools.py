@@ -120,11 +120,11 @@ async def amiga_ping() -> str:
     """Ping the Amiga to get status/heartbeat."""
     conn, state, bus = _require_connected()
     conn.send({"type": "PING"})
-    msg = await bus.wait_for("heartbeat", timeout=3.0)
+    msg = await bus.wait_for("pong", timeout=5.0)
     if msg:
         return (
-            f"Amiga alive - tick: {msg['tick']}, "
-            f"chip: {msg['freeChip']} bytes, fast: {msg['freeFast']} bytes"
+            f"Amiga alive - clients: {msg.get('clientCount', '?')}, "
+            f"chip: {msg.get('freeChip', '?')} bytes, fast: {msg.get('freeFast', '?')} bytes"
         )
     return "No response from Amiga (timeout)"
 
@@ -240,7 +240,7 @@ async def amiga_get_var(name: str) -> str:
     conn.send({"type": "GETVAR", "name": name})
 
     msg = await bus.wait_for(
-        "var", timeout=3.0,
+        "var", timeout=5.0,
         predicate=lambda d: d.get("name") == name,
     )
     if msg:
@@ -293,7 +293,7 @@ async def amiga_list_clients() -> str:
     """List connected Amiga debug clients."""
     conn, state, bus = _require_connected()
     conn.send({"type": "LISTCLIENTS"})
-    msg = await bus.wait_for("clients", timeout=3.0)
+    msg = await bus.wait_for("clients", timeout=5.0)
     if msg:
         names = msg.get("names", [])
         return f"Clients ({len(names)}): {', '.join(names) if names else 'none'}"
@@ -305,7 +305,7 @@ async def amiga_list_tasks() -> str:
     """List running tasks on the Amiga."""
     conn, state, bus = _require_connected()
     conn.send({"type": "LISTTASKS"})
-    msg = await bus.wait_for("tasks", timeout=3.0)
+    msg = await bus.wait_for("tasks", timeout=5.0)
     if msg:
         tasks = msg.get("tasks", [])
         if not tasks:
@@ -325,7 +325,7 @@ async def amiga_list_libs() -> str:
     """List loaded libraries on the Amiga."""
     conn, state, bus = _require_connected()
     conn.send({"type": "LISTLIBS"})
-    msg = await bus.wait_for("libs", timeout=3.0)
+    msg = await bus.wait_for("libs", timeout=5.0)
     if msg:
         libs = msg.get("libs", [])
         if not libs:
@@ -396,11 +396,11 @@ async def amiga_launch(command: str) -> str:
     conn.send({"type": "LAUNCH", "id": cmd_id, "command": command})
 
     msg = await bus.wait_for(
-        "proc", timeout=5.0,
+        "cmd", timeout=5.0,
         predicate=lambda d: d.get("id") == cmd_id,
     )
     if msg:
-        return f"[{msg['status']}] {msg.get('output', '')}"
+        return f"[{msg['status']}] {msg.get('data', '')}"
     return f"Launch command sent: {command} (no response)"
 
 
@@ -418,6 +418,192 @@ async def amiga_dos_command(command: str) -> str:
     if msg:
         return f"[{msg['status']}] {msg['data']}"
     return f"DOS command sent: {command} (no response)"
+
+
+# ─── Hook Tools ───
+
+@mcp.tool()
+async def amiga_list_hooks(client: str = "") -> str:
+    """List hooks registered by Amiga debug clients."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "LISTHOOKS", "client": client})
+    msg = await bus.wait_for("hooks", timeout=5.0)
+    if msg:
+        hooks = msg.get("hooks", [])
+        if not hooks:
+            return f"No hooks registered{f' for {client}' if client else ''}"
+        lines = [f"Hooks for {msg.get('client', 'all')}:"]
+        for h in hooks:
+            lines.append(f"  {h['name']}: {h.get('description', '')}")
+        return "\n".join(lines)
+    return "No response"
+
+
+@mcp.tool()
+async def amiga_call_hook(client: str, hook: str, args: str = "") -> str:
+    """Call a named hook on an Amiga client. Returns the hook's result."""
+    conn, state, bus = _require_connected()
+    cmd_id = int(time.time() * 1000) % 100000
+    async with bus.subscribe("cmd") as queue:
+        conn.send({"type": "CALLHOOK", "id": cmd_id, "client": client,
+                    "hook": hook, "args": args})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if data.get("id") == cmd_id:
+                    return f"[{data['status']}] {data.get('data', '')}"
+            except asyncio.TimeoutError:
+                break
+    return "Hook call timed out"
+
+
+# ─── Memory Region Tools ───
+
+@mcp.tool()
+async def amiga_list_memregions(client: str = "") -> str:
+    """List memory regions registered by Amiga debug clients."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "LISTMEMREGS", "client": client})
+    msg = await bus.wait_for("memregs", timeout=5.0)
+    if msg:
+        memregs = msg.get("memregs", [])
+        if not memregs:
+            return f"No memory regions registered{f' for {client}' if client else ''}"
+        lines = [f"Memory regions for {msg.get('client', 'all')}:"]
+        for m in memregs:
+            lines.append(
+                f"  {m['name']}: 0x{m['address']} ({m['size']} bytes) - {m.get('description', '')}"
+            )
+        return "\n".join(lines)
+    return "No response"
+
+
+@mcp.tool()
+async def amiga_read_memregion(client: str, region: str) -> str:
+    """Read data from a named memory region registered by a client."""
+    conn, state, bus = _require_connected()
+    chunks: list[dict] = []
+
+    async with bus.subscribe("mem", "err") as queue:
+        conn.send({"type": "READMEMREG", "client": client, "region": region})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err":
+                    return f"Error: {data.get('message', 'Unknown error')}"
+                chunks.append(data)
+                break
+            except asyncio.TimeoutError:
+                break
+
+    if chunks:
+        all_hex = "".join(c["hexData"] for c in chunks)
+        return format_hex_dump(chunks[0]["address"], all_hex)
+    return "Timed out waiting for memory region data"
+
+
+# ─── Client Info Tools ───
+
+@mcp.tool()
+async def amiga_client_info(client: str) -> str:
+    """Get detailed info about a connected Amiga client (vars, hooks, memory regions)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "CLIENTINFO", "client": client})
+    msg = await bus.wait_for("cinfo", timeout=5.0)
+    if msg:
+        lines = [f"Client: {msg.get('client', '?')} (id={msg.get('id', '?')}, msgs={msg.get('msgCount', 0)})"]
+        if msg.get("vars"):
+            lines.append(f"  Variables: {', '.join(msg['vars'])}")
+        if msg.get("hooks"):
+            lines.append(f"  Hooks: {', '.join(msg['hooks'])}")
+        if msg.get("memregs"):
+            lines.append(f"  Memory regions: {', '.join(msg['memregs'])}")
+        return "\n".join(lines)
+    return f"Client '{client}' not found or no response"
+
+
+@mcp.tool()
+async def amiga_stop_client(name: str) -> str:
+    """Stop a running Amiga client process (sends CTRL-C, then SHUTDOWN if needed)."""
+    conn, state, bus = _require_connected()
+    async with bus.subscribe("ok", "err") as queue:
+        conn.send({"type": "STOP", "name": name})
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                ctx = data.get("context", "")
+                if "STOP" in ctx or "Client" in ctx:
+                    status = "ok" if evt == "ok" else "error"
+                    return f"[{status}] {data.get('message', name)}"
+            except asyncio.TimeoutError:
+                break
+    return f"Stop command sent to {name} (no confirmation)"
+
+
+# ─── Script Execution ───
+
+@mcp.tool()
+async def amiga_run_script(script: str) -> str:
+    """Write and execute an AmigaDOS script on the Amiga. Use newlines to separate commands.
+    The script is written to T:, executed via 'Execute', and output is captured."""
+    conn, state, bus = _require_connected()
+    cmd_id = int(time.time() * 1000) % 100000
+    # Convert newlines to semicolons for protocol transport
+    script_line = script.replace("\n", ";")
+
+    async with bus.subscribe("cmd") as queue:
+        conn.send({"type": "SCRIPT", "id": cmd_id, "script": script_line})
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if data.get("id") == cmd_id:
+                    output = data.get("data", "")
+                    # Convert semicolons back to newlines for display
+                    output = output.replace(";", "\n")
+                    return f"[{data['status']}]\n{output}" if output else f"[{data['status']}]"
+            except asyncio.TimeoutError:
+                break
+    return "Script execution timed out"
+
+
+# ─── Memory Write Tool ───
+
+@mcp.tool()
+async def amiga_write_memory(address: str, hex_data: str) -> str:
+    """Write hex data to a memory address on the Amiga. Use with caution - no memory protection!"""
+    conn, state, bus = _require_connected()
+    async with bus.subscribe("ok", "err") as queue:
+        conn.send({"type": "WRITEMEM", "address": address, "hexData": hex_data})
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if "WRITEMEM" in data.get("context", ""):
+                    if evt == "ok":
+                        return f"Wrote {len(hex_data) // 2} bytes to 0x{address}"
+                    return f"Error: {data.get('message', 'Write failed')}"
+            except asyncio.TimeoutError:
+                break
+    return "Write command sent (no confirmation)"
 
 
 # ─── Deploy Tools ───

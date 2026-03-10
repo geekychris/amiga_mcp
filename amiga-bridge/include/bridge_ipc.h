@@ -7,21 +7,26 @@
 #define BRIDGE_PORT_NAME "AMIGABRIDGE"
 
 /* Message types client->daemon */
-#define ABMSG_REGISTER      1
-#define ABMSG_UNREGISTER    2
-#define ABMSG_LOG           3
-#define ABMSG_VAR_REGISTER  4
-#define ABMSG_VAR_UNREGISTER 5
-#define ABMSG_VAR_PUSH      6
-#define ABMSG_HEARTBEAT     7
-#define ABMSG_MEM_DUMP      8
-#define ABMSG_CMD_RESPONSE  9
+#define ABMSG_REGISTER        1
+#define ABMSG_UNREGISTER      2
+#define ABMSG_LOG             3
+#define ABMSG_VAR_REGISTER    4
+#define ABMSG_VAR_UNREGISTER  5
+#define ABMSG_VAR_PUSH        6
+#define ABMSG_HEARTBEAT       7
+#define ABMSG_MEM_DUMP        8
+#define ABMSG_CMD_RESPONSE    9
+#define ABMSG_HOOK_REGISTER   10
+#define ABMSG_HOOK_UNREGISTER 11
+#define ABMSG_MEMREG_REGISTER   12
+#define ABMSG_MEMREG_UNREGISTER 13
 
 /* Message types daemon->client */
 #define ABMSG_CMD_FORWARD  20
 #define ABMSG_VAR_GET      21
 #define ABMSG_VAR_SET      22
 #define ABMSG_SHUTDOWN     23
+#define ABMSG_HOOK_CALL    24
 
 /* Log levels */
 #define AB_DEBUG 0
@@ -39,6 +44,8 @@
 #define AB_MAX_DATA 256
 #define AB_MAX_CLIENTS 16
 #define AB_MAX_VARS 32
+#define AB_MAX_HOOKS 16
+#define AB_MAX_MEMREGIONS 8
 
 struct BridgeMsg {
     struct Message  msg;        /* Standard exec message (has reply port) */

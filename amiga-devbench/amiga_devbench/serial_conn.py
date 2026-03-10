@@ -371,6 +371,18 @@ class SerialConnection:
         elif msg_type == "PONG":
             self._event_bus.publish("pong", msg)
 
+        elif msg_type == "HOOKS":
+            self._event_bus.publish("hooks", msg)
+
+        elif msg_type == "MEMREGS":
+            self._event_bus.publish("memregs", msg)
+
+        elif msg_type == "CINFO":
+            self._event_bus.publish("cinfo", msg)
+
+        elif msg_type == "DEVICES":
+            self._event_bus.publish("devices", msg)
+
         elif msg_type == "OK":
             self._event_bus.publish("ok", msg)
 

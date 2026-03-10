@@ -30,7 +30,7 @@ int fs_list_dir(const char *path, char *buf, int bufSize)
     struct FileInfoBlock *fib;
     int pos;
     int count = 0;
-    char entry[128];
+    static char entry[128];
     BOOL ok;
     struct Process *pr;
     APTR oldWinPtr;

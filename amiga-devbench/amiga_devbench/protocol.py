@@ -3,11 +3,14 @@
 Line-based text protocol over serial/TCP, pipe-delimited fields.
 
 Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
-               DIR, FILE, FILEINFO, PROC, CLOG, CVAR, ERR
+               DIR, FILE, FILEINFO, PROC, CLOG, CVAR, HOOKS, MEMREGS,
+               CINFO, DEVICES, ERR, OK
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
-               DOSCOMMAND, SHUTDOWN
+               DOSCOMMAND, RUN, BREAK, LISTHOOKS, CALLHOOK,
+               LISTMEMREGS, READMEMREG, CLIENTINFO, STOP, SCRIPT,
+               WRITEMEM, SHUTDOWN
 """
 
 from __future__ import annotations
@@ -218,6 +221,87 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "message": "|".join(parts[2:]) if len(parts) > 2 else "",
         }
 
+    if msg_type == "HOOKS":
+        # Format: HOOKS|client|count|name1:desc1,name2:desc2,...
+        client = parts[1] if len(parts) > 1 else ""
+        count = _int(parts[2]) if len(parts) > 2 else 0
+        hooks: list[dict] = []
+        if len(parts) > 3 and parts[3]:
+            for entry in parts[3].split(","):
+                entry = entry.strip()
+                if ":" in entry:
+                    hname, hdesc = entry.split(":", 1)
+                    hooks.append({"name": hname, "description": hdesc})
+                elif entry:
+                    hooks.append({"name": entry, "description": ""})
+        return {"type": "HOOKS", "client": client, "count": count, "hooks": hooks}
+
+    if msg_type == "MEMREGS":
+        # Format: MEMREGS|client|count|name1:addr:size:desc,...
+        client = parts[1] if len(parts) > 1 else ""
+        count = _int(parts[2]) if len(parts) > 2 else 0
+        memregs: list[dict] = []
+        if len(parts) > 3 and parts[3]:
+            for entry in parts[3].split(","):
+                entry = entry.strip()
+                mparts = entry.split(":", 3)
+                if len(mparts) >= 3:
+                    memregs.append({
+                        "name": mparts[0],
+                        "address": mparts[1],
+                        "size": _int(mparts[2]),
+                        "description": mparts[3] if len(mparts) > 3 else "",
+                    })
+                elif entry:
+                    memregs.append({"name": entry, "address": "0", "size": 0, "description": ""})
+        return {"type": "MEMREGS", "client": client, "count": count, "memregs": memregs}
+
+    if msg_type == "CINFO":
+        # Format: CINFO|name|id|msgs|vars:v1(type),v2(type)|hooks:h1,h2|memregs:m1(addr,sz),m2
+        client = parts[1] if len(parts) > 1 else ""
+        cid = _int(parts[2]) if len(parts) > 2 else 0
+        msgs = _int(parts[3]) if len(parts) > 3 else 0
+        info: dict[str, Any] = {"type": "CINFO", "client": client, "id": cid, "msgCount": msgs}
+        # Parse remaining sections
+        for i in range(4, len(parts)):
+            section = parts[i]
+            if section.startswith("vars:"):
+                info["vars"] = [v.strip() for v in section[5:].split(",") if v.strip()]
+            elif section.startswith("hooks:"):
+                info["hooks"] = [h.strip() for h in section[6:].split(",") if h.strip()]
+            elif section.startswith("memregs:"):
+                # Split on commas NOT inside parentheses: ball_state(0036647C,20)
+                raw = section[8:]
+                entries: list[str] = []
+                depth = 0
+                start = 0
+                for ci, ch in enumerate(raw):
+                    if ch == '(':
+                        depth += 1
+                    elif ch == ')':
+                        depth -= 1
+                    elif ch == ',' and depth == 0:
+                        entries.append(raw[start:ci].strip())
+                        start = ci + 1
+                if start < len(raw):
+                    entries.append(raw[start:].strip())
+                info["memregs"] = [e for e in entries if e]
+        return info
+
+    if msg_type == "DEVICES":
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        devs: list[dict] = []
+        if len(parts) > 2 and parts[2]:
+            for entry in "|".join(parts[2:]).split(","):
+                entry = entry.strip()
+                if "(" in entry:
+                    name = entry[:entry.index("(")]
+                    ver = entry[entry.index("(") + 1:].rstrip(")")
+                    devs.append({"name": name, "version": ver})
+                elif entry:
+                    devs.append({"name": entry, "version": ""})
+        return {"type": "DEVICES", "count": count, "devices": devs}
+
     if msg_type == "CDBG":
         # Debug dump from client_debug_dump - pass through as LOG
         return {
@@ -274,6 +358,22 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"RUN|{cmd['id']}|{cmd['command']}"
     if t == "BREAK":
         return f"BREAK|{cmd['name']}"
+    if t == "LISTHOOKS":
+        return f"LISTHOOKS|{cmd.get('client', '')}"
+    if t == "CALLHOOK":
+        return f"CALLHOOK|{cmd['id']}|{cmd['client']}|{cmd['hook']}|{cmd.get('args', '')}"
+    if t == "LISTMEMREGS":
+        return f"LISTMEMREGS|{cmd.get('client', '')}"
+    if t == "READMEMREG":
+        return f"READMEMREG|{cmd['client']}|{cmd['region']}"
+    if t == "CLIENTINFO":
+        return f"CLIENTINFO|{cmd['client']}"
+    if t == "STOP":
+        return f"STOP|{cmd['name']}"
+    if t == "SCRIPT":
+        return f"SCRIPT|{cmd['id']}|{cmd['script']}"
+    if t == "WRITEMEM":
+        return f"WRITEMEM|{cmd['address']}|{cmd['hexData']}"
     if t == "SHUTDOWN":
         return "SHUTDOWN"
     raise ValueError(f"Unknown command type: {t}")

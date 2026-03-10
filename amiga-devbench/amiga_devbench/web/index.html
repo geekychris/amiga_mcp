@@ -634,6 +634,14 @@
           <span class="bookmark" onclick="setMemBookmark('00C00000',256)">Slow RAM ($C00000)</span>
         </div>
       </div>
+      <div style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--text-secondary);">Write Addr:</label>
+        <input class="mem-input" id="memWriteAddr" placeholder="00DFF180" style="width:120px;">
+        <label style="font-size:12px;color:var(--text-secondary);">Hex Data:</label>
+        <input class="mem-input" id="memWriteData" placeholder="0F00" style="width:200px;">
+        <button class="btn orange" onclick="writeMemory()">Write</button>
+        <span id="memWriteStatus" style="font-size:11px;color:var(--text-dim);"></span>
+      </div>
       <div class="hex-dump" id="hexDump">No data. Enter an address and click Read.</div>
     </div>
 
@@ -1152,6 +1160,24 @@ async function readMemory() {
   }
 }
 
+async function writeMemory() {
+  const addr = document.getElementById('memWriteAddr').value.replace(/^0x/i, '');
+  const hexData = document.getElementById('memWriteData').value.replace(/\s/g, '');
+  const status = document.getElementById('memWriteStatus');
+  if (!addr || !hexData) { status.textContent = 'Enter address and hex data'; return; }
+  if (!/^[0-9a-fA-F]+$/.test(hexData)) { status.textContent = 'Invalid hex data'; return; }
+  status.textContent = 'Writing...';
+  const data = await api('/memory/write', { method: 'POST', body: JSON.stringify({ address: addr, hexData: hexData }) });
+  if (data && data.status === 'ok') {
+    status.textContent = 'OK: ' + (data.message || 'Written');
+    // Refresh the read view if the written address overlaps
+    const readAddr = document.getElementById('memAddr').value.replace(/^0x/i, '');
+    if (readAddr) readMemory();
+  } else {
+    status.textContent = 'Error: ' + (data ? data.message || data.error || 'Failed' : 'No response');
+  }
+}
+
 function setMemBookmark(addr, size) {
   document.getElementById('memAddr').value = addr;
   document.getElementById('memSize').value = size;
@@ -1176,6 +1202,8 @@ function updateVar(msg) {
 function updateVarTable(vars) {
   const tbody = document.getElementById('varBody');
   const count = document.getElementById('varCount');
+  // Don't rebuild table if user is editing a variable
+  if (tbody.querySelector('.var-edit-input')) return;
   if (!vars || vars.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No variables registered</td></tr>';
     count.textContent = '';

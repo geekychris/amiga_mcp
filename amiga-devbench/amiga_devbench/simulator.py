@@ -265,3 +265,65 @@ class AmigaSimulator:
             cmd_id = parts[1]
             command = "|".join(parts[2:])
             send_line(f"CMD|{cmd_id}|ok|DOS: {command}")
+
+        elif cmd == "RUN" and len(parts) >= 3:
+            cmd_id = parts[1]
+            command = "|".join(parts[2:])
+            send_line(f"CMD|{cmd_id}|OK|Started: {command}")
+
+        elif cmd == "BREAK" and len(parts) >= 2:
+            name = parts[1]
+            send_line(f"OK|BREAK|{name}")
+
+        elif cmd == "LISTHOOKS":
+            client = parts[1] if len(parts) > 1 else ""
+            send_line(f"HOOKS|bouncing_ball|2|reset:Reset ball position,status:Get ball status")
+
+        elif cmd == "CALLHOOK" and len(parts) >= 4:
+            cmd_id = parts[1]
+            client = parts[2]
+            hook_name = parts[3]
+            hook_args = parts[4] if len(parts) > 4 else ""
+            if hook_name == "reset":
+                self._ball_x = 160
+                self._ball_y = 100
+                send_line(f"CMD|{cmd_id}|ok|Ball reset to center")
+            elif hook_name == "status":
+                send_line(f"CMD|{cmd_id}|ok|ball({self._ball_x},{self._ball_y}) vel({self._ball_dx},{self._ball_dy})")
+            else:
+                send_line(f"CMD|{cmd_id}|err|Unknown hook: {hook_name}")
+
+        elif cmd == "LISTMEMREGS":
+            send_line("MEMREGS|bouncing_ball|1|ball_state:00040000:24:Ball position and velocity")
+
+        elif cmd == "READMEMREG" and len(parts) >= 3:
+            # Fake reading a memory region
+            hex_data = self._get_memory(0x40000, 24)
+            send_line(f"MEM|00040000|24|{hex_data}")
+
+        elif cmd == "CLIENTINFO" and len(parts) >= 2:
+            client = parts[1]
+            send_line(f"CINFO|{client}|1|100|vars:ball_x(i32),ball_y(i32),ball_dx(i32),ball_dy(i32)|hooks:reset,status|memregs:ball_state(00040000,24)")
+
+        elif cmd == "STOP" and len(parts) >= 2:
+            name = parts[1]
+            send_line(f"OK|STOP|{name}")
+
+        elif cmd == "SCRIPT" and len(parts) >= 3:
+            cmd_id = parts[1]
+            script = "|".join(parts[2:])
+            send_line(f"CMD|{cmd_id}|OK|Script output: executed {len(script)} chars")
+
+        elif cmd == "WRITEMEM" and len(parts) >= 3:
+            addr = parts[1]
+            hex_data = parts[2]
+            send_line(f"OK|WRITEMEM|{addr}|{len(hex_data) // 2}")
+
+        elif cmd == "LISTDEVS" or cmd == "LISTDEVICES":
+            send_line("DEVICES|3|serial.device(v40.1),trackdisk.device(v40.2),timer.device(v40.1)")
+
+        elif cmd == "LISTVOLUMES":
+            send_line("VOLUMES|3|System:,Work:,Ram Disk:")
+
+        elif cmd == "SHUTDOWN":
+            send_line("OK|SHUTDOWN|bye")

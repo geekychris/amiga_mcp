@@ -370,28 +370,41 @@ int sys_inspect_mem(APTR addr, ULONG size, UBYTE *outBuf, ULONG outBufSize)
     if (size > outBufSize) size = outBufSize;
     if (size > 256) size = 256;
 
-    /* Reject address 0 (NULL) but allow 0x4 (ExecBase pointer) */
+    /* Reject NULL */
     if (a < 4) return -1;
 
-    /* Basic sanity: reject addresses in the 0x1-0x3 range */
-    /* Allow everything else - the host should know what it's doing,
-     * but we at least prevent NULL dereference */
-
-    /* Use TypeOfMem to validate that the address is in a known
-     * memory region. Returns 0 if not in any memory list. */
+    /* Allow known address ranges on the Amiga:
+     * $000004-$0000FF: Exception vectors (readable)
+     * $000100+: Validated by TypeOfMem for RAM
+     * $BF0000-$BFFFFF: CIA chips (byte access, odd addresses only)
+     * $F80000-$FFFFFF: ROM (Kickstart)
+     *
+     * Custom chip registers ($DFF000) are NOT allowed for reads.
+     * They require word-aligned 16-bit access, and many have side
+     * effects (clearing interrupts, resetting DMA) that can crash
+     * the display or system. */
     if (a >= 0x100) {
         ULONG memType = TypeOfMem(addr);
-        /* Allow known memory regions, ROM (0xF80000-0xFFFFFF),
-         * and the ExecBase area (0x4). Also allow CIA/custom
-         * if explicitly requested (memType will be 0 for these) */
-        if (memType == 0 && a < 0xA00000) {
-            /* Not in any memory list and not in ROM/IO range.
-             * Could be unmapped - reject to be safe */
-            return -1;
+        if (memType == 0) {
+            /* Not in Exec memory list - allow known safe ranges */
+            int allowed = 0;
+            if (a >= 0xF80000)                     allowed = 1; /* ROM */
+            if (a >= 0xBF0000 && a < 0xC00000)     allowed = 1; /* CIA */
+            if (!allowed) return -1;
         }
     }
 
     copySize = size;
-    CopyMem(addr, outBuf, copySize);
+
+    /* CIA registers: byte access at odd addresses only.
+     * RAM/ROM/vectors: byte-by-byte volatile reads
+     * (CopyMem returns zeros for certain regions in FS-UAE). */
+    {
+        ULONG i;
+        volatile UBYTE *src = (volatile UBYTE *)addr;
+        for (i = 0; i < copySize; i++) {
+            outBuf[i] = src[i];
+        }
+    }
     return (int)copySize;
 }

@@ -129,7 +129,7 @@ async def api_clients(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"clients": [], "error": "Send failed"})
 
-    msg = await _event_bus.wait_for("clients", timeout=3.0)
+    msg = await _event_bus.wait_for("clients", timeout=5.0)
     if msg:
         return JSONResponse({"clients": msg.get("names", [])})
     return JSONResponse({"clients": [], "message": "No response (bridge may not support LISTCLIENTS)"})
@@ -144,7 +144,7 @@ async def api_tasks(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"tasks": [], "error": "Send failed"})
 
-    msg = await _event_bus.wait_for("tasks", timeout=3.0)
+    msg = await _event_bus.wait_for("tasks", timeout=5.0)
     if msg:
         return JSONResponse({"tasks": msg.get("tasks", [])})
     return JSONResponse({"tasks": [], "message": "No response (bridge may not support LISTTASKS)"})
@@ -255,7 +255,7 @@ async def api_volumes(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"volumes": [], "error": "Send failed"})
 
-    msg = await _event_bus.wait_for("volumes", timeout=3.0)
+    msg = await _event_bus.wait_for("volumes", timeout=5.0)
     if msg:
         return JSONResponse({"volumes": msg.get("names", [])})
     return JSONResponse({"volumes": [], "message": "No response"})
@@ -416,6 +416,224 @@ async def api_break(request: Request) -> JSONResponse:
                 break
 
     return JSONResponse({"status": "timeout", "message": "No response from bridge"})
+
+
+async def api_hooks(request: Request) -> JSONResponse:
+    """List hooks registered by clients."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    client = request.query_params.get("client", "")
+    try:
+        _conn.send({"type": "LISTHOOKS", "client": client})
+    except Exception:
+        return JSONResponse({"error": "Send failed"})
+    msg = await _event_bus.wait_for("hooks", timeout=5.0)
+    if msg:
+        return JSONResponse({"client": msg.get("client"), "hooks": msg.get("hooks", [])})
+    return JSONResponse({"hooks": [], "message": "No response"})
+
+
+async def api_call_hook(request: Request) -> JSONResponse:
+    """Call a hook on a client."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    body = await request.json()
+    client = body.get("client", "")
+    hook = body.get("hook", "")
+    hook_args = body.get("args", "")
+    if not client or not hook:
+        return JSONResponse({"error": "Missing client or hook"}, status_code=400)
+    cmd_id = int(time.time() * 1000) % 100000
+    async with _event_bus.subscribe("cmd") as queue:
+        try:
+            _conn.send({"type": "CALLHOOK", "id": cmd_id, "client": client,
+                        "hook": hook, "args": hook_args})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if data.get("id") == cmd_id:
+                    return JSONResponse({"status": data["status"], "data": data.get("data", "")})
+            except asyncio.TimeoutError:
+                break
+    return JSONResponse({"status": "timeout", "data": "No response"})
+
+
+async def api_memregions(request: Request) -> JSONResponse:
+    """List memory regions registered by clients."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    client = request.query_params.get("client", "")
+    try:
+        _conn.send({"type": "LISTMEMREGS", "client": client})
+    except Exception:
+        return JSONResponse({"error": "Send failed"})
+    msg = await _event_bus.wait_for("memregs", timeout=5.0)
+    if msg:
+        return JSONResponse({"client": msg.get("client"), "memregs": msg.get("memregs", [])})
+    return JSONResponse({"memregs": [], "message": "No response"})
+
+
+async def api_read_memregion(request: Request) -> JSONResponse:
+    """Read data from a named memory region."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    body = await request.json()
+    client = body.get("client", "")
+    region = body.get("region", "")
+    if not client or not region:
+        return JSONResponse({"error": "Missing client or region"}, status_code=400)
+    chunks: list[dict] = []
+    async with _event_bus.subscribe("mem", "err") as queue:
+        try:
+            _conn.send({"type": "READMEMREG", "client": client, "region": region})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "Error")})
+                chunks.append(data)
+                break  # Expect single chunk for registered regions
+            except asyncio.TimeoutError:
+                break
+    if chunks:
+        all_hex = "".join(c["hexData"] for c in chunks)
+        dump = format_hex_dump(chunks[0]["address"], all_hex)
+        return JSONResponse({"dump": dump, "address": chunks[0]["address"],
+                             "size": chunks[0]["size"]})
+    return JSONResponse({"error": "No response"})
+
+
+async def api_client_info(request: Request) -> JSONResponse:
+    """Get detailed info about a client."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    client = request.query_params.get("client", "")
+    if not client:
+        return JSONResponse({"error": "Missing client name"}, status_code=400)
+    try:
+        _conn.send({"type": "CLIENTINFO", "client": client})
+    except Exception:
+        return JSONResponse({"error": "Send failed"})
+    msg = await _event_bus.wait_for("cinfo", timeout=5.0)
+    if msg:
+        return JSONResponse(msg)
+    return JSONResponse({"error": "No response"})
+
+
+async def api_stop(request: Request) -> JSONResponse:
+    """Stop a client process."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    body = await request.json()
+    name = body.get("name", "")
+    if not name:
+        return JSONResponse({"error": "Missing name"}, status_code=400)
+    async with _event_bus.subscribe("ok", "err") as queue:
+        try:
+            _conn.send({"type": "STOP", "name": name})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                ctx = data.get("context", "")
+                if "STOP" in ctx or "Client" in ctx:
+                    return JSONResponse({
+                        "status": "ok" if evt == "ok" else "error",
+                        "message": data.get("message", ""),
+                    })
+            except asyncio.TimeoutError:
+                break
+    return JSONResponse({"status": "timeout"})
+
+
+async def api_script(request: Request) -> JSONResponse:
+    """Run an AmigaDOS script on the Amiga."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    body = await request.json()
+    script = body.get("script", "")
+    if not script:
+        return JSONResponse({"error": "Missing script"}, status_code=400)
+    cmd_id = int(time.time() * 1000) % 100000
+    # Convert newlines to semicolons for the protocol
+    script_line = script.replace("\n", ";")
+    async with _event_bus.subscribe("cmd") as queue:
+        try:
+            _conn.send({"type": "SCRIPT", "id": cmd_id, "script": script_line})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if data.get("id") == cmd_id:
+                    return JSONResponse({
+                        "status": data["status"],
+                        "output": data.get("data", ""),
+                    })
+            except asyncio.TimeoutError:
+                break
+    return JSONResponse({"status": "timeout", "output": "Script execution timed out"})
+
+
+async def api_write_memory(request: Request) -> JSONResponse:
+    """Write data to a memory address on the Amiga."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+    body = await request.json()
+    address = body.get("address", "")
+    hex_data = body.get("hexData", "")
+    if not address or not hex_data:
+        return JSONResponse({"error": "Missing address or hexData"}, status_code=400)
+    async with _event_bus.subscribe("ok", "err") as queue:
+        try:
+            _conn.send({"type": "WRITEMEM", "address": address, "hexData": hex_data})
+        except Exception as e:
+            return JSONResponse({"error": str(e)})
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                ctx = data.get("context", "")
+                if "WRITEMEM" in ctx:
+                    return JSONResponse({
+                        "status": "ok" if evt == "ok" else "error",
+                        "message": data.get("message", ""),
+                    })
+            except asyncio.TimeoutError:
+                break
+    return JSONResponse({"status": "timeout"})
 
 
 async def api_ping(request: Request) -> JSONResponse:
@@ -607,6 +825,14 @@ def create_app(args: Any) -> Starlette:
         Route("/api/run", api_run, methods=["POST"]),
         Route("/api/ping", api_ping, methods=["POST"]),
         Route("/api/break", api_break, methods=["POST"]),
+        Route("/api/hooks", api_hooks, methods=["GET"]),
+        Route("/api/hooks/call", api_call_hook, methods=["POST"]),
+        Route("/api/memregions", api_memregions, methods=["GET"]),
+        Route("/api/memregions/read", api_read_memregion, methods=["POST"]),
+        Route("/api/client-info", api_client_info, methods=["GET"]),
+        Route("/api/stop", api_stop, methods=["POST"]),
+        Route("/api/script", api_script, methods=["POST"]),
+        Route("/api/memory/write", api_write_memory, methods=["POST"]),
         Route("/api/connect", api_connect, methods=["POST"]),
         Route("/api/disconnect", api_disconnect, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
@@ -621,8 +847,54 @@ def create_app(args: Any) -> Starlette:
     return app
 
 
+_PID_FILE = "/tmp/amiga-devbench.pid"
+
+
+def _kill_stale_instance() -> None:
+    """Kill any previously running devbench process."""
+    import signal as _signal
+
+    try:
+        with open(_PID_FILE) as f:
+            old_pid = int(f.read().strip())
+        # Check if process is still running
+        try:
+            os.kill(old_pid, 0)
+        except OSError:
+            return  # Already dead
+        logger.info("Killing stale devbench process (pid %d)", old_pid)
+        os.kill(old_pid, _signal.SIGTERM)
+        # Wait briefly for it to die
+        import time as _time
+        for _ in range(10):
+            _time.sleep(0.2)
+            try:
+                os.kill(old_pid, 0)
+            except OSError:
+                return  # Died
+        # Force kill
+        logger.warning("Force-killing stale devbench (pid %d)", old_pid)
+        os.kill(old_pid, _signal.SIGKILL)
+    except (FileNotFoundError, ValueError, ProcessLookupError):
+        pass
+
+
+def _write_pid_file() -> None:
+    with open(_PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def _remove_pid_file() -> None:
+    try:
+        os.unlink(_PID_FILE)
+    except FileNotFoundError:
+        pass
+
+
 def run(args: Any) -> None:
     """Run the server with uvicorn."""
+    import atexit
+
     log_level = getattr(logging, args.log_level.upper(), logging.INFO)
 
     logging.basicConfig(
@@ -636,6 +908,11 @@ def run(args: Any) -> None:
     for name in ("amiga_devbench", "amiga_devbench.serial_conn",
                  "amiga_devbench.server", "amiga_devbench.protocol"):
         logging.getLogger(name).setLevel(log_level)
+
+    # Kill any stale instance before starting
+    _kill_stale_instance()
+    _write_pid_file()
+    atexit.register(_remove_pid_file)
 
     app = create_app(args)
 

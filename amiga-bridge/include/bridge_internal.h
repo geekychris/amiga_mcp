@@ -27,6 +27,25 @@ void ipc_send_to_client(struct MsgPort *replyPort, UWORD type,
                         const char *data, ULONG dataLen);
 
 /* ---- client_registry.c ---- */
+
+/* Per-client tracking of registered vars, hooks, memory regions */
+struct ClientVarInfo {
+    char name[34];
+    int  type;
+};
+
+struct ClientHookInfo {
+    char name[34];
+    char description[64];
+};
+
+struct ClientMemRegInfo {
+    char  name[34];
+    char  description[64];
+    ULONG addr;
+    ULONG size;
+};
+
 struct ClientEntry {
     BOOL            active;
     ULONG           clientId;
@@ -34,6 +53,18 @@ struct ClientEntry {
     struct MsgPort *replyPort;
     ULONG           msgCount;
     ULONG           lastTick;
+
+    /* Registered variables (metadata only — values live in client) */
+    struct ClientVarInfo vars[AB_MAX_VARS];
+    int varCount;
+
+    /* Registered hooks */
+    struct ClientHookInfo hooks[AB_MAX_HOOKS];
+    int hookCount;
+
+    /* Registered memory regions */
+    struct ClientMemRegInfo memregs[AB_MAX_MEMREGIONS];
+    int memregCount;
 };
 
 int client_register(const char *name, struct MsgPort *replyPort);
@@ -41,9 +72,19 @@ void client_unregister(ULONG clientId);
 struct ClientEntry *client_find(ULONG clientId);
 struct ClientEntry *client_find_by_name(const char *name);
 int client_count(void);
+struct ClientEntry *client_get_by_index(int index);
 int client_list(char *buf, int bufSize);
 int client_build_line(char *buf, int bufSize);
 void client_debug_dump(char *buf, int bufSize);
+
+/* Client metadata helpers */
+void client_add_var(struct ClientEntry *ce, const char *name, int type);
+void client_remove_var(struct ClientEntry *ce, const char *name);
+void client_add_hook(struct ClientEntry *ce, const char *name, const char *desc);
+void client_remove_hook(struct ClientEntry *ce, const char *name);
+void client_add_memreg(struct ClientEntry *ce, const char *name,
+                       ULONG addr, ULONG size, const char *desc);
+void client_remove_memreg(struct ClientEntry *ce, const char *name);
 
 /* ---- protocol_handler.c ---- */
 void protocol_parse_line(const char *line);
