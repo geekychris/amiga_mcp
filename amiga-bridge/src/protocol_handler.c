@@ -513,8 +513,17 @@ static void var_send_and_wait(struct ClientEntry *ce, UWORD msgType,
     while (retries > 0) {
         reply = GetMsg(tempPort);
         if (reply) break;
+        /* Process IPC messages while waiting to avoid deadlock */
+        ipc_process();
         Delay(5);
         retries--;
+    }
+
+    {
+        char dbg[120];
+        sprintf(dbg, "LOG|I|0|[VAR] send_and_wait: reply=%lx retries=%ld",
+                (unsigned long)reply, (long)retries);
+        send_line(dbg);
     }
 
     if (reply) {
@@ -1037,16 +1046,29 @@ static void handle_callhook(const char *args)
     bm->data[AB_MAX_DATA - 1] = '\0';
     bm->dataLen = strlen(bm->data) + 1;
 
+    {
+        char dbg[200];
+        sprintf(dbg, "LOG|I|0|[HOOK] Sending to port %lx payload='%s'",
+                (unsigned long)ce->replyPort, payload);
+        send_line(dbg);
+    }
     PutMsg(ce->replyPort, (struct Message *)bm);
 
-    /* Wait for reply with timeout */
+    /* Wait for reply with timeout.
+     * IMPORTANT: Process IPC messages while waiting! The hook function
+     * may call ab_log/ab_push_var which sends messages to the daemon.
+     * If we don't process those, we deadlock: client waits for daemon
+     * to reply to LOG, daemon waits for client to reply to HOOK. */
     {
         struct Message *reply = NULL;
-        int retries = 30; /* ~3 seconds */
+        int retries = 150; /* ~15 seconds (for slow hooks like disk I/O) */
 
         while (retries > 0) {
             reply = GetMsg(tempPort);
             if (reply) break;
+            /* Process any pending IPC messages (LOG, VAR_PUSH, etc)
+             * to avoid deadlock with hook functions that send messages */
+            ipc_process();
             Delay(5);
             retries--;
         }
@@ -1067,10 +1089,16 @@ static void handle_callhook(const char *args)
         } else {
             protocol_send_cmd_response(cmdId, "ERR", "Hook call timed out");
         }
-    }
 
-    FreeMem(bm, sizeof(struct BridgeMsg));
-    DeleteMsgPort(tempPort);
+        if (reply) {
+            /* Safe to free — message was replied and is back in our possession */
+            FreeMem(bm, sizeof(struct BridgeMsg));
+            DeleteMsgPort(tempPort);
+        }
+        /* On timeout: bm AND tempPort may still be referenced by the client.
+         * Leak both to avoid use-after-free crash when client eventually
+         * calls ReplyMsg(). Small leak is better than a guru meditation. */
+    }
 }
 
 static void handle_listmemregs(const char *args)

@@ -495,6 +495,7 @@
     <div class="tab" data-tab="tasks">Tasks</div>
     <div class="tab" data-tab="memory">Memory</div>
     <div class="tab" data-tab="variables">Variables</div>
+    <div class="tab" data-tab="shell">Shell</div>
   </div>
 
   <!-- Content -->
@@ -664,6 +665,34 @@
       </div>
     </div>
 
+    <!-- Shell -->
+    <div class="tab-panel" id="panel-shell">
+      <div id="shellNotRunning" style="display:none;">
+        <div class="card" style="text-align:center;padding:30px;">
+          <p style="margin-bottom:15px;color:var(--text-secondary);">Shell Proxy is not running on the Amiga.</p>
+          <button class="btn" onclick="shellLaunch()" id="shellLaunchBtn">Launch Shell Proxy</button>
+          <p id="shellLaunchStatus" style="margin-top:10px;font-size:12px;color:var(--text-dim);"></p>
+        </div>
+      </div>
+      <div id="shellRunning" style="display:none;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+          <span style="color:var(--green);font-size:12px;" id="shellStatusDot">&#9679;</span>
+          <span style="font-size:12px;color:var(--text-secondary);" id="shellStatusText">shell_proxy connected</span>
+          <span style="flex:1;"></span>
+          <button class="btn" onclick="shellClear()" style="font-size:11px;padding:3px 8px;">Clear</button>
+        </div>
+        <div class="card" style="padding:0;position:relative;flex:1;display:flex;flex-direction:column;min-height:0;">
+          <div id="shellOutput" style="font-family:var(--mono);font-size:12px;padding:10px;overflow-y:auto;flex:1;white-space:pre-wrap;word-break:break-all;background:var(--bg-input);color:var(--green);min-height:300px;max-height:calc(100vh - 240px);"></div>
+          <div style="display:flex;border-top:1px solid var(--border);">
+            <span style="padding:6px 8px;color:var(--accent-orange);font-family:var(--mono);font-size:13px;">1.&gt;</span>
+            <input type="text" id="shellInput" placeholder="Type AmigaDOS command..."
+              style="flex:1;background:var(--bg-input);border:none;color:var(--text-primary);font-family:var(--mono);font-size:13px;padding:6px;outline:none;"
+              onkeydown="if(event.key==='Enter')shellExec()">
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 <script>
@@ -795,11 +824,13 @@ function updateClients(clients) {
   const el = document.getElementById('dashClients');
   if (!clients || clients.length === 0) {
     el.innerHTML = '<span class="empty-state" style="padding:10px;font-size:12px;">No clients</span>';
-    return;
+  } else {
+    el.innerHTML = clients.map(c =>
+      '<div class="stat-row"><span class="stat-value">' + escapeHtml(c) + '</span></div>'
+    ).join('');
   }
-  el.innerHTML = clients.map(c =>
-    '<div class="stat-row"><span class="stat-value">' + escapeHtml(c) + '</span></div>'
-  ).join('');
+  // Update shell tab status
+  if (typeof shellUpdateUI === 'function') shellUpdateUI();
 }
 
 // ─── Logs ───
@@ -1315,6 +1346,142 @@ function escapeHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ─── Shell ───
+let shellHistory = [];
+let shellHistoryIdx = -1;
+
+function shellHasProxy() {
+  return state.clients && state.clients.some(c => c === 'shell_proxy' || c.startsWith('shell_proxy('));
+}
+
+function shellUpdateUI() {
+  const has = shellHasProxy();
+  document.getElementById('shellNotRunning').style.display = has ? 'none' : '';
+  document.getElementById('shellRunning').style.display = has ? '' : 'none';
+}
+
+async function shellLaunch() {
+  const btn = document.getElementById('shellLaunchBtn');
+  const status = document.getElementById('shellLaunchStatus');
+  btn.disabled = true;
+  status.textContent = 'Launching shell_proxy...';
+  try {
+    await api('/launch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({command: 'Dropbox:Dev/shell_proxy'})
+    });
+    status.textContent = 'Launch command sent. Waiting for connection...';
+    // Poll for client to appear
+    let tries = 0;
+    const poll = setInterval(async () => {
+      tries++;
+      const data = await api('/clients');
+      if (data && data.clients) {
+        state.clients = data.clients;
+        if (shellHasProxy()) {
+          clearInterval(poll);
+          shellUpdateUI();
+          shellAppend('Shell Proxy connected.\n', 'var(--accent-blue)');
+        }
+      }
+      if (tries > 20) {
+        clearInterval(poll);
+        status.textContent = 'Timed out waiting for shell_proxy to connect.';
+        btn.disabled = false;
+      }
+    }, 500);
+  } catch (e) {
+    status.textContent = 'Error: ' + e;
+    btn.disabled = false;
+  }
+}
+
+function shellAppend(text, color) {
+  const el = document.getElementById('shellOutput');
+  const span = document.createElement('span');
+  if (color) span.style.color = color;
+  span.textContent = text;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function shellExec() {
+  const input = document.getElementById('shellInput');
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  input.value = '';
+
+  // History
+  shellHistory.push(cmd);
+  shellHistoryIdx = shellHistory.length;
+
+  shellAppend('1.> ' + cmd + '\n', 'var(--accent-orange)');
+
+  // Handle 'cd' specially
+  let hook = 'exec';
+  let args = cmd;
+  if (cmd.toLowerCase() === 'cd' || cmd.toLowerCase().startsWith('cd ')) {
+    const parts = cmd.split(/\s+/);
+    if (parts.length > 1) {
+      hook = 'cd';
+      args = parts.slice(1).join(' ');
+    }
+  }
+
+  try {
+    const resp = await fetch('/api/hooks/call', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({client: 'shell_proxy', hook: hook, args: args})
+    });
+    const data = await resp.json();
+    if (data.error) {
+      shellAppend(data.error + '\n', 'var(--red)');
+    } else if (data.status === 'timeout') {
+      shellAppend('Command timed out\n', 'var(--red)');
+    } else {
+      const output = (data.data || '').replace(/\\n/g, '\n').replace(/\\\|/g, '|');
+      if (output && output !== '(no output)') {
+        shellAppend(output + (output.endsWith('\n') ? '' : '\n'), 'var(--text-primary)');
+      }
+      if (hook === 'cd' && data.status === 'ok') {
+        shellAppend('Current dir: ' + output + '\n', 'var(--accent-blue)');
+      }
+    }
+  } catch (e) {
+    shellAppend('Error: ' + e + '\n', 'var(--red)');
+  }
+
+  input.focus();
+}
+
+function shellClear() {
+  document.getElementById('shellOutput').innerHTML = '';
+}
+
+// Handle up/down arrow for history
+document.addEventListener('keydown', (e) => {
+  const input = document.getElementById('shellInput');
+  if (document.activeElement !== input) return;
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (shellHistoryIdx > 0) {
+      shellHistoryIdx--;
+      input.value = shellHistory[shellHistoryIdx];
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (shellHistoryIdx < shellHistory.length - 1) {
+      shellHistoryIdx++;
+      input.value = shellHistory[shellHistoryIdx];
+    } else {
+      shellHistoryIdx = shellHistory.length;
+      input.value = '';
+    }
+  }
+});
+
 // ─── Init ───
 async function init() {
   connectSSE();
@@ -1328,6 +1495,10 @@ async function init() {
       addLogMessage(msg);
     }
   }
+  // Load initial clients for shell tab
+  const cdata = await api('/clients');
+  if (cdata && cdata.clients) updateClients(cdata.clients);
+  shellUpdateUI();
   // Load initial vars
   refreshVars();
   // Load volumes for file browser

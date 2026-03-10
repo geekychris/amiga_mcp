@@ -464,7 +464,10 @@ async def api_call_hook(request: Request) -> JSONResponse:
             try:
                 evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
                 if data.get("id") == cmd_id:
-                    return JSONResponse({"status": data["status"], "data": data.get("data", "")})
+                    result = data.get("data", "")
+                    # Unescape newlines/pipes from serial protocol
+                    result = result.replace("\\n", "\n").replace("\\|", "|")
+                    return JSONResponse({"status": data["status"], "data": result})
             except asyncio.TimeoutError:
                 break
     return JSONResponse({"status": "timeout", "data": "No response"})

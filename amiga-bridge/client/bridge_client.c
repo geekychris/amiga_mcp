@@ -85,10 +85,17 @@ static void pool_free(struct BridgeMsg *m)
     }
 }
 
+/* Forward declaration - processes a single daemon-initiated message */
+static void process_daemon_msg(struct Message *msg);
+
 /*
  * Send a message to daemon and wait for reply.
  * Returns the replied message (same pointer, now replied).
  * Caller must pool_free() after use.
+ *
+ * NOTE: While waiting, daemon-initiated messages (hook calls, var
+ * get/set) may arrive on reply_port before our reply does.
+ * We must process those inline to avoid deadlock/lost messages.
  */
 static struct BridgeMsg *send_and_wait(UWORD type, ULONG cmdId,
                                        const char *data, ULONG dataLen)
@@ -117,8 +124,27 @@ static struct BridgeMsg *send_and_wait(UWORD type, ULONG cmdId,
     }
 
     PutMsg(daemon_port, (struct Message *)bm);
-    WaitPort(reply_port);
-    GetMsg(reply_port); /* Remove the reply */
+
+    /* Wait for OUR reply. Any daemon-initiated messages that arrive
+     * first are processed inline (hook calls, var get/set, etc). */
+    for (;;) {
+        struct Message *got;
+        WaitPort(reply_port);
+        got = GetMsg(reply_port);
+        if (!got) continue;
+
+        if (got == (struct Message *)bm) {
+            /* Got our own reply back */
+            break;
+        }
+
+        /* Daemon-initiated message arrived while we were waiting.
+         * Process it now so hooks/vars work even during push bursts. */
+        process_daemon_msg(got);
+
+        /* If daemon shut down while we waited, abort */
+        if (!connected) return NULL;
+    }
 
     return bm;
 }
@@ -435,6 +461,153 @@ void ab_send_mem(APTR addr, ULONG size)
     pool_free(bm);
 }
 
+/*
+ * Process a single daemon-initiated message on reply_port.
+ * Used by both ab_poll() and send_and_wait() to handle
+ * hook calls, variable get/set, etc.
+ */
+static void process_daemon_msg(struct Message *msg)
+{
+    struct BridgeMsg *bm = (struct BridgeMsg *)msg;
+
+    printf("[CLIENT] process_daemon_msg type=%ld data='%s'\n",
+           (long)bm->type, bm->data);
+
+    switch (bm->type) {
+    case ABMSG_CMD_FORWARD:
+        if (cmd_handler) {
+            cmd_handler(bm->cmdId, bm->data);
+        }
+        ReplyMsg(msg);
+        break;
+
+    case ABMSG_VAR_GET:
+        /* Daemon is asking for a variable value */
+        {
+            struct VarEntry *ve = find_var(bm->data);
+            if (ve) {
+                char valbuf[128];
+                format_var_value(ve, valbuf, 128);
+                /* Put value in reply data */
+                sprintf(bm->data, "%s|%ld|%s",
+                        ve->name, (long)ve->type, valbuf);
+                bm->dataLen = strlen(bm->data) + 1;
+                bm->result = 0;
+            } else {
+                bm->result = -1;
+            }
+        }
+        ReplyMsg(msg);
+        break;
+
+    case ABMSG_VAR_SET:
+        /* Daemon is setting a variable value.
+         * Format in data: "varname|value" */
+        {
+            char *sep = strchr(bm->data, '|');
+            if (sep) {
+                char vname[34];
+                int nlen = (int)(sep - bm->data);
+                struct VarEntry *ve;
+                if (nlen > 33) nlen = 33;
+                strncpy(vname, bm->data, nlen);
+                vname[nlen] = '\0';
+                ve = find_var(vname);
+                if (ve) {
+                    const char *val = sep + 1;
+                    switch (ve->type) {
+                    case AB_TYPE_I32:
+                        *(LONG *)ve->ptr = (LONG)strtol(val, NULL, 10);
+                        break;
+                    case AB_TYPE_U32:
+                        *(ULONG *)ve->ptr = strtoul(val, NULL, 10);
+                        break;
+                    case AB_TYPE_STR:
+                        strncpy((char *)ve->ptr, val, 127);
+                        ((char *)ve->ptr)[127] = '\0';
+                        break;
+                    case AB_TYPE_PTR:
+                        *(ULONG *)ve->ptr = strtoul(val, NULL, 16);
+                        break;
+                    default:
+                        break;
+                    }
+                    bm->result = 0;
+                } else {
+                    bm->result = -1;
+                }
+            } else {
+                bm->result = -1;
+            }
+        }
+        ReplyMsg(msg);
+        break;
+
+    case ABMSG_HOOK_CALL:
+        /* Daemon is calling a registered hook.
+         * data format: "hookname|args" */
+        {
+            char *sep = strchr(bm->data, '|');
+            char hname[34];
+            const char *hargs = "";
+            int found = 0;
+            int hi;
+
+            if (sep) {
+                int nlen = (int)(sep - bm->data);
+                if (nlen > 33) nlen = 33;
+                strncpy(hname, bm->data, nlen);
+                hname[nlen] = '\0';
+                hargs = sep + 1;
+            } else {
+                strncpy(hname, bm->data, 33);
+                hname[33] = '\0';
+            }
+
+            for (hi = 0; hi < AB_MAX_HOOKS; hi++) {
+                if (hook_table[hi].active &&
+                    strcmp(hook_table[hi].name, hname) == 0) {
+                    char resultBuf[AB_MAX_DATA - 4];
+                    int rc;
+                    resultBuf[0] = '\0';
+                    rc = hook_table[hi].fn(hargs, resultBuf,
+                                           sizeof(resultBuf));
+                    resultBuf[sizeof(resultBuf) - 1] = '\0';
+                    if (rc == 0) {
+                        sprintf(bm->data, "ok|%s", resultBuf);
+                    } else {
+                        sprintf(bm->data, "err|%s", resultBuf);
+                    }
+                    bm->data[AB_MAX_DATA - 1] = '\0';
+                    bm->dataLen = strlen(bm->data) + 1;
+                    bm->result = 0;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                sprintf(bm->data, "err|hook not found: %s", hname);
+                bm->data[AB_MAX_DATA - 1] = '\0';
+                bm->dataLen = strlen(bm->data) + 1;
+                bm->result = -1;
+            }
+        }
+        ReplyMsg(msg);
+        break;
+
+    case ABMSG_SHUTDOWN:
+        /* Daemon is shutting down */
+        connected = FALSE;
+        daemon_port = NULL;
+        ReplyMsg(msg);
+        break;
+
+    default:
+        ReplyMsg(msg);
+        break;
+    }
+}
+
 void ab_poll(void)
 {
     struct Message *msg;
@@ -443,141 +616,8 @@ void ab_poll(void)
 
     /* Check for daemon-initiated messages */
     while ((msg = GetMsg(reply_port)) != NULL) {
-        struct BridgeMsg *bm = (struct BridgeMsg *)msg;
-
-        switch (bm->type) {
-        case ABMSG_CMD_FORWARD:
-            if (cmd_handler) {
-                cmd_handler(bm->cmdId, bm->data);
-            }
-            ReplyMsg(msg);
-            break;
-
-        case ABMSG_VAR_GET:
-            /* Daemon is asking for a variable value */
-            {
-                struct VarEntry *ve = find_var(bm->data);
-                if (ve) {
-                    char valbuf[128];
-                    format_var_value(ve, valbuf, 128);
-                    /* Put value in reply data */
-                    sprintf(bm->data, "%s|%ld|%s",
-                            ve->name, (long)ve->type, valbuf);
-                    bm->dataLen = strlen(bm->data) + 1;
-                    bm->result = 0;
-                } else {
-                    bm->result = -1;
-                }
-            }
-            ReplyMsg(msg);
-            break;
-
-        case ABMSG_VAR_SET:
-            /* Daemon is setting a variable value.
-             * Format in data: "varname|value" */
-            {
-                char *sep = strchr(bm->data, '|');
-                if (sep) {
-                    char vname[34];
-                    int nlen = (int)(sep - bm->data);
-                    struct VarEntry *ve;
-                    if (nlen > 33) nlen = 33;
-                    strncpy(vname, bm->data, nlen);
-                    vname[nlen] = '\0';
-                    ve = find_var(vname);
-                    if (ve) {
-                        const char *val = sep + 1;
-                        switch (ve->type) {
-                        case AB_TYPE_I32:
-                            *(LONG *)ve->ptr = (LONG)strtol(val, NULL, 10);
-                            break;
-                        case AB_TYPE_U32:
-                            *(ULONG *)ve->ptr = strtoul(val, NULL, 10);
-                            break;
-                        case AB_TYPE_STR:
-                            strncpy((char *)ve->ptr, val, 127);
-                            ((char *)ve->ptr)[127] = '\0';
-                            break;
-                        case AB_TYPE_PTR:
-                            *(ULONG *)ve->ptr = strtoul(val, NULL, 16);
-                            break;
-                        default:
-                            break;
-                        }
-                        bm->result = 0;
-                    } else {
-                        bm->result = -1;
-                    }
-                } else {
-                    bm->result = -1;
-                }
-            }
-            ReplyMsg(msg);
-            break;
-
-        case ABMSG_HOOK_CALL:
-            /* Daemon is calling a registered hook.
-             * data format: "hookname|args" */
-            {
-                char *sep = strchr(bm->data, '|');
-                char hname[34];
-                const char *hargs = "";
-                int found = 0;
-                int hi;
-
-                if (sep) {
-                    int nlen = (int)(sep - bm->data);
-                    if (nlen > 33) nlen = 33;
-                    strncpy(hname, bm->data, nlen);
-                    hname[nlen] = '\0';
-                    hargs = sep + 1;
-                } else {
-                    strncpy(hname, bm->data, 33);
-                    hname[33] = '\0';
-                }
-
-                for (hi = 0; hi < AB_MAX_HOOKS; hi++) {
-                    if (hook_table[hi].active &&
-                        strcmp(hook_table[hi].name, hname) == 0) {
-                        char resultBuf[AB_MAX_DATA - 4];
-                        int rc;
-                        resultBuf[0] = '\0';
-                        rc = hook_table[hi].fn(hargs, resultBuf,
-                                               sizeof(resultBuf));
-                        resultBuf[sizeof(resultBuf) - 1] = '\0';
-                        if (rc == 0) {
-                            sprintf(bm->data, "ok|%s", resultBuf);
-                        } else {
-                            sprintf(bm->data, "err|%s", resultBuf);
-                        }
-                        bm->data[AB_MAX_DATA - 1] = '\0';
-                        bm->dataLen = strlen(bm->data) + 1;
-                        bm->result = 0;
-                        found = 1;
-                        break;
-                    }
-                }
-                if (!found) {
-                    sprintf(bm->data, "err|hook not found: %s", hname);
-                    bm->data[AB_MAX_DATA - 1] = '\0';
-                    bm->dataLen = strlen(bm->data) + 1;
-                    bm->result = -1;
-                }
-            }
-            ReplyMsg(msg);
-            break;
-
-        case ABMSG_SHUTDOWN:
-            /* Daemon is shutting down */
-            connected = FALSE;
-            daemon_port = NULL;
-            ReplyMsg(msg);
-            return;
-
-        default:
-            ReplyMsg(msg);
-            break;
-        }
+        process_daemon_msg(msg);
+        if (!connected) return;
     }
 }
 

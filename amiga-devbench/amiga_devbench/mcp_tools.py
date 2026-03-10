@@ -458,7 +458,10 @@ async def amiga_call_hook(client: str, hook: str, args: str = "") -> str:
             try:
                 evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
                 if data.get("id") == cmd_id:
-                    return f"[{data['status']}] {data.get('data', '')}"
+                    result = data.get("data", "")
+                    # Unescape newlines and pipes from serial protocol
+                    result = result.replace("\\n", "\n").replace("\\|", "|")
+                    return f"[{data['status']}] {result}"
             except asyncio.TimeoutError:
                 break
     return "Hook call timed out"
