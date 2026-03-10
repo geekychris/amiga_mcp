@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "bridge_internal.h"
 
@@ -389,4 +390,291 @@ int sys_inspect_mem(APTR addr, ULONG size, UBYTE *outBuf, ULONG outBufSize)
         }
     }
     return (int)copySize;
+}
+
+/*
+ * Enumerate memory regions from ExecBase->MemList.
+ * Format: MEMMAP|count|name:attr:lower:upper:free:largest,...
+ */
+void sys_handle_memmap(void)
+{
+    struct ExecBase *eb = SysBase;
+    struct MemHeader *mh;
+    static char linebuf[BRIDGE_MAX_LINE];
+    static char entry[128];
+    int pos = 0;
+    int count = 0;
+
+    Forbid();
+
+    /* Count regions first */
+    for (mh = (struct MemHeader *)eb->MemList.lh_Head;
+         mh->mh_Node.ln_Succ;
+         mh = (struct MemHeader *)mh->mh_Node.ln_Succ)
+        count++;
+
+    sprintf(linebuf, "MEMMAP|%ld", (long)count);
+    pos = strlen(linebuf);
+
+    for (mh = (struct MemHeader *)eb->MemList.lh_Head;
+         mh->mh_Node.ln_Succ;
+         mh = (struct MemHeader *)mh->mh_Node.ln_Succ) {
+        /* Calculate free space by walking mc_Next chain */
+        struct MemChunk *mc;
+        ULONG free = 0, largest = 0;
+        const char *name;
+
+        for (mc = mh->mh_First; mc; mc = mc->mc_Next) {
+            free += mc->mc_Bytes;
+            if (mc->mc_Bytes > largest) largest = mc->mc_Bytes;
+        }
+
+        name = mh->mh_Node.ln_Name;
+        if (!name || (ULONG)name < 0x100) name = "unknown";
+
+        sprintf(entry, "|%s:%lx:%lx:%lx:%lu:%lu",
+            name,
+            (unsigned long)mh->mh_Attributes,
+            (unsigned long)mh->mh_Lower,
+            (unsigned long)mh->mh_Upper,
+            (unsigned long)free,
+            (unsigned long)largest);
+
+        if (pos + strlen(entry) < BRIDGE_MAX_LINE - 1) {
+            strcpy(linebuf + pos, entry);
+            pos += strlen(entry);
+        }
+    }
+
+    Permit();
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Get stack info for a named task.
+ * Format: STACKINFO|taskname|spLower|spUpper|spReg|stackSize|stackUsed|stackFree
+ */
+void sys_handle_stackinfo(const char *taskname)
+{
+    struct Task *task;
+    static char linebuf[256];
+
+    if (!taskname || taskname[0] == '\0') {
+        protocol_send_raw("ERR|STACKINFO|Missing task name");
+        return;
+    }
+
+    Forbid();
+    task = FindTask((CONST_STRPTR)taskname);
+    if (task) {
+        ULONG lower = (ULONG)task->tc_SPLower;
+        ULONG upper = (ULONG)task->tc_SPUpper;
+        ULONG spreg = (ULONG)task->tc_SPReg;
+        ULONG size = upper - lower;
+        ULONG used = upper - spreg;
+        ULONG free_stack = spreg - lower;
+        Permit();
+
+        sprintf(linebuf, "STACKINFO|%s|%lx|%lx|%lx|%lu|%lu|%lu",
+            taskname,
+            (unsigned long)lower, (unsigned long)upper, (unsigned long)spreg,
+            (unsigned long)size, (unsigned long)used, (unsigned long)free_stack);
+    } else {
+        Permit();
+        sprintf(linebuf, "ERR|STACKINFO|Task not found: %s", taskname);
+    }
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Read safe custom chip read registers.
+ * Format: CHIPREGS|DMACONR=xxxx|INTENAR=xxxx|...
+ */
+void sys_handle_chipregs(void)
+{
+    volatile UWORD *custom = (volatile UWORD *)0xDFF000;
+    static char linebuf[1024];
+    static char tmp[64];
+    int pos;
+
+    /* Read ALL safe custom chip read registers.
+     * Format: CHIPREGS|name:addr:value,name:addr:value,...
+     * Only registers that are safe to read (read-only or read-strobe-safe).
+     * Many custom chip registers are WRITE-ONLY and reading them returns garbage
+     * or has side effects — we skip those. */
+
+    struct { const char *name; UWORD offset; } regs[] = {
+        {"DMACONR",  0x002},
+        {"VPOSR",    0x004},
+        {"VHPOSR",   0x006},
+        {"DSKDATR",  0x008},  /* disk DMA data (may not be useful) */
+        {"JOY0DAT",  0x00A},
+        {"JOY1DAT",  0x00C},
+        {"CLXDAT",   0x00E},  /* collision detect */
+        {"ADKCONR",  0x010},
+        {"POT0DAT",  0x012},
+        {"POT1DAT",  0x014},
+        {"POTGOR",   0x016},
+        {"SERDATR",  0x018},
+        {"DSKBYTR",  0x01A},
+        {"INTENAR",  0x01C},
+        {"INTREQR",  0x01E},
+        {"DENISEID", 0x07C},  /* Denise/Lisa chip ID (ECS/AGA) */
+    };
+    int nregs = sizeof(regs) / sizeof(regs[0]);
+    int i;
+
+    sprintf(linebuf, "CHIPREGS|%ld", (long)nregs);
+    pos = strlen(linebuf);
+
+    for (i = 0; i < nregs; i++) {
+        UWORD val = custom[regs[i].offset / 2];
+        sprintf(tmp, "|%s:%03lx:%04lx",
+            regs[i].name,
+            (unsigned long)regs[i].offset,
+            (unsigned long)val);
+        strcpy(linebuf + pos, tmp);
+        pos += strlen(tmp);
+    }
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Capture CPU registers of the bridge daemon itself.
+ * Format: REGS|D0=xxxxxxxx|D1=xxxxxxxx|...|SP=xxxxxxxx|SR=xxxx
+ *
+ * Note: Register values reflect state at capture time (inside this function),
+ * not the caller's exact register state.
+ * SR requires supervisor mode on 68010+ so we read it via Supervisor() trap.
+ */
+
+void sys_handle_readregs(void)
+{
+    ULONG dregs[8], aregs[7];
+    ULONG sp_val;
+    static char linebuf[512];
+    int pos, i;
+    static char tmp[32];
+
+    /* Capture data and address registers via inline asm.
+     * Note: these reflect the compiler's register allocation at this point,
+     * not the caller's state, but still useful for inspection. */
+    asm volatile(
+        "movem.l %%d0-%%d7, %0\n\t"
+        "movem.l %%a0-%%a6, %1\n\t"
+        "move.l %%sp, %2\n\t"
+        : "=m" (dregs), "=m" (aregs), "=g" (sp_val)
+        :
+        : "memory"
+    );
+
+    /* SR requires supervisor mode on 68010+ and Supervisor() trap
+     * has calling convention issues that cause crashes. Skip it. */
+
+    sprintf(linebuf, "REGS");
+    pos = strlen(linebuf);
+
+    for (i = 0; i < 8; i++) {
+        sprintf(tmp, "|D%ld=%08lx", (long)i, (unsigned long)dregs[i]);
+        strcpy(linebuf + pos, tmp);
+        pos += strlen(tmp);
+    }
+    for (i = 0; i < 7; i++) {
+        sprintf(tmp, "|A%ld=%08lx", (long)i, (unsigned long)aregs[i]);
+        strcpy(linebuf + pos, tmp);
+        pos += strlen(tmp);
+    }
+    sprintf(tmp, "|SP=%08lx|SR=n/a",
+        (unsigned long)sp_val);
+    strcpy(linebuf + pos, tmp);
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Search memory for a byte pattern.
+ * Args format: addr_hex|size|pattern_hex
+ * Response: SEARCH|count|addr1,addr2,...
+ */
+void sys_handle_search(const char *args)
+{
+    static char linebuf[512];
+    ULONG addr, size;
+    unsigned char pattern[64];
+    int pat_len = 0;
+    int pos, count = 0;
+    const char *p;
+    UBYTE *mem;
+    ULONG i;
+    ULONG matches[32];
+    static char tmp[16];
+
+    if (!args || args[0] == '\0') {
+        protocol_send_raw("ERR|SEARCH|Missing arguments");
+        return;
+    }
+
+    /* Parse: addr|size|pattern_hex */
+    addr = strtoul(args, NULL, 16);
+    p = strchr(args, '|');
+    if (!p) {
+        protocol_send_raw("ERR|SEARCH|Missing size");
+        return;
+    }
+    size = strtoul(p + 1, NULL, 10);
+    p = strchr(p + 1, '|');
+    if (!p) {
+        protocol_send_raw("ERR|SEARCH|Missing pattern");
+        return;
+    }
+    p++;
+
+    /* Decode hex pattern */
+    while (*p && pat_len < 64) {
+        char hi = *p++;
+        char lo = *p ? *p++ : '0';
+        int hv = (hi >= 'a') ? hi - 'a' + 10 : (hi >= 'A') ? hi - 'A' + 10 : hi - '0';
+        int lv = (lo >= 'a') ? lo - 'a' + 10 : (lo >= 'A') ? lo - 'A' + 10 : lo - '0';
+        pattern[pat_len++] = (UBYTE)((hv << 4) | lv);
+    }
+
+    if (pat_len == 0) {
+        protocol_send_raw("ERR|SEARCH|Empty pattern");
+        return;
+    }
+
+    /* Validate memory range */
+    if (!TypeOfMem((APTR)addr)) {
+        protocol_send_raw("ERR|SEARCH|Invalid memory address");
+        return;
+    }
+
+    /* Cap size to prevent infinite searches */
+    if (size > 1048576) size = 1048576; /* 1MB max */
+
+    /* Search */
+    mem = (UBYTE *)addr;
+    for (i = 0; i <= size - (ULONG)pat_len && count < 32; i++) {
+        int j, match = 1;
+        for (j = 0; j < pat_len; j++) {
+            if (mem[i + j] != pattern[j]) { match = 0; break; }
+        }
+        if (match) {
+            matches[count++] = addr + i;
+        }
+    }
+
+    sprintf(linebuf, "SEARCH|%ld", (long)count);
+    pos = strlen(linebuf);
+
+    for (i = 0; i < (ULONG)count; i++) {
+        sprintf(tmp, "%s%lx", i == 0 ? "|" : ",", (unsigned long)matches[i]);
+        strcpy(linebuf + pos, tmp);
+        pos += strlen(tmp);
+    }
+
+    protocol_send_raw(linebuf);
 }

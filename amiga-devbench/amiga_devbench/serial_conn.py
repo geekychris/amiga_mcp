@@ -427,6 +427,21 @@ class SerialConnection:
         elif msg_type == "WINLIST":
             self._event_bus.publish("winlist", msg)
 
+        elif msg_type == "MEMMAP":
+            self._event_bus.publish("memmap", msg)
+
+        elif msg_type == "STACKINFO":
+            self._event_bus.publish("stackinfo", msg)
+
+        elif msg_type == "CHIPREGS":
+            self._event_bus.publish("chipregs", msg)
+
+        elif msg_type == "REGS":
+            self._event_bus.publish("regs", msg)
+
+        elif msg_type == "SEARCH":
+            self._event_bus.publish("search", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

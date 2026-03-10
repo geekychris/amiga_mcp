@@ -1191,6 +1191,628 @@ def create_app(args: Any) -> Starlette:
         except Exception as e:
             return JSONResponse({"error": str(e)})
 
+    # ─── New Tool Endpoints ───
+
+    async def api_tool_memory_search(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        address = request.query_params.get("address", "0")
+        size = request.query_params.get("size", "65536")
+        pattern = request.query_params.get("pattern", "")
+        search_type = request.query_params.get("type", "hex")
+
+        if search_type == "ascii":
+            # Convert ASCII to hex
+            pattern = pattern.encode("latin-1").hex()
+
+        _conn.send({"type": "SEARCH", "address": address, "size": size, "pattern": pattern})
+        msg = await _event_bus.wait_for("search", timeout=10.0)
+        if msg:
+            return JSONResponse({"count": msg["count"], "addresses": msg["addresses"]})
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_bitmap(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        address = request.query_params.get("address", "0")
+        width = int(request.query_params.get("width", "320"))
+        height = int(request.query_params.get("height", "256"))
+        depth = int(request.query_params.get("depth", "5"))
+
+        bytes_per_row = (width + 15) // 16 * 2  # word-aligned
+        total_size = bytes_per_row * height * depth
+
+        # Read memory - collect chunks
+        chunks: list[dict] = []
+        async with _event_bus.subscribe("mem", "err") as queue:
+            try:
+                _conn.send({"type": "INSPECT", "address": address, "size": str(total_size)})
+            except Exception as e:
+                return JSONResponse({"error": str(e)})
+
+            deadline = asyncio.get_event_loop().time() + 15.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if evt == "err":
+                        return JSONResponse({"error": data.get("message", "Memory read error")})
+                    if evt == "mem":
+                        chunks.append(data)
+                        received = sum(c["size"] for c in chunks)
+                        if received >= total_size:
+                            break
+                except asyncio.TimeoutError:
+                    break
+
+        if not chunks:
+            return JSONResponse({"error": "No memory response"})
+
+        all_hex = "".join(c["hexData"] for c in chunks)
+        if not all_hex:
+            return JSONResponse({"error": "Empty memory data"})
+
+        raw_bytes = bytes.fromhex(all_hex)
+
+        # Convert planar to chunky using screenshot module
+        from .screenshot import planar_to_chunky, render_png
+
+        # Organize into planes_data[row][plane] = bytes
+        planes_data: list[list[bytes]] = []
+        for y in range(height):
+            row_planes: list[bytes] = []
+            for p in range(depth):
+                offset = (y * depth + p) * bytes_per_row
+                row_planes.append(raw_bytes[offset:offset + bytes_per_row])
+            planes_data.append(row_planes)
+
+        pixel_indices = planar_to_chunky(width, height, depth, planes_data)
+
+        # Use a default Amiga palette (Workbench 2.0 style)
+        default_palette = [
+            (170, 170, 170), (0, 0, 0), (255, 255, 255), (102, 136, 187),
+            (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
+            (255, 0, 255), (0, 255, 255), (170, 85, 0), (255, 170, 85),
+            (85, 85, 85), (170, 170, 170), (187, 187, 187), (221, 221, 221),
+        ]
+        # Extend palette to cover all possible color indices
+        while len(default_palette) < (1 << depth):
+            default_palette.append((0, 0, 0))
+
+        png_data = render_png(width, height, pixel_indices, default_palette)
+
+        import datetime
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"bitmap_{ts}.png"
+        ext = ".png" if png_data[:4] == b"\x89PNG" else ".ppm"
+        if ext != ".png":
+            filename = filename.rsplit(".", 1)[0] + ext
+        save_path = str(_screenshot_dir / filename)
+        with open(save_path, "wb") as f:
+            f.write(png_data)
+
+        return JSONResponse({
+            "path": save_path,
+            "filename": filename,
+            "viewUrl": f"/api/screenshot/view?file={filename}",
+            "width": width,
+            "height": height,
+            "depth": depth,
+        })
+
+    async def api_tool_memmap(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "MEMMAP"})
+        msg = await _event_bus.wait_for("memmap", timeout=5.0)
+        if msg:
+            return JSONResponse({"count": msg["count"], "regions": msg["regions"]})
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_stackinfo(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        task = request.query_params.get("task", "")
+        if not task:
+            return JSONResponse({"error": "Missing task parameter"}, status_code=400)
+        _conn.send({"type": "STACKINFO", "task": task})
+        msg = await _event_bus.wait_for("stackinfo", timeout=5.0)
+        if msg:
+            return JSONResponse({
+                "task": msg["task"],
+                "spLower": msg["spLower"],
+                "spUpper": msg["spUpper"],
+                "spReg": msg["spReg"],
+                "size": msg["size"],
+                "used": msg["used"],
+                "free": msg["free"],
+            })
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_chipregs(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CHIPREGS"})
+        msg = await _event_bus.wait_for("chipregs", timeout=5.0)
+        if msg:
+            return JSONResponse({"registers": msg["registers"]})
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_readregs(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "READREGS"})
+        msg = await _event_bus.wait_for("regs", timeout=5.0)
+        if msg:
+            return JSONResponse({"registers": msg["registers"]})
+        return JSONResponse({"error": "No response"})
+
+    async def api_tool_iff(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        file_path = request.query_params.get("path", "")
+        if not file_path:
+            return JSONResponse({"error": "Missing path parameter"}, status_code=400)
+
+        # Read file in chunks
+        all_hex = ""
+        offset = 0
+        chunk_size = 4096
+        while True:
+            _conn.send({"type": "READFILE", "path": file_path, "offset": offset, "size": chunk_size})
+            msg = await _event_bus.wait_for(
+                "file", timeout=5.0,
+                predicate=lambda d: d.get("path") == file_path,
+            )
+            if not msg:
+                break
+            hex_data = msg.get("hexData", "")
+            if not hex_data:
+                break
+            all_hex += hex_data
+            file_size = msg.get("size", 0)
+            offset += chunk_size
+            if offset >= file_size:
+                break
+
+        if not all_hex:
+            return JSONResponse({"error": "Could not read file"})
+
+        try:
+            data = bytes.fromhex(all_hex)
+            width, height, depth_val, palette, body_pixels = _decode_iff_ilbm(data)
+
+            from .screenshot import render_png
+            png_data = render_png(width, height, body_pixels, palette)
+
+            import datetime
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            basename = file_path.split(":")[-1].split("/")[-1].replace(".", "_")
+            filename = f"iff_{basename}_{ts}.png"
+            ext = ".png" if png_data[:4] == b"\x89PNG" else ".ppm"
+            if ext != ".png":
+                filename = filename.rsplit(".", 1)[0] + ext
+            save_path = str(_screenshot_dir / filename)
+            with open(save_path, "wb") as f:
+                f.write(png_data)
+
+            return JSONResponse({
+                "path": save_path,
+                "filename": filename,
+                "viewUrl": f"/api/screenshot/view?file={filename}",
+                "width": width,
+                "height": height,
+                "depth": depth_val,
+            })
+        except Exception as e:
+            return JSONResponse({"error": f"IFF decode failed: {e}"})
+
+    def _decode_iff_ilbm(data: bytes) -> tuple:
+        """Decode IFF ILBM file, return (width, height, depth, palette, pixel_indices)."""
+        import struct
+        if len(data) < 12:
+            raise ValueError("File too small for IFF")
+        form_id = data[0:4]
+        if form_id != b"FORM":
+            raise ValueError(f"Not an IFF file (got {form_id!r})")
+        form_type = data[8:12]
+        if form_type != b"ILBM":
+            raise ValueError(f"Not ILBM (got {form_type!r})")
+
+        # Parse chunks
+        bmhd = None
+        cmap_colors: list[tuple[int, int, int]] = []
+        body_data = b""
+        pos = 12
+        while pos < len(data) - 8:
+            chunk_id = data[pos:pos + 4]
+            chunk_size = struct.unpack(">I", data[pos + 4:pos + 8])[0]
+            chunk_data = data[pos + 8:pos + 8 + chunk_size]
+
+            if chunk_id == b"BMHD":
+                if len(chunk_data) >= 20:
+                    w, h, x, y, planes, masking, compression, pad, trans, xa, ya, pw, ph = struct.unpack(
+                        ">HHhhBBBBHBBHH", chunk_data[:20]
+                    )
+                    bmhd = {
+                        "width": w, "height": h, "x": x, "y": y,
+                        "planes": planes, "masking": masking,
+                        "compression": compression, "transparentColor": trans,
+                    }
+            elif chunk_id == b"CMAP":
+                for i in range(0, len(chunk_data), 3):
+                    if i + 2 < len(chunk_data):
+                        cmap_colors.append((chunk_data[i], chunk_data[i + 1], chunk_data[i + 2]))
+            elif chunk_id == b"BODY":
+                body_data = chunk_data
+
+            # Chunks are word-aligned
+            pos += 8 + chunk_size + (chunk_size & 1)
+
+        if not bmhd:
+            raise ValueError("No BMHD chunk found")
+
+        width = bmhd["width"]
+        height = bmhd["height"]
+        depth = bmhd["planes"]
+        compression = bmhd["compression"]
+        masking = bmhd["masking"]
+
+        # Decompress body if ByteRun1
+        if compression == 1:
+            body_data = _byterun1_decompress(body_data)
+
+        # Convert planar body to pixel indices
+        bytes_per_row = ((width + 15) // 16) * 2
+        total_planes = depth + (1 if masking == 1 else 0)
+
+        from .screenshot import planar_to_chunky
+
+        planes_data: list[list[bytes]] = []
+        for y in range(height):
+            row_planes: list[bytes] = []
+            for p in range(depth):
+                row_offset = (y * total_planes + p) * bytes_per_row
+                row_planes.append(body_data[row_offset:row_offset + bytes_per_row])
+            planes_data.append(row_planes)
+
+        pixel_indices = planar_to_chunky(width, height, depth, planes_data)
+
+        # Default palette if CMAP missing
+        if not cmap_colors:
+            cmap_colors = [(0, 0, 0)] * (1 << depth)
+        while len(cmap_colors) < (1 << depth):
+            cmap_colors.append((0, 0, 0))
+
+        return width, height, depth, cmap_colors, pixel_indices
+
+    def _byterun1_decompress(data: bytes) -> bytes:
+        """Decompress ByteRun1 packed data."""
+        result = bytearray()
+        i = 0
+        while i < len(data):
+            n = data[i]
+            if n > 127:
+                n = n - 256  # convert to signed
+            i += 1
+            if n >= 0:
+                # Copy n+1 bytes literally
+                count = n + 1
+                result.extend(data[i:i + count])
+                i += count
+            elif n == -128:
+                # NOP
+                pass
+            else:
+                # Repeat next byte (-n+1) times
+                count = -n + 1
+                if i < len(data):
+                    result.extend(bytes([data[i]]) * count)
+                    i += 1
+        return bytes(result)
+
+    _snapshots: list[dict] = []
+
+    async def api_tool_snapshot(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        action = body.get("action", "list")
+
+        if action == "list":
+            return JSONResponse({"snapshots": [
+                {"id": i, "name": s["name"], "address": s["address"],
+                 "size": s["size"], "timestamp": s["timestamp"]}
+                for i, s in enumerate(_snapshots)
+            ]})
+
+        if action == "clear":
+            _snapshots.clear()
+            return JSONResponse({"message": "Snapshots cleared"})
+
+        if action == "take":
+            address = body.get("address", "0")
+            size = int(body.get("size", 256))
+            name = body.get("name", f"snap_{len(_snapshots)}")
+
+            # Read memory
+            chunks: list[dict] = []
+            async with _event_bus.subscribe("mem", "err") as queue:
+                try:
+                    _conn.send({"type": "INSPECT", "address": address, "size": str(size)})
+                except Exception as e:
+                    return JSONResponse({"error": str(e)})
+
+                deadline = asyncio.get_event_loop().time() + 15.0
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        break
+                    try:
+                        evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                        if evt == "err":
+                            return JSONResponse({"error": data.get("message", "Memory read error")})
+                        if evt == "mem":
+                            chunks.append(data)
+                            received = sum(c["size"] for c in chunks)
+                            if received >= size:
+                                break
+                    except asyncio.TimeoutError:
+                        break
+
+            if not chunks:
+                return JSONResponse({"error": "No memory response"})
+
+            all_hex = "".join(c["hexData"] for c in chunks)
+            snap_data = bytes.fromhex(all_hex)
+            snap_id = len(_snapshots)
+            _snapshots.append({
+                "id": snap_id,
+                "name": name,
+                "address": address,
+                "size": len(snap_data),
+                "data": snap_data,
+                "timestamp": time.time(),
+            })
+            return JSONResponse({"id": snap_id, "name": name, "size": len(snap_data)})
+
+        if action == "diff":
+            id1 = int(body.get("id1", 0))
+            id2 = int(body.get("id2", 1))
+            if id1 >= len(_snapshots) or id2 >= len(_snapshots):
+                return JSONResponse({"error": "Invalid snapshot ID"})
+            s1 = _snapshots[id1]
+            s2 = _snapshots[id2]
+            min_len = min(len(s1["data"]), len(s2["data"]))
+            changes = []
+            for i in range(min_len):
+                if s1["data"][i] != s2["data"][i]:
+                    changes.append({
+                        "offset": i,
+                        "old": f"{s1['data'][i]:02x}",
+                        "new": f"{s2['data'][i]:02x}",
+                    })
+            return JSONResponse({
+                "snap1": {"id": id1, "name": s1["name"]},
+                "snap2": {"id": id2, "name": s2["name"]},
+                "changeCount": len(changes),
+                "changes": changes[:1000],  # limit to first 1000 changes
+            })
+
+        return JSONResponse({"error": f"Unknown action: {action}"})
+
+    async def api_tool_bootlog(request: Request) -> JSONResponse:
+        assert _state is not None
+        count = int(request.query_params.get("count", "100"))
+        logs = _state.get_recent_logs(count=len(_state.logs))
+        # Return earliest logs (boot time)
+        boot_logs = logs[:count]
+        return JSONResponse({"logs": [
+            {
+                "level": l.get("level"),
+                "tick": l.get("tick"),
+                "message": l.get("message"),
+                "timestamp": l.get("timestamp"),
+                "client": l.get("client"),
+            }
+            for l in boot_logs
+        ]})
+
+    async def api_tool_sysinfo(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+
+        result: dict[str, Any] = {}
+
+        # Ping
+        try:
+            _conn.send({"type": "PING"})
+            pong = await _event_bus.wait_for("pong", timeout=2.0)
+            if pong:
+                result["clients"] = pong.get("clientCount", 0)
+                result["freeChip"] = pong.get("freeChip", 0)
+                result["freeFast"] = pong.get("freeFast", 0)
+        except Exception:
+            pass
+
+        # Tasks
+        try:
+            _conn.send({"type": "LISTTASKS"})
+            tasks = await _event_bus.wait_for("tasks", timeout=2.0)
+            if tasks:
+                result["taskCount"] = len(tasks.get("tasks", []))
+                result["tasks"] = tasks.get("tasks", [])
+        except Exception:
+            pass
+
+        # Libraries
+        try:
+            _conn.send({"type": "LISTLIBS"})
+            libs = await _event_bus.wait_for("libs", timeout=2.0)
+            if libs:
+                result["libCount"] = len(libs.get("libs", []))
+                result["libs"] = libs.get("libs", [])
+        except Exception:
+            pass
+
+        # Volumes
+        try:
+            _conn.send({"type": "LISTVOLUMES"})
+            vols = await _event_bus.wait_for("volumes", timeout=2.0)
+            if vols:
+                result["volumes"] = vols.get("names", [])
+        except Exception:
+            pass
+
+        return JSONResponse(result)
+
+    # ─── Files Tab Endpoints ───
+
+    async def api_file_execute(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        file_path = body.get("path", "")
+        if not file_path:
+            return JSONResponse({"error": "Missing path"}, status_code=400)
+
+        cmd_id = int(time.time() * 1000) % 100000
+        async with _event_bus.subscribe("cmd") as queue:
+            try:
+                _conn.send({"type": "LAUNCH", "id": cmd_id, "command": file_path})
+            except Exception as e:
+                return JSONResponse({"error": str(e)})
+
+            deadline = asyncio.get_event_loop().time() + 10.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if data.get("id") == cmd_id:
+                        return JSONResponse({
+                            "status": data["status"],
+                            "output": data.get("data", ""),
+                        })
+                except asyncio.TimeoutError:
+                    break
+
+        return JSONResponse({"status": "timeout", "output": "No response from Amiga"})
+
+    async def api_file_view(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        file_path = request.query_params.get("path", "")
+        mode = request.query_params.get("mode", "text")
+        if not file_path:
+            return JSONResponse({"error": "Missing path parameter"}, status_code=400)
+
+        # Read file
+        read_size = 8192
+        _conn.send({"type": "READFILE", "path": file_path, "offset": 0, "size": read_size})
+        msg = await _event_bus.wait_for(
+            "file", timeout=5.0,
+            predicate=lambda d: d.get("path") == file_path,
+        )
+        if not msg:
+            return JSONResponse({"error": "No response"})
+
+        hex_data = msg.get("hexData", "")
+        file_size = msg.get("size", 0)
+
+        if mode == "text":
+            try:
+                content = bytes.fromhex(hex_data).decode("latin-1")
+                return JSONResponse({
+                    "path": file_path,
+                    "size": file_size,
+                    "mode": "text",
+                    "content": content,
+                })
+            except Exception as e:
+                return JSONResponse({"error": f"Decode failed: {e}"})
+        else:
+            # Hex mode - return formatted hex dump
+            from .protocol import format_hex_dump
+            dump = format_hex_dump("00000000", hex_data)
+            return JSONResponse({
+                "path": file_path,
+                "size": file_size,
+                "mode": "hex",
+                "content": dump,
+            })
+
+    async def api_file_save(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        file_path = body.get("path", "")
+        content = body.get("content", "")
+        if not file_path:
+            return JSONResponse({"error": "Missing path"}, status_code=400)
+
+        hex_data = content.encode("latin-1").hex()
+        async with _event_bus.subscribe("ok", "err") as queue:
+            try:
+                _conn.send({"type": "WRITEFILE", "path": file_path, "offset": 0, "hexData": hex_data})
+            except Exception as e:
+                return JSONResponse({"error": str(e)})
+
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    ctx = data.get("context", "")
+                    if "WRITEFILE" in ctx or "FILE" in ctx:
+                        return JSONResponse({
+                            "status": "ok" if evt == "ok" else "error",
+                            "message": data.get("message", ""),
+                        })
+                except asyncio.TimeoutError:
+                    break
+
+        return JSONResponse({"status": "timeout"})
+
+    async def api_file_run_with(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        file_path = body.get("path", "")
+        app = body.get("app", "")
+        if not file_path or not app:
+            return JSONResponse({"error": "Missing path or app"}, status_code=400)
+
+        cmd_id = int(time.time() * 1000) % 100000
+        command = f"{app} {file_path}"
+        async with _event_bus.subscribe("cmd") as queue:
+            try:
+                _conn.send({"type": "LAUNCH", "id": cmd_id, "command": command})
+            except Exception as e:
+                return JSONResponse({"error": str(e)})
+
+            deadline = asyncio.get_event_loop().time() + 10.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if data.get("id") == cmd_id:
+                        return JSONResponse({
+                            "status": data["status"],
+                            "output": data.get("data", ""),
+                        })
+                except asyncio.TimeoutError:
+                    break
+
+        return JSONResponse({"status": "timeout", "output": "No response from Amiga"})
+
     # Define routes
     routes = [
         # Web API
@@ -1237,6 +1859,22 @@ def create_app(args: Any) -> Starlette:
         Route("/api/perf", api_tool_perf, methods=["GET"]),
         Route("/api/projects", api_projects, methods=["GET"]),
         Route("/api/create-project", api_tool_create_project, methods=["POST"]),
+        # New tool endpoints
+        Route("/api/tools/memory-search", api_tool_memory_search, methods=["GET"]),
+        Route("/api/tools/bitmap", api_tool_bitmap, methods=["GET"]),
+        Route("/api/tools/memmap", api_tool_memmap, methods=["GET"]),
+        Route("/api/tools/stackinfo", api_tool_stackinfo, methods=["GET"]),
+        Route("/api/tools/chipregs", api_tool_chipregs, methods=["GET"]),
+        Route("/api/tools/readregs", api_tool_readregs, methods=["GET"]),
+        Route("/api/tools/iff", api_tool_iff, methods=["GET"]),
+        Route("/api/tools/snapshot", api_tool_snapshot, methods=["POST"]),
+        Route("/api/tools/bootlog", api_tool_bootlog, methods=["GET"]),
+        Route("/api/tools/sysinfo", api_tool_sysinfo, methods=["GET"]),
+        # Files tab endpoints
+        Route("/api/file/execute", api_file_execute, methods=["POST"]),
+        Route("/api/file/view", api_file_view, methods=["GET"]),
+        Route("/api/file/save", api_file_save, methods=["POST"]),
+        Route("/api/file/run-with", api_file_run_with, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),

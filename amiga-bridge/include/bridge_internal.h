@@ -117,6 +117,11 @@ int sys_list_volumes(char *buf, int bufSize);
 void sys_avail_mem(ULONG *chipFree, ULONG *fastFree);
 int sys_inspect_mem(APTR addr, ULONG size, UBYTE *outBuf, ULONG outBufSize);
 int sys_break_task(const char *name);
+void sys_handle_memmap(void);
+void sys_handle_stackinfo(const char *taskname);
+void sys_handle_chipregs(void);
+void sys_handle_readregs(void);
+void sys_handle_search(const char *args);
 
 /* ---- fs_access.c ---- */
 int fs_list_dir(const char *path, char *buf, int bufSize);

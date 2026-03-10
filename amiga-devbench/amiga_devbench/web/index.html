@@ -160,7 +160,9 @@
   .btn:hover { opacity: 0.85; }
   .btn:active { opacity: 0.7; }
   .btn.orange { background: var(--accent-orange); }
-  .btn.small { padding: 4px 10px; font-size: 11px; }
+  .btn.small { padding: 2px 6px; font-size: 10px; }
+  .btn-danger { background: var(--red); color: #fff; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: opacity 0.2s; }
+  .btn-danger:hover { opacity: 0.85; }
   .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
 
   /* Tool help bubble */
@@ -281,9 +283,10 @@
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: 4px;
-    overflow-y: auto;
+    overflow: auto;
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
   .file-breadcrumb {
     padding: 6px 10px;
@@ -310,27 +313,92 @@
   .tree-item .icon { margin-right: 4px; }
   .file-row {
     display: grid;
-    grid-template-columns: 1fr 80px 120px 80px;
+    grid-template-columns: minmax(120px, 1fr) 70px 100px 60px minmax(100px, 220px);
     padding: 4px 10px;
     border-bottom: 1px solid rgba(255,255,255,0.03);
     cursor: pointer;
     align-items: center;
+    font-size: 12px;
   }
   .file-row:hover { background: rgba(255,255,255,0.05); }
-  .file-row .name { color: var(--text-primary); }
+  .file-row .name { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-row .size { color: var(--text-secondary); text-align: right; }
-  .file-row .date { color: var(--text-dim); }
-  .file-row .prot { color: var(--text-dim); }
+  .file-row .date { color: var(--text-dim); font-size: 11px; }
+  .file-row .prot { color: var(--text-dim); font-size: 11px; }
   .file-row.dir .name { color: var(--accent-blue); }
   .file-header {
     display: grid;
-    grid-template-columns: 1fr 80px 120px 80px;
+    grid-template-columns: minmax(120px, 1fr) 70px 100px 60px minmax(100px, 220px);
     padding: 6px 10px;
     border-bottom: 1px solid var(--border);
     font-size: 11px;
     color: var(--text-dim);
     text-transform: uppercase;
     flex-shrink: 0;
+  }
+  /* File viewer modal */
+  .file-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .file-modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    width: 80%;
+    max-width: 900px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .file-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-family: var(--mono);
+    color: var(--accent-blue);
+  }
+  .file-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+  }
+  .file-modal-body textarea {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: none;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    resize: none;
+    outline: none;
+  }
+  .file-modal-body pre {
+    padding: 10px;
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text-primary);
+  }
+  .file-modal-footer {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    justify-content: flex-end;
   }
 
   /* Tasks table */
@@ -615,7 +683,7 @@
         <div class="file-list-pane">
           <div class="file-breadcrumb" id="fileBreadcrumb">SYS:</div>
           <div class="file-header">
-            <span>Name</span><span style="text-align:right">Size</span><span>Date</span><span>Prot</span>
+            <span>Name</span><span style="text-align:right">Size</span><span>Date</span><span>Prot</span><span>Actions</span>
           </div>
           <div class="file-list" id="fileList">
             <div class="empty-state">Select a directory to browse</div>
@@ -853,6 +921,119 @@
           <div id="toolNewResult" style="margin-top:8px;font-size:11px;color:var(--text-dim);"></div>
         </div>
 
+        <!-- Memory Search -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Memory Search <span class="tool-help" title="Search Amiga memory for byte patterns or ASCII strings. Searches up to 1MB range on the Amiga side (fast). Returns up to 32 matching addresses.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="searchAddr" placeholder="Start addr (hex)" value="000000" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
+            <input type="text" id="searchSize" placeholder="Size" value="65536" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:80px;">
+            <select id="searchType" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;">
+              <option value="hex">Hex</option>
+              <option value="ascii">ASCII</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input type="text" id="searchPattern" placeholder="Pattern (hex bytes or text)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
+            <button class="btn" onclick="toolMemorySearch()">Search</button>
+          </div>
+          <div id="searchResult" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+
+        <!-- Bitmap Viewer -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Bitmap Viewer <span class="tool-help" title="Render a planar bitmap from Amiga memory as an image. Enter the base address of bitplane data, dimensions, and bit depth. Useful for debugging custom graphics, bobs, and tileset loading.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="bmpAddr" placeholder="Address (hex)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
+            <input type="number" id="bmpWidth" placeholder="Width" value="320" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:70px;">
+            <input type="number" id="bmpHeight" placeholder="Height" value="256" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:70px;">
+            <input type="number" id="bmpDepth" placeholder="Depth" value="5" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:60px;">
+            <button class="btn" onclick="toolBitmapView()">Render</button>
+          </div>
+          <div id="bitmapResult" style="text-align:center;"></div>
+        </div>
+
+        <!-- Memory Map -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Memory Map <span class="tool-help" title="Visual map of Amiga memory regions showing chip RAM, fast RAM, and ROM with free/used breakdown and fragmentation info. Walks ExecBase memory lists.">?</span></h3>
+          <button class="btn" onclick="toolMemMap()" style="margin-bottom:8px;">Read Memory Map</button>
+          <div id="memmapResult"></div>
+        </div>
+
+        <!-- Stack Monitor -->
+        <div class="card" style="padding:14px;overflow:hidden;">
+          <h3 style="margin-bottom:6px;">Stack Monitor <span class="tool-help" title="Shows stack usage for a task. Amiga's default 4KB stack is a common source of crashes. Monitors SP position relative to stack bounds to detect potential overflows.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="stackTask" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;min-width:0;appearance:none;"><option value="">Select task...</option></select>
+            <button class="btn" onclick="toolRefreshTasks()" title="Refresh task list" style="padding:4px 8px;font-size:11px;flex-shrink:0;">&#x21bb;</button>
+            <button class="btn" onclick="toolStackInfo()" style="padding:4px 8px;font-size:11px;white-space:nowrap;flex-shrink:0;">Check</button>
+          </div>
+          <div id="stackResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- Register Viewer -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Register Viewer <span class="tool-help" title="Captures CPU registers (D0-D7, A0-A6, SP, SR) of the bridge daemon at the moment of the call. Shows data and address register contents for debugging.">?</span></h3>
+          <button class="btn" onclick="toolReadRegs()" style="margin-bottom:8px;">Capture Registers</button>
+          <div id="regsResult" style="font-family:var(--mono);font-size:12px;"></div>
+        </div>
+
+        <!-- Chip Registers -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Chip Registers <span class="tool-help" title="Reads safe custom chip read-only registers. Shows DMA channels, interrupts, video position, joystick data, and serial status with bitfield decoding.">?</span></h3>
+          <button class="btn" onclick="toolChipRegs()" style="margin-bottom:8px;">Read Registers</button>
+          <div id="chipRegsResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- IFF Image Viewer -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">IFF Image Viewer <span class="tool-help" title="Load and display IFF ILBM images from the Amiga filesystem. Browse directories to find .iff/.ilbm files. Decodes planar bitplane data and palette to render as PNG in the browser.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input type="text" id="iffPath" placeholder="Amiga path (e.g. DH0:pic.iff)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
+            <button class="btn" onclick="toolIffView()">View</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="iffBrowseDir" value="SYS:" placeholder="Browse directory" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:11px;width:140px;">
+            <button class="btn" onclick="iffBrowse()" style="font-size:11px;padding:4px 8px;">Browse</button>
+            <button class="btn" onclick="iffBrowseUp()" style="font-size:11px;padding:4px 8px;">&#8593; Up</button>
+          </div>
+          <div id="iffBrowser" style="max-height:160px;overflow-y:auto;font-family:var(--mono);font-size:11px;margin-bottom:6px;background:var(--bg-input);border-radius:4px;display:none;"></div>
+          <div id="iffResult" style="text-align:center;"></div>
+        </div>
+
+        <!-- Memory Diff -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Memory Diff <span class="tool-help" title="Take memory snapshots and compare them. Take a snapshot, perform an action on the Amiga, take another snapshot, then diff to see what changed. Great for reverse engineering and understanding program behavior.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="snapAddr" placeholder="Address (hex)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
+            <input type="number" id="snapSize" placeholder="Size" value="256" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:80px;">
+            <input type="text" id="snapName" placeholder="Label" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:100px;">
+            <button class="btn" onclick="toolSnapshot('take')">Take Snapshot</button>
+            <button class="btn" onclick="toolSnapshot('diff')">Diff</button>
+            <button class="btn-danger" onclick="toolSnapshot('clear')">Clear All</button>
+          </div>
+          <div id="snapList" style="font-size:11px;margin-bottom:6px;"></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <select id="snapId1" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;"><option>--</option></select>
+            <span style="line-height:28px;">vs</span>
+            <select id="snapId2" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;"><option>--</option></select>
+          </div>
+          <div id="snapResult" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;"></div>
+        </div>
+
+        <!-- Boot Log -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Boot Log <span class="tool-help" title="Shows all log messages from the current session, capturing the bridge startup sequence and early app initialization. Useful for diagnosing startup issues.">?</span></h3>
+          <button class="btn" onclick="toolBootLog()" style="margin-bottom:8px;">Load Boot Log</button>
+          <div id="bootlogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- System Info Dashboard -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">System Info <span class="tool-help" title="Comprehensive system overview: memory status, running tasks, loaded libraries, mounted volumes. Aggregates multiple queries into one dashboard.">?</span></h3>
+          <button class="btn" onclick="toolSysInfo()" style="margin-bottom:8px;">Refresh</button>
+          <div id="sysinfoResult"></div>
+        </div>
+
       </div>
     </div>
 
@@ -885,11 +1066,12 @@ document.getElementById('tabBar').addEventListener('click', (e) => {
   tab.classList.add('active');
   const tabName = tab.dataset.tab;
   document.getElementById('panel-' + tabName).classList.add('active');
-  // Auto-refresh clients & windows when switching to tools tab
+  // Auto-refresh clients, windows, tasks when switching to tools tab
   if (tabName === 'tools') {
     api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
     if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
     if (typeof toolRefreshProjects === 'function') toolRefreshProjects();
+    if (typeof toolRefreshTasks === 'function') toolRefreshTasks();
   }
 });
 
@@ -1150,7 +1332,7 @@ function updateFileList(data) {
     const lastSep = Math.max(parentPath.lastIndexOf('/'), parentPath.lastIndexOf(':'));
     const upPath = parentPath.substring(0, lastSep + 1);
     html += '<div class="file-row dir" onclick="navigateDir(\'' + escapeHtml(upPath) + '\')">' +
-      '<span class="name">&#128193; ..</span><span class="size">--</span><span class="date">--</span><span class="prot">--</span></div>';
+      '<span class="name">&#128193; ..</span><span class="size">--</span><span class="date">--</span><span class="prot">--</span><span></span></div>';
   }
 
   // Sort: dirs first, then files
@@ -1165,11 +1347,13 @@ function updateFileList(data) {
     const childPath = parent + sep + entry.name + (isDir ? '/' : '');
     const clickAttr = isDir ?
       'onclick="navigateDir(\'' + escapeHtml(childPath) + '\')"' : '';
+    const actions = isDir ? '<span></span>' : fileActions(childPath, entry.name, entry.prot || '');
     return '<div class="file-row' + (isDir ? ' dir' : '') + '" ' + clickAttr + '>' +
       '<span class="name">' + (isDir ? '&#128193; ' : '&#128196; ') + escapeHtml(entry.name) + '</span>' +
       '<span class="size">' + (isDir ? '--' : formatSize(entry.size)) + '</span>' +
       '<span class="date">' + escapeHtml(entry.date || '--') + '</span>' +
       '<span class="prot">' + escapeHtml(entry.prot || '--') + '</span>' +
+      actions +
       '</div>';
   }).join('');
   el.innerHTML = html;
@@ -1863,6 +2047,568 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
+
+// ─── File Actions ───
+function fileActions(path, name, prot) {
+  const ext = (name.match(/\.([^.]+)$/) || ['',''])[1].toLowerCase();
+  const textExts = ['c','h','s','asm','txt','rexx','script','readme','doc','guide','i','info','cfg','config','makefile','md'];
+  const isText = textExts.includes(ext) || name.toLowerCase() === 'makefile' || name.toLowerCase() === 'readme';
+  const isExecutable = prot.includes('e') || ext === '' || ext === 'exe';
+  const imageExts = ['iff','ilbm','lbm'];
+  const isImage = imageExts.includes(ext);
+  const audioExts = ['mod','s3m','med','xm','it'];
+  const isAudio = audioExts.includes(ext);
+
+  let html = '<span style="display:flex;gap:2px;flex-wrap:wrap;justify-content:flex-end;" onclick="event.stopPropagation();">';
+  html += '<button class="btn small" onclick="fileView(\'' + escapeHtml(path) + '\',' + isText + ')" title="View">View</button>';
+  if (isText) {
+    html += '<button class="btn small" onclick="fileEdit(\'' + escapeHtml(path) + '\')" title="Edit">Edit</button>';
+  }
+  if (isExecutable) {
+    html += '<button class="btn small orange" onclick="fileExecute(\'' + escapeHtml(path) + '\')" title="Run">Run</button>';
+  }
+  // Open With dropdown
+  const openWithOptions = getOpenWithOptions(ext, isImage, isAudio, isText);
+  if (openWithOptions.length > 0) {
+    html += '<select onchange="fileRunWith(\'' + escapeHtml(path) + '\',this.value);this.selectedIndex=0;" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 4px;font-size:10px;appearance:none;max-width:70px;">';
+    html += '<option value="">Open...</option>';
+    for (const opt of openWithOptions) {
+      html += '<option value="' + escapeHtml(opt.cmd) + '">' + escapeHtml(opt.label) + '</option>';
+    }
+    html += '</select>';
+  }
+  html += '</span>';
+  return html;
+}
+
+function getOpenWithOptions(ext, isImage, isAudio, isText) {
+  const opts = [];
+  if (isImage) {
+    opts.push({label: 'MultiView', cmd: 'MultiView'});
+  }
+  if (isAudio) {
+    opts.push({label: 'EaglePlayer', cmd: 'EaglePlayer'});
+    opts.push({label: 'OctaMED', cmd: 'OctaMED'});
+  }
+  if (ext === 'txt' || ext === 'doc' || ext === 'guide') {
+    opts.push({label: 'MultiView', cmd: 'MultiView'});
+  }
+  if (ext === 'rexx') {
+    opts.push({label: 'rx', cmd: 'rx'});
+  }
+  if (ext === 'script') {
+    opts.push({label: 'Execute', cmd: 'Execute'});
+  }
+  return opts;
+}
+
+async function fileView(path, isText) {
+  const mode = isText ? 'text' : 'hex';
+  const overlay = document.createElement('div');
+  overlay.className = 'file-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="file-modal">
+      <div class="file-modal-header">
+        <span>${escapeHtml(path)}</span>
+        <button class="btn small" onclick="this.closest('.file-modal-overlay').remove()">Close</button>
+      </div>
+      <div class="file-modal-body"><pre style="padding:20px;color:var(--text-dim);">Loading...</pre></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  try {
+    const r = await fetch('/api/file/view?path=' + encodeURIComponent(path) + '&mode=' + mode);
+    const d = await r.json();
+    if (d.error) {
+      overlay.querySelector('.file-modal-body pre').textContent = 'Error: ' + d.error;
+    } else {
+      overlay.querySelector('.file-modal-body pre').textContent = d.content || '(empty)';
+    }
+  } catch(e) {
+    overlay.querySelector('.file-modal-body pre').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function fileEdit(path) {
+  const overlay = document.createElement('div');
+  overlay.className = 'file-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="file-modal">
+      <div class="file-modal-header">
+        <span>Editing: ${escapeHtml(path)}</span>
+        <span id="fileEditStatus" style="font-size:11px;color:var(--text-dim);"></span>
+      </div>
+      <div class="file-modal-body"><textarea id="fileEditContent" spellcheck="false">Loading...</textarea></div>
+      <div class="file-modal-footer">
+        <button class="btn" onclick="fileSave('${escapeHtml(path)}')">Save</button>
+        <button class="btn small" onclick="this.closest('.file-modal-overlay').remove()">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  try {
+    const r = await fetch('/api/file/view?path=' + encodeURIComponent(path) + '&mode=text');
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('fileEditContent').value = 'Error: ' + d.error;
+    } else {
+      document.getElementById('fileEditContent').value = d.content || '';
+    }
+  } catch(e) {
+    document.getElementById('fileEditContent').value = 'Error: ' + e.message;
+  }
+}
+
+async function fileSave(path) {
+  const content = document.getElementById('fileEditContent').value;
+  const status = document.getElementById('fileEditStatus');
+  status.textContent = 'Saving...';
+  status.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch('/api/file/save', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path, content: content})
+    });
+    const d = await r.json();
+    if (d.error) {
+      status.textContent = 'Error: ' + d.error;
+      status.style.color = 'var(--red)';
+    } else {
+      status.textContent = 'Saved';
+      status.style.color = 'var(--green)';
+    }
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+async function fileExecute(path) {
+  try {
+    const r = await fetch('/api/file/execute', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path})
+    });
+    const d = await r.json();
+    if (d.error) alert('Error: ' + d.error);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function fileRunWith(path, app) {
+  if (!app) return;
+  try {
+    const r = await fetch('/api/file/run-with', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: path, application: app})
+    });
+    const d = await r.json();
+    if (d.error) alert('Error: ' + d.error);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ─── Tool Functions (new) ───
+async function toolMemorySearch() {
+  const addr = document.getElementById('searchAddr').value;
+  const size = document.getElementById('searchSize').value;
+  const pattern = document.getElementById('searchPattern').value;
+  const type = document.getElementById('searchType').value;
+  const el = document.getElementById('searchResult');
+  el.textContent = 'Searching...';
+  try {
+    const r = await fetch('/api/tools/memory-search?address=' + addr + '&size=' + size + '&pattern=' + encodeURIComponent(pattern) + '&type=' + type);
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    if (d.count === 0) { el.textContent = 'No matches found'; return; }
+    el.innerHTML = '<div style="color:var(--green);margin-bottom:4px;">' + d.count + ' match' + (d.count>1?'es':'') + ' found:</div>' +
+      d.addresses.map(function(a) { return '<div style="cursor:pointer;color:var(--accent-blue);" onclick="document.getElementById(\'searchAddr\').value=\'' + a + '\'">$' + a.toUpperCase() + '</div>'; }).join('');
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolBitmapView() {
+  const addr = document.getElementById('bmpAddr').value;
+  const width = document.getElementById('bmpWidth').value;
+  const height = document.getElementById('bmpHeight').value;
+  const depth = document.getElementById('bmpDepth').value;
+  const el = document.getElementById('bitmapResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Rendering...</span>';
+  try {
+    const r = await fetch('/api/tools/bitmap?address=' + addr + '&width=' + width + '&height=' + height + '&depth=' + depth);
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    if (d.image) {
+      el.innerHTML = '<img src="' + d.image + '" style="max-width:100%;image-rendering:pixelated;border:1px solid var(--border);border-radius:4px;">';
+    } else {
+      el.textContent = 'No image data returned';
+    }
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolMemMap() {
+  const el = document.getElementById('memmapResult');
+  el.textContent = 'Reading...';
+  try {
+    const r = await fetch('/api/tools/memmap');
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    let html = '';
+    for (const region of d.regions) {
+      const lower = parseInt(region.lower, 16);
+      const upper = parseInt(region.upper, 16);
+      const total = upper - lower;
+      const free = region.free;
+      const used = total - free;
+      const pctUsed = Math.round(used / total * 100);
+      const isChip = (parseInt(region.attr, 16) & 2) !== 0;
+      const color = isChip ? 'var(--accent-orange)' : 'var(--accent-blue)';
+      html += '<div style="margin-bottom:10px;">' +
+        '<div style="font-size:12px;margin-bottom:2px;">' +
+        '<strong>' + escapeHtml(region.name) + '</strong> ' +
+        '<span style="color:var(--text-dim);">$' + region.lower.toUpperCase() + ' - $' + region.upper.toUpperCase() + '</span>' +
+        '</div>' +
+        '<div style="background:var(--bg-input);border-radius:4px;height:20px;position:relative;overflow:hidden;">' +
+        '<div style="background:' + color + ';height:100%;width:' + pctUsed + '%;"></div>' +
+        '<div style="position:absolute;top:0;left:4px;line-height:20px;font-size:10px;font-family:var(--mono);">' +
+        (used/1024).toFixed(0) + 'KB used / ' + (total/1024).toFixed(0) + 'KB total (' + pctUsed + '%) — largest free: ' + (region.largest/1024).toFixed(1) + 'KB' +
+        '</div></div></div>';
+    }
+    el.innerHTML = html;
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolRefreshTasks() {
+  const sel = document.getElementById('stackTask');
+  try {
+    const r = await fetch('/api/tasks');
+    const d = await r.json();
+    if (d && d.tasks && d.tasks.length > 0) {
+      sel.innerHTML = '<option value="">Select task...</option>' +
+        d.tasks.map(t => '<option value="' + escapeHtml(t.name) + '">' + escapeHtml(t.name) + ' (pri:' + t.priority + ', ' + t.state + ')</option>').join('');
+    }
+  } catch(e) { console.error('Failed to refresh tasks:', e); }
+}
+
+async function toolStackInfo() {
+  const task = document.getElementById('stackTask').value;
+  const el = document.getElementById('stackResult');
+  el.textContent = 'Reading...';
+  try {
+    const r = await fetch('/api/tools/stackinfo?task=' + encodeURIComponent(task));
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    const pctUsed = Math.round(d.used / d.size * 100);
+    const dangerColor = pctUsed > 80 ? 'var(--red)' : pctUsed > 60 ? 'var(--yellow)' : 'var(--green)';
+    el.innerHTML =
+      '<div style="margin-bottom:4px;">SP: $' + d.spReg.toUpperCase() + ' | Range: $' + d.spLower.toUpperCase() + ' - $' + d.spUpper.toUpperCase() + '</div>' +
+      '<div style="background:var(--bg-input);border-radius:4px;height:16px;position:relative;overflow:hidden;margin-bottom:4px;">' +
+      '<div style="background:' + dangerColor + ';height:100%;width:' + pctUsed + '%;"></div>' +
+      '<div style="position:absolute;top:0;left:4px;line-height:16px;font-size:10px;">' + d.used + ' / ' + d.size + ' bytes (' + pctUsed + '%)</div>' +
+      '</div>' +
+      '<div style="color:var(--text-dim);font-size:10px;">Free: ' + d.free + ' bytes</div>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolReadRegs() {
+  const el = document.getElementById('regsResult');
+  el.textContent = 'Reading...';
+  try {
+    const r = await fetch('/api/tools/readregs');
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    const regs = d.registers;
+    let html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">';
+    for (let i = 0; i < 8; i++) {
+      const v = regs['D'+i] || '--------';
+      html += '<div>D' + i + ': <span style="color:var(--accent-blue);">' + v.toUpperCase() + '</span></div>';
+    }
+    for (let i = 0; i < 7; i++) {
+      const v = regs['A'+i] || '--------';
+      html += '<div>A' + i + ': <span style="color:var(--accent-orange);">' + v.toUpperCase() + '</span></div>';
+    }
+    html += '<div>SP: <span style="color:var(--green);">' + (regs.SP||'--------').toUpperCase() + '</span></div>';
+    html += '</div>';
+    html += '<div style="margin-top:6px;">SR: <span style="color:var(--yellow);">' + (regs.SR||'----').toUpperCase() + '</span>';
+    const sr = parseInt(regs.SR || '0', 16);
+    const flags = [];
+    if (sr & 0x10) flags.push('X');
+    if (sr & 0x08) flags.push('N');
+    if (sr & 0x04) flags.push('Z');
+    if (sr & 0x02) flags.push('V');
+    if (sr & 0x01) flags.push('C');
+    if (sr & 0x2000) flags.push('S');
+    html += ' [' + flags.join(' ') + ']</div>';
+    el.innerHTML = html;
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+function decodeChipReg(name, val) {
+  const v = parseInt(val, 16);
+  const bits = (flag, labels) => labels.filter((l,i) => v & (1 << (labels.length - 1 - i))).join(' ');
+  switch(name) {
+    case 'DMACONR': {
+      const f = [];
+      if (v & 0x200) f.push('DMAEN'); if (v & 0x100) f.push('BPLEN');
+      if (v & 0x080) f.push('COPEN'); if (v & 0x040) f.push('BLTEN');
+      if (v & 0x020) f.push('SPREN'); if (v & 0x010) f.push('DSKEN');
+      if (v & 0x008) f.push('AUD3');  if (v & 0x004) f.push('AUD2');
+      if (v & 0x002) f.push('AUD1');  if (v & 0x001) f.push('AUD0');
+      return f.join(' ');
+    }
+    case 'INTENAR': case 'INTREQR': {
+      const f = [];
+      if (v & 0x4000) f.push('INTEN');  if (v & 0x2000) f.push('EXTER');
+      if (v & 0x1000) f.push('DSKSYN'); if (v & 0x0800) f.push('RBF');
+      if (v & 0x0400) f.push('AUD3');   if (v & 0x0200) f.push('AUD2');
+      if (v & 0x0100) f.push('AUD1');   if (v & 0x0080) f.push('AUD0');
+      if (v & 0x0040) f.push('BLIT');   if (v & 0x0020) f.push('VERTB');
+      if (v & 0x0010) f.push('COPER');  if (v & 0x0008) f.push('PORTS');
+      if (v & 0x0004) f.push('SOFT');   if (v & 0x0002) f.push('DSKBLK');
+      if (v & 0x0001) f.push('TBE');
+      return f.join(' ');
+    }
+    case 'ADKCONR': {
+      const f = [];
+      if (v & 0x8000) f.push('PRECOMP1'); if (v & 0x4000) f.push('PRECOMP0');
+      if (v & 0x2000) f.push('MFMPREC');  if (v & 0x1000) f.push('UARTBRK');
+      if (v & 0x0800) f.push('WORDSYNC'); if (v & 0x0400) f.push('MSBSYNC');
+      if (v & 0x0100) f.push('FAST');
+      return f.join(' ');
+    }
+    case 'VPOSR': return 'LOF=' + ((v>>15)&1) + ' V8=' + (v&1) + ' Agnus=' + ((v>>8)&0x7F);
+    case 'VHPOSR': return 'V=' + ((v>>8)&0xFF) + ' H=' + (v&0xFF);
+    case 'JOY0DAT': case 'JOY1DAT':
+      return 'Y=' + ((v>>8)&0xFF) + ' X=' + (v&0xFF);
+    case 'SERDATR': {
+      const f = [];
+      if (v & 0x8000) f.push('OVRUN'); if (v & 0x4000) f.push('RBF');
+      if (v & 0x2000) f.push('TBE');   if (v & 0x1000) f.push('TSRE');
+      return f.join(' ') + ' data=0x' + (v&0xFF).toString(16);
+    }
+    case 'POTGOR': {
+      const f = [];
+      if (v & 0x4000) f.push('DATRY1'); if (v & 0x1000) f.push('DATRX1');
+      if (v & 0x0400) f.push('DATRY0'); if (v & 0x0100) f.push('DATRX0');
+      return f.join(' ');
+    }
+    case 'CLXDAT': return 'collision=' + (v&0x1FF).toString(2).padStart(9,'0');
+    case 'DENISEID': {
+      if ((v & 0xFF) === 0xFC) return 'ECS Denise';
+      if ((v & 0xFF) === 0xF8) return 'AGA Lisa';
+      return 'OCS (or no ID)';
+    }
+    default: return '';
+  }
+}
+
+async function toolChipRegs() {
+  const el = document.getElementById('chipRegsResult');
+  el.textContent = 'Reading...';
+  try {
+    const r = await fetch('/api/tools/chipregs');
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    const regs = d.registers; // array of {name, addr, value}
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;">';
+    html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Register</th><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Address</th><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Value</th><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Decoded</th></tr>';
+    for (const reg of regs) {
+      const decoded = decodeChipReg(reg.name, reg.value);
+      html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">' +
+        '<td style="padding:3px 6px;color:var(--accent-orange);font-weight:600;">' + reg.name + '</td>' +
+        '<td style="padding:3px 6px;color:var(--text-dim);">$DFF' + reg.addr.toUpperCase() + '</td>' +
+        '<td style="padding:3px 6px;color:var(--accent-blue);">$' + reg.value.toUpperCase() + '</td>' +
+        '<td style="padding:3px 6px;color:var(--text-secondary);font-size:10px;">' + decoded + '</td>' +
+        '</tr>';
+    }
+    html += '</table>';
+    el.innerHTML = html;
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolIffView() {
+  const path = document.getElementById('iffPath').value;
+  const el = document.getElementById('iffResult');
+  if (!path) { el.textContent = 'Enter a path or browse for an IFF file'; return; }
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading and decoding...</span>';
+  try {
+    const r = await fetch('/api/tools/iff?path=' + encodeURIComponent(path));
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    if (d.viewUrl) {
+      el.innerHTML = '<img src="' + d.viewUrl + '" style="max-width:100%;image-rendering:pixelated;border:1px solid var(--border);border-radius:4px;">' +
+        '<div style="margin-top:6px;font-size:11px;color:var(--text-dim);">' + d.width + 'x' + d.height + ' ' + d.depth + ' planes — ' +
+        '<a href="' + d.viewUrl + '" target="_blank" style="color:var(--accent-blue);">' + d.filename + '</a></div>';
+    } else {
+      el.textContent = 'No image data returned';
+    }
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function iffBrowse(dir) {
+  const dirInput = document.getElementById('iffBrowseDir');
+  const path = dir || dirInput.value;
+  dirInput.value = path;
+  const el = document.getElementById('iffBrowser');
+  el.style.display = 'block';
+  el.innerHTML = '<div style="padding:6px;color:var(--text-dim);">Loading...</div>';
+  try {
+    const r = await fetch('/api/dir?path=' + encodeURIComponent(path));
+    const d = await r.json();
+    if (d.error) { el.innerHTML = '<div style="padding:6px;">' + escapeHtml(d.error) + '</div>'; return; }
+    if (!d.entries || d.entries.length === 0) { el.innerHTML = '<div style="padding:6px;color:var(--text-dim);">Empty directory</div>'; return; }
+    const sep = path.endsWith(':') || path.endsWith('/') ? '' : '/';
+    const sorted = [...d.entries].sort((a,b) => {
+      if (a.type === 'dir' && b.type !== 'dir') return -1;
+      if (a.type !== 'dir' && b.type === 'dir') return 1;
+      return a.name.localeCompare(b.name);
+    });
+    el.innerHTML = sorted.map(e => {
+      const childPath = path + sep + e.name;
+      const isDir = e.type === 'dir';
+      const isIff = !isDir && /\.(iff|ilbm|lbm|pic|brush)$/i.test(e.name);
+      if (isDir) {
+        return '<div style="padding:2px 6px;cursor:pointer;color:var(--accent-orange);" onclick="iffBrowse(\'' + escapeHtml(childPath) + '/\')">&#128193; ' + escapeHtml(e.name) + '/</div>';
+      } else if (isIff) {
+        return '<div style="padding:2px 6px;cursor:pointer;color:var(--green);font-weight:600;" onclick="document.getElementById(\'iffPath\').value=\'' + escapeHtml(childPath) + '\';toolIffView();">&#127912; ' + escapeHtml(e.name) + ' <span style="color:var(--text-dim);font-weight:normal;">(' + (e.size||'?') + ')</span></div>';
+      } else {
+        return '<div style="padding:2px 6px;color:var(--text-dim);">&#128196; ' + escapeHtml(e.name) + '</div>';
+      }
+    }).join('');
+  } catch(e) { el.innerHTML = '<div style="padding:6px;">Error: ' + e.message + '</div>'; }
+}
+
+function iffBrowseUp() {
+  const dirInput = document.getElementById('iffBrowseDir');
+  let path = dirInput.value.replace(/\/+$/, '');
+  const lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf(':'));
+  if (lastSep >= 0) {
+    path = path.substring(0, lastSep + 1);
+    dirInput.value = path;
+    iffBrowse(path);
+  }
+}
+
+async function toolSnapshot(action) {
+  const el = document.getElementById('snapResult');
+  const body = {
+    action: action,
+    address: document.getElementById('snapAddr').value,
+    size: parseInt(document.getElementById('snapSize').value),
+    name: document.getElementById('snapName').value,
+    id1: document.getElementById('snapId1').value,
+    id2: document.getElementById('snapId2').value,
+  };
+  el.textContent = action === 'take' ? 'Taking snapshot...' : action === 'diff' ? 'Diffing...' : 'Clearing...';
+  try {
+    const r = await fetch('/api/tools/snapshot', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+
+    if (action === 'take' || action === 'list' || action === 'clear') {
+      const snapshots = d.snapshots || [];
+      document.getElementById('snapList').innerHTML = snapshots.map(function(s) {
+        return '<div style="color:var(--text-dim);">#' + s.id + ' ' + escapeHtml(s.name) + ' @ $' + s.address + ' (' + s.size + ' bytes) - ' + new Date(s.timestamp*1000).toLocaleTimeString() + '</div>';
+      }).join('');
+      const opts = snapshots.map(function(s) { return '<option value="' + s.id + '">#' + s.id + ' ' + escapeHtml(s.name) + '</option>'; }).join('');
+      document.getElementById('snapId1').innerHTML = opts;
+      document.getElementById('snapId2').innerHTML = opts;
+      if (action === 'take') el.textContent = 'Snapshot #' + d.id + ' saved';
+      if (action === 'clear') el.textContent = 'Cleared';
+    }
+
+    if (action === 'diff' && d.changes) {
+      if (d.changes.length === 0) {
+        el.innerHTML = '<span style="color:var(--green);">No differences found</span>';
+      } else {
+        el.innerHTML = '<div style="color:var(--yellow);margin-bottom:4px;">' + d.changes.length + ' byte' + (d.changes.length>1?'s':'') + ' changed:</div>' +
+          d.changes.map(function(c) { return '<div>$' + c.offset + ': <span style="color:var(--red);">' + c.old + '</span> &rarr; <span style="color:var(--green);">' + c.new + '</span></div>'; }).join('');
+      }
+    }
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolBootLog() {
+  const el = document.getElementById('bootlogResult');
+  el.textContent = 'Loading...';
+  try {
+    const r = await fetch('/api/tools/bootlog');
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    if (d.logs && d.logs.length > 0) {
+      el.innerHTML = d.logs.map(function(log) {
+        const levelColor = log.level === 'E' ? 'var(--red)' : log.level === 'W' ? 'var(--yellow)' : log.level === 'D' ? 'var(--text-dim)' : 'var(--text-primary)';
+        return '<div><span style="color:var(--text-dim);">' + (log.tick||'') + '</span> ' +
+          '<span style="color:' + levelColor + ';font-weight:600;">[' + log.level + ']</span> ' +
+          (log.client ? '<span style="color:var(--accent-blue);">' + escapeHtml(log.client) + '</span> ' : '') +
+          escapeHtml(log.message) + '</div>';
+      }).join('');
+    } else {
+      el.innerHTML = '<span style="color:var(--text-dim);">No log entries yet — logs appear once the bridge daemon and client apps start sending messages.</span>';
+    }
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolSysInfo() {
+  const el = document.getElementById('sysinfoResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  try {
+    const r = await fetch('/api/tools/sysinfo');
+    const d = await r.json();
+    if (d.error) { el.textContent = d.error; return; }
+    let html = '';
+
+    // Memory section (from PING response)
+    if (d.freeChip !== undefined || d.freeFast !== undefined) {
+      html += '<div style="margin-bottom:12px;"><h4 style="font-size:12px;color:var(--accent-blue);margin-bottom:6px;text-transform:uppercase;">Memory</h4>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-family:var(--mono);font-size:12px;">';
+      if (d.freeChip !== undefined) {
+        html += '<div style="background:var(--bg-input);padding:8px;border-radius:4px;"><span style="color:var(--accent-orange);">Chip RAM</span><br><span style="color:var(--green);font-size:14px;">' + (d.freeChip/1024).toFixed(0) + ' KB</span> free</div>';
+      }
+      if (d.freeFast !== undefined) {
+        html += '<div style="background:var(--bg-input);padding:8px;border-radius:4px;"><span style="color:var(--accent-blue);">Fast RAM</span><br><span style="color:var(--green);font-size:14px;">' + (d.freeFast/1024).toFixed(0) + ' KB</span> free</div>';
+      }
+      html += '</div>';
+      if (d.clients !== undefined) html += '<div style="margin-top:6px;font-size:11px;color:var(--text-dim);">Bridge clients: ' + d.clients + '</div>';
+      html += '</div>';
+    }
+
+    // Tasks section
+    if (d.tasks && d.tasks.length > 0) {
+      html += '<div style="margin-bottom:12px;"><h4 style="font-size:12px;color:var(--accent-blue);margin-bottom:6px;text-transform:uppercase;">Tasks (' + d.taskCount + ')</h4>';
+      html += '<div style="max-height:200px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);">';
+      html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Name</th><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Pri</th><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">State</th><th style="text-align:left;padding:3px 6px;color:var(--text-dim);">Type</th></tr>';
+      for (const t of d.tasks) {
+        html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:3px 6px;">' + escapeHtml(t.name||'') + '</td><td style="padding:3px 6px;">' + (t.priority||0) + '</td><td style="padding:3px 6px;">' + escapeHtml(t.state||'') + '</td><td style="padding:3px 6px;">' + escapeHtml(t.type||'') + '</td></tr>';
+      }
+      html += '</table></div></div>';
+    }
+
+    // Libraries section
+    if (d.libs && d.libs.length > 0) {
+      html += '<div style="margin-bottom:12px;"><h4 style="font-size:12px;color:var(--accent-blue);margin-bottom:6px;text-transform:uppercase;">Libraries (' + d.libCount + ')</h4>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px;font-size:11px;font-family:var(--mono);max-height:150px;overflow-y:auto;">';
+      for (const lib of d.libs) {
+        const name = typeof lib === 'string' ? lib : (lib.name || lib);
+        html += '<div style="padding:2px 4px;color:var(--text-primary);">' + escapeHtml(name) + '</div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Volumes section
+    if (d.volumes && d.volumes.length > 0) {
+      html += '<div style="margin-bottom:12px;"><h4 style="font-size:12px;color:var(--accent-blue);margin-bottom:6px;text-transform:uppercase;">Volumes</h4>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;font-family:var(--mono);">';
+      for (const v of d.volumes) {
+        html += '<span style="background:var(--bg-input);padding:3px 8px;border-radius:4px;">' + escapeHtml(v) + '</span>';
+      }
+      html += '</div></div>';
+    }
+
+    el.innerHTML = html || '<span style="color:var(--text-dim);">Not connected — start bridge on the Amiga first</span>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
 
 // ─── Init ───
 async function init() {

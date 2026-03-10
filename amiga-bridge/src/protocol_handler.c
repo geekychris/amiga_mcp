@@ -214,6 +214,16 @@ void protocol_parse_line(const char *line)
     } else if (strcmp(cmd, "CRASHREMOVE") == 0) {
         crash_cleanup();
         send_ok("CRASHREMOVE", "Crash handler removed");
+    } else if (strcmp(cmd, "MEMMAP") == 0) {
+        sys_handle_memmap();
+    } else if (strcmp(cmd, "STACKINFO") == 0) {
+        sys_handle_stackinfo(args);
+    } else if (strcmp(cmd, "CHIPREGS") == 0) {
+        sys_handle_chipregs();
+    } else if (strcmp(cmd, "READREGS") == 0) {
+        sys_handle_readregs();
+    } else if (strcmp(cmd, "SEARCH") == 0) {
+        sys_handle_search(args);
     } else if (strcmp(cmd, "CRASHTEST") == 0) {
         /* Trigger a non-fatal Alert to test the crash handler */
         send_ok("CRASHTEST", "Triggering test alert...");

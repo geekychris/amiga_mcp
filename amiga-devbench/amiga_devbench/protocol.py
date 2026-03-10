@@ -5,7 +5,8 @@ Line-based text protocol over serial/TCP, pipe-delimited fields.
 Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
                DIR, FILE, FILEINFO, PROC, CLOG, CVAR, HOOKS, MEMREGS,
                CINFO, DEVICES, ERR, OK, SCRINFO, SCRDATA, PALETTE,
-               COPPER, SPRITE, CRASH, RESOURCES, PERF
+               COPPER, SPRITE, CRASH, RESOURCES, PERF, MEMMAP,
+               STACKINFO, CHIPREGS, REGS, SEARCH
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
@@ -13,7 +14,8 @@ Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTMEMREGS, READMEMREG, CLIENTINFO, STOP, SCRIPT,
                WRITEMEM, SHUTDOWN, SCREENSHOT, PALETTE, SETPALETTE,
                COPPERLIST, SPRITES, LISTRESOURCES, GETPERF, LASTCRASH,
-               LISTWINDOWS
+               LISTWINDOWS, MEMMAP, STACKINFO, CHIPREGS, READREGS,
+               SEARCH
 """
 
 from __future__ import annotations
@@ -453,6 +455,77 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
+    if msg_type == "MEMMAP":
+        # Format: MEMMAP|count|name:attr:lower:upper:free:largest|name:attr:...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        regions: list[dict] = []
+        for i in range(2, len(parts)):
+            entry = parts[i].strip()
+            if not entry:
+                continue
+            rp = entry.split(":", 5)
+            if len(rp) >= 6:
+                regions.append({
+                    "name": rp[0],
+                    "attr": rp[1],
+                    "lower": rp[2],
+                    "upper": rp[3],
+                    "free": _int(rp[4]),
+                    "largest": _int(rp[5]),
+                })
+            elif entry:
+                regions.append({"name": entry, "attr": "", "lower": "0", "upper": "0", "free": 0, "largest": 0})
+        return {"type": "MEMMAP", "count": count, "regions": regions}
+
+    if msg_type == "STACKINFO":
+        # Format: STACKINFO|taskname|spLower|spUpper|spReg|stackSize|stackUsed|stackFree
+        if len(parts) < 8:
+            return None
+        return {
+            "type": "STACKINFO",
+            "task": parts[1],
+            "spLower": parts[2],
+            "spUpper": parts[3],
+            "spReg": parts[4],
+            "size": _int(parts[5]),
+            "used": _int(parts[6]),
+            "free": _int(parts[7]),
+        }
+
+    if msg_type == "CHIPREGS":
+        # Format: CHIPREGS|count|name:addr:value|name:addr:value|...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        chipreg_list: list[dict[str, str]] = []
+        for i in range(2, len(parts)):
+            entry = parts[i].strip()
+            if ":" in entry:
+                fields = entry.split(":", 2)
+                if len(fields) == 3:
+                    chipreg_list.append({
+                        "name": fields[0],
+                        "addr": fields[1],
+                        "value": fields[2],
+                    })
+        return {"type": "CHIPREGS", "count": count, "registers": chipreg_list}
+
+    if msg_type == "REGS":
+        # Format: REGS|D0=xxxxxxxx|D1=xxxxxxxx|...|SP=xxxxxxxx|SR=xxxx
+        registers = {}
+        for i in range(1, len(parts)):
+            entry = parts[i].strip()
+            if "=" in entry:
+                rname, rval = entry.split("=", 1)
+                registers[rname] = rval
+        return {"type": "REGS", "registers": registers}
+
+    if msg_type == "SEARCH":
+        # Format: SEARCH|count|addr1,addr2,...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        addresses: list[str] = []
+        if len(parts) > 2 and parts[2]:
+            addresses = [a.strip() for a in parts[2].split(",") if a.strip()]
+        return {"type": "SEARCH", "count": count, "addresses": addresses}
+
     return None
 
 
@@ -542,6 +615,16 @@ def format_command(cmd: dict[str, Any]) -> str:
         return "CRASHREMOVE"
     if t == "CRASHTEST":
         return "CRASHTEST"
+    if t == "MEMMAP":
+        return "MEMMAP"
+    if t == "STACKINFO":
+        return f"STACKINFO|{cmd['task']}"
+    if t == "CHIPREGS":
+        return "CHIPREGS"
+    if t == "READREGS":
+        return "READREGS"
+    if t == "SEARCH":
+        return f"SEARCH|{cmd['address']}|{cmd['size']}|{cmd['pattern']}"
     raise ValueError(f"Unknown command type: {t}")
 
 

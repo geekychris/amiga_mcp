@@ -506,6 +506,15 @@ fields are pipe-delimited (`|`), maximum 1024 characters per line.
 | MEMREGS | `MEMREGS\|client\|count\|name:addr:size:desc,...` | Memory regions |
 | CINFO | `CINFO\|name\|id\|msgs\|vars:...\|hooks:...\|memregs:...` | Full client info |
 
+#### Hardware & Inspection
+| Message | Format | Description |
+|---|---|---|
+| MEMMAP | `MEMMAP\|count\|name:attr:lower:upper:free:largest,...` | Memory region map |
+| STACKINFO | `STACKINFO\|task\|spLower\|spUpper\|spReg\|size\|used\|free` | Task stack info |
+| CHIPREGS | `CHIPREGS\|count\|name:addr:value\|...` | Custom chip register values |
+| REGS | `REGS\|D0=val\|D1=val\|...\|SP=val\|SR=val` | CPU register snapshot |
+| SEARCH | `SEARCH\|count\|addr1,addr2,...` | Memory search results |
+
 #### Acknowledgements
 | Message | Format | Description |
 |---|---|---|
@@ -560,6 +569,15 @@ fields are pipe-delimited (`|`), maximum 1024 characters per line.
 | BREAK | `BREAK\|task_name` | Send CTRL-C |
 | SCRIPT | `SCRIPT\|id\|script_text` | Execute script (newlines → `;`) |
 | STOP | `STOP\|client_name` | Stop client (CTRL-C + IPC shutdown) |
+
+#### Hardware & Inspection
+| Command | Format | Description |
+|---|---|---|
+| MEMMAP | `MEMMAP` | Request memory region map |
+| STACKINFO | `STACKINFO\|taskname` | Request stack info for a task |
+| CHIPREGS | `CHIPREGS` | Read safe custom chip registers |
+| READREGS | `READREGS` | Capture CPU registers |
+| SEARCH | `SEARCH\|addr_hex\|size\|pattern_hex` | Search memory for byte pattern |
 
 #### Hooks & Memory Regions
 | Command | Format | Description |
@@ -1049,13 +1067,35 @@ Visual inspection and development tools arranged in a grid. Each tool has a `?` 
 
 **Performance Profiler** — Queries a bridge client's performance data. Select a client from the dropdown. `ab_perf_frame_start()`/`ab_perf_frame_end()` tracks frame timing (avg/min/max). `ab_perf_section_start()`/`ab_perf_section_end()` measures named code sections. Uses `VHPOSR ($DFF006)` for ~64us precision.
 
-**Build & Run** — Full development cycle in one click: cross-compile via Docker, deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), then launch. Select a project from the dropdown (populated from the `examples/` directory).
+**Memory Search** — Search Amiga memory for a hex byte pattern. Enter a start address (hex), search length (bytes), and hex pattern (e.g., `4AFC` to find ILLEGAL instructions). Returns up to 32 matching addresses. Validates the start address is in accessible RAM before scanning.
+
+**Bitmap Viewer** — Render a region of Amiga memory as a bitmap image. Specify address, width, height, and bit depth (1-8 planes). Interprets data as Amiga planar bitplane format and renders with the current or default palette. Useful for inspecting graphics data, sprite sheets, or screen buffers in chip RAM.
+
+**Memory Map** — Shows all memory regions from `ExecBase->MemList`. For each region: name, attributes (CHIP/FAST), address range (lower–upper), total free bytes, and largest contiguous block. Walks the `MemChunk` free list for accurate free space reporting. Essential for tracking memory fragmentation.
+
+**Stack Monitor** — Inspect stack usage for any running task. Select a task from the dropdown (auto-populated from the task list) and click Check. Shows SP register value, stack bounds ($SPLower–$SPUpper), total stack size, bytes used, and bytes free. A color-coded progress bar highlights danger levels: green (<60% used), yellow (60–80%), red (>80%). Amiga's default 4KB stack is a common crash source.
+
+**Register Viewer** — Captures the CPU register state of the bridge daemon process. Shows all 16 data/address registers (D0–D7, A0–A6) and the stack pointer (SP) as 32-bit hex values. Note: values reflect the register state at capture time inside the handler function, not the caller's exact state. SR (status register) requires supervisor mode on 68010+ and is not readable from user mode.
+
+**Chip Register Viewer** — Reads all safe (read-only) custom chip registers at $DFF000. Displays a table with register name, address, raw hex value, and decoded bitfields. Includes: DMACONR, VPOSR, VHPOSR, JOY0DAT, JOY1DAT, CLXDAT, ADKCONR, POT0DAT/POT1DAT, POTGOR, SERDATR, DSKBYTR, INTENAR, INTREQR, and DENISEID. Write-only registers are excluded to avoid side effects. Spans 2 grid columns.
+
+**IFF Image Viewer** — View IFF ILBM images stored on the Amiga filesystem. Browse files using the built-in file browser widget (same navigation as the Files tab). Clicking an IFF/ILBM file reads it from the Amiga, decodes the FORM/BMHD/CMAP/BODY chunks on the host (including ByteRun1 decompression), converts planar data to a PNG, and displays it inline. IFF files are highlighted in green in the browser.
+
+**Diff/Snapshot** — Compare memory state over time. Take a named snapshot of a memory region, then take another snapshot later and diff them to see what changed. Actions: **Take** (save address+size as a named snapshot), **Diff** (compare two snapshots byte-by-byte, shows changed offsets), **List** (show all saved snapshots), **Clear** (delete all snapshots). Useful for tracking memory corruption or understanding how game state evolves.
+
+**Boot Log** — Shows the earliest log messages captured during this devbench session. Displays the first N log entries received over the serial link, which typically include bridge daemon startup messages and early client registrations. If devbench was started before the bridge, these represent the true boot sequence.
+
+**System Info Dashboard** — One-click system overview combining multiple queries. Shows free chip RAM, free fast RAM, number of connected bridge clients, loaded library count, running task count, and mounted volume count. Provides a quick health check of the Amiga system state.
+
+**Build & Run** — Full development cycle in one click: cross-compile via Docker (using a persistent container for ~10x speedup), deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), then launch. Select a project from the dropdown (populated from the `examples/` directory).
 
 **New Project** — Scaffolds a new example project with Makefile and main.c. Three templates:
 - **Window** — Intuition window on the Workbench screen with bridge integration
 - **Screen** — Custom screen (320x256, 5 bitplanes) with bridge integration
 - **Headless** — CLI-only program with bridge hooks, no GUI
 
+![img.png](doc_images/memory_info.png)
+![img.png](doc_images/iff_sys_info.png)
 ### SSE Event Stream
 
 The web UI connects to `/api/events` for real-time updates:
@@ -1127,7 +1167,7 @@ working in this project directory.
 
 ### Build & Workflow
 
-- **Incremental builds**: Cache Docker layers or use a persistent container to avoid pulling the image on every build.
+- **Incremental builds**: ~~Cache Docker layers or use a persistent container~~ *(done — persistent container, ~10x speedup)*. Further: watch source files for auto-rebuild.
 - **Build error parsing**: Parse GCC error output and map to source files on the host for clickable error navigation.
 - **Auto-rebuild on save**: Watch source files and trigger build+deploy+relaunch automatically.
 - **Multiple target configs**: Support different CPU targets (68000, 68020, 68040) and memory configurations.
@@ -1143,12 +1183,9 @@ working in this project directory.
 
 ### Web UI
 
-- **Memory map visualization**: Graphical view of the Amiga memory map showing chip/fast/ROM regions, allocated blocks, and registered memory regions.
 - **Variable graphing**: Plot variable values over time (e.g., chart free memory or CPU usage).
-- **Custom chip register viewer**: Word-aligned read-only view of specific safe custom chip registers with field-level decoding (e.g., DMACON bits).
 - **Sprite editor**: Visual sprite data editor using memory write.
 - **Sound register viewer**: Paula chip register inspection for audio debugging.
-- **File editor**: Text editor for Amiga files (currently only hex view).
 - **Dark/light theme toggle**: Currently dark-only.
 
 ### Client Library
