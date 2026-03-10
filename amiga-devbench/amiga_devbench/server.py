@@ -688,7 +688,7 @@ async def api_run_cycle(request: Request) -> JSONResponse:
         try:
             async with _event_bus.subscribe("ok", "err") as queue:
                 _conn.send({"type": "STOP", "name": binary_name})
-                deadline = asyncio.get_event_loop().time() + 2.0
+                deadline = asyncio.get_event_loop().time() + 1.0
                 while True:
                     remaining = deadline - asyncio.get_event_loop().time()
                     if remaining <= 0:
@@ -708,7 +708,7 @@ async def api_run_cycle(request: Request) -> JSONResponse:
             stop_status = "error"
             stop_message = str(e)
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.15)
     result["stop"] = {"status": stop_status, "message": stop_message}
 
     # 4. Launch
@@ -719,7 +719,7 @@ async def api_run_cycle(request: Request) -> JSONResponse:
         try:
             _conn.send({"type": "LAUNCH", "id": cmd_id, "command": launch_command})
             msg = await _event_bus.wait_for(
-                "cmd", timeout=5.0,
+                "cmd", timeout=3.0,
                 predicate=lambda d: d.get("id") == cmd_id,
             )
             if msg:
@@ -736,11 +736,11 @@ async def api_run_cycle(request: Request) -> JSONResponse:
     # 5. Wait for client to appear
     client_connected = False
     if _conn.connected:
-        for attempt in range(6):
-            await asyncio.sleep(0.5)
+        for attempt in range(4):
+            await asyncio.sleep(0.25)
             try:
                 _conn.send({"type": "LISTCLIENTS"})
-                clients_msg = await _event_bus.wait_for("clients", timeout=1.0)
+                clients_msg = await _event_bus.wait_for("clients", timeout=0.5)
                 if clients_msg:
                     names = clients_msg.get("names", [])
                     if binary_name in names:
@@ -920,6 +920,8 @@ def create_app(args: Any) -> Starlette:
             # Shutdown
             if _conn:
                 _conn.disconnect()
+            if _builder:
+                await _builder.shutdown()
             if sim:
                 await sim.stop()
             logger.info("Shut down complete")
