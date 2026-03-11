@@ -54,6 +54,20 @@ static void handle_writemem(const char *args);
 static void handle_listresources(const char *args);
 static void handle_getperf(const char *args);
 static void handle_lastcrash(void);
+static void handle_capabilities(void);
+static void handle_proclist(void);
+static void handle_procstat(const char *args);
+static void handle_signal(const char *args);
+static void handle_tail(const char *args);
+static void handle_stoptail(void);
+static void handle_checksum(const char *args);
+static void handle_assigns(void);
+static void handle_assign(const char *args);
+static void handle_protect(const char *args);
+static void handle_rename(const char *args);
+static void handle_setcomment(const char *args);
+static void handle_copy(const char *args);
+static void handle_append(const char *args);
 
 static void send_line(const char *line)
 {
@@ -298,6 +312,34 @@ void protocol_parse_line(const char *line)
         arexx_handle_ports();
     } else if (strcmp(cmd, "AREXXSEND") == 0) {
         arexx_handle_send(args);
+    } else if (strcmp(cmd, "CAPABILITIES") == 0) {
+        handle_capabilities();
+    } else if (strcmp(cmd, "PROCLIST") == 0) {
+        handle_proclist();
+    } else if (strcmp(cmd, "PROCSTAT") == 0) {
+        handle_procstat(args);
+    } else if (strcmp(cmd, "SIGNAL") == 0) {
+        handle_signal(args);
+    } else if (strcmp(cmd, "TAIL") == 0) {
+        handle_tail(args);
+    } else if (strcmp(cmd, "STOPTAIL") == 0) {
+        handle_stoptail();
+    } else if (strcmp(cmd, "CHECKSUM") == 0) {
+        handle_checksum(args);
+    } else if (strcmp(cmd, "ASSIGNS") == 0) {
+        handle_assigns();
+    } else if (strcmp(cmd, "ASSIGN") == 0) {
+        handle_assign(args);
+    } else if (strcmp(cmd, "PROTECT") == 0) {
+        handle_protect(args);
+    } else if (strcmp(cmd, "RENAME") == 0) {
+        handle_rename(args);
+    } else if (strcmp(cmd, "SETCOMMENT") == 0) {
+        handle_setcomment(args);
+    } else if (strcmp(cmd, "COPY") == 0) {
+        handle_copy(args);
+    } else if (strcmp(cmd, "APPEND") == 0) {
+        handle_append(args);
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
         /* The main loop will exit via CTRL-C or window close */
@@ -1753,5 +1795,400 @@ static void handle_lastcrash(void)
         send_line(buf);
     } else {
         send_err("LASTCRASH", "no crash data");
+    }
+}
+
+/* ---- New command handlers ---- */
+
+static void handle_capabilities(void)
+{
+    sys_handle_capabilities();
+}
+
+static void handle_proclist(void)
+{
+    static char buf[BRIDGE_MAX_LINE];
+    proc_list(buf, BRIDGE_MAX_LINE);
+    send_line(buf);
+}
+
+static void handle_procstat(const char *args)
+{
+    static char buf[BRIDGE_MAX_LINE];
+    int procId;
+
+    if (!args || args[0] == '\0') {
+        send_err("PROCSTAT", "needs process id");
+        return;
+    }
+    procId = (int)strtol(args, NULL, 10);
+    if (proc_stat(procId, buf, BRIDGE_MAX_LINE) < 0) {
+        send_line(buf); /* buf already has ERR message */
+    } else {
+        send_line(buf);
+    }
+}
+
+static void handle_signal(const char *args)
+{
+    /* Format: procId|sigType (0=CTRL_C, 1=CTRL_D, 2=CTRL_E, 3=CTRL_F) */
+    const char *sep;
+    int procId;
+    ULONG sigType;
+
+    if (!args || args[0] == '\0') {
+        send_err("SIGNAL", "needs procId|sigType");
+        return;
+    }
+    sep = strchr(args, '|');
+    if (!sep) {
+        send_err("SIGNAL", "needs procId|sigType");
+        return;
+    }
+    procId = (int)strtol(args, NULL, 10);
+    sigType = strtoul(sep + 1, NULL, 10);
+
+    if (proc_signal(procId, sigType) == 0) {
+        static char detail[64];
+        sprintf(detail, "Signal %lu sent to proc %ld", (unsigned long)sigType, (long)procId);
+        send_ok("SIGNAL", detail);
+    } else {
+        send_err("SIGNAL", "process not found or signal failed");
+    }
+}
+
+/* Tail file streaming state */
+BOOL g_tail_active = FALSE;
+char g_tail_path[256] = "";
+ULONG g_tail_pos = 0;
+
+static void handle_tail(const char *args)
+{
+    /* Format: path
+     * Start streaming file appends. Uses polling from main loop. */
+    BPTR fh;
+    struct Process *pr;
+    APTR oldWinPtr;
+
+    if (!args || args[0] == '\0') {
+        send_err("TAIL", "needs file path");
+        return;
+    }
+    if (g_tail_active) {
+        send_err("TAIL", "already tailing a file - send STOPTAIL first");
+        return;
+    }
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    /* Get initial file size */
+    fh = Open((CONST_STRPTR)args, MODE_OLDFILE);
+    pr->pr_WindowPtr = oldWinPtr;
+
+    if (!fh) {
+        send_err("TAIL", "cannot open file");
+        return;
+    }
+    Seek(fh, 0, OFFSET_END);
+    g_tail_pos = (ULONG)Seek(fh, 0, OFFSET_CURRENT);
+    Close(fh);
+
+    strncpy(g_tail_path, args, 255);
+    g_tail_path[255] = '\0';
+    g_tail_active = TRUE;
+
+    send_ok("TAIL", args);
+}
+
+static void handle_stoptail(void)
+{
+    if (!g_tail_active) {
+        send_ok("STOPTAIL", "not active");
+        return;
+    }
+    g_tail_active = FALSE;
+    g_tail_path[0] = '\0';
+    send_ok("STOPTAIL", "stopped");
+}
+
+/*
+ * Poll for tail data. Called from main loop.
+ * Reads new data appended since last check, sends as TAILDATA|path|hexdata.
+ */
+void tail_poll(void)
+{
+    BPTR fh;
+    static UBYTE tailBuf[256];
+    static char hexBuf[520];
+    static char lineBuf[BRIDGE_MAX_LINE];
+    LONG bytesRead;
+    ULONG curSize;
+    struct Process *pr;
+    APTR oldWinPtr;
+    ULONG i;
+
+    if (!g_tail_active) return;
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    fh = Open((CONST_STRPTR)g_tail_path, MODE_OLDFILE);
+    pr->pr_WindowPtr = oldWinPtr;
+
+    if (!fh) {
+        g_tail_active = FALSE;
+        return;
+    }
+
+    /* Check file size */
+    Seek(fh, 0, OFFSET_END);
+    curSize = (ULONG)Seek(fh, 0, OFFSET_CURRENT);
+
+    if (curSize < g_tail_pos) {
+        /* File was truncated - reset to beginning */
+        g_tail_pos = 0;
+        sprintf(lineBuf, "TAILDATA|%s|TRUNCATED", g_tail_path);
+        send_line(lineBuf);
+    }
+
+    if (curSize > g_tail_pos) {
+        ULONG toRead = curSize - g_tail_pos;
+        if (toRead > 256) toRead = 256;
+
+        Seek(fh, (LONG)g_tail_pos, OFFSET_BEGINNING);
+        bytesRead = Read(fh, tailBuf, (LONG)toRead);
+
+        if (bytesRead > 0) {
+            for (i = 0; i < (ULONG)bytesRead; i++) {
+                sprintf(hexBuf + i * 2, "%02lx", (unsigned long)tailBuf[i]);
+            }
+            hexBuf[bytesRead * 2] = '\0';
+
+            sprintf(lineBuf, "TAILDATA|%s|%s", g_tail_path, hexBuf);
+            send_line(lineBuf);
+
+            g_tail_pos += (ULONG)bytesRead;
+        }
+    }
+
+    Close(fh);
+}
+
+static void handle_checksum(const char *args)
+{
+    ULONG crc32, fileSize;
+
+    if (!args || args[0] == '\0') {
+        send_err("CHECKSUM", "needs file path");
+        return;
+    }
+
+    if (fs_checksum(args, &crc32, &fileSize) == 0) {
+        static char buf[256];
+        sprintf(buf, "CHECKSUM|%s|%08lx|%lu",
+                args, (unsigned long)crc32, (unsigned long)fileSize);
+        send_line(buf);
+    } else {
+        send_err("CHECKSUM", args);
+    }
+}
+
+static void handle_assigns(void)
+{
+    static char buf[BRIDGE_MAX_LINE];
+    sys_list_assigns(buf, BRIDGE_MAX_LINE);
+    send_line(buf);
+}
+
+static void handle_assign(const char *args)
+{
+    sys_handle_assign(args);
+}
+
+static void handle_protect(const char *args)
+{
+    /* Format: path[|bits_hex]
+     * If bits_hex present: SET mode. Otherwise: GET mode.
+     * Response: PROTECT|path|bits_hex */
+    const char *sep;
+    static char path[256];
+    ULONG bits;
+
+    if (!args || args[0] == '\0') {
+        send_err("PROTECT", "needs path[|bits_hex]");
+        return;
+    }
+
+    sep = strchr(args, '|');
+    if (sep) {
+        /* SET mode */
+        int plen = (int)(sep - args);
+        if (plen > 255) plen = 255;
+        strncpy(path, args, plen);
+        path[plen] = '\0';
+        bits = strtoul(sep + 1, NULL, 16);
+
+        if (fs_protect(path, &bits, 1) == 0) {
+            static char buf[300];
+            sprintf(buf, "PROTECT|%s|%08lx", path, (unsigned long)bits);
+            send_line(buf);
+        } else {
+            send_err("PROTECT", "failed to set");
+        }
+    } else {
+        /* GET mode */
+        strncpy(path, args, 255);
+        path[255] = '\0';
+
+        if (fs_protect(path, &bits, 0) == 0) {
+            static char buf[300];
+            sprintf(buf, "PROTECT|%s|%08lx", path, (unsigned long)bits);
+            send_line(buf);
+        } else {
+            send_err("PROTECT", "failed to read");
+        }
+    }
+}
+
+static void handle_rename(const char *args)
+{
+    /* Format: oldpath|newpath */
+    const char *sep;
+    static char oldPath[256], newPath[256];
+
+    if (!args || args[0] == '\0') {
+        send_err("RENAME", "needs oldpath|newpath");
+        return;
+    }
+    sep = strchr(args, '|');
+    if (!sep) {
+        send_err("RENAME", "needs oldpath|newpath");
+        return;
+    }
+    {
+        int olen = (int)(sep - args);
+        if (olen > 255) olen = 255;
+        strncpy(oldPath, args, olen);
+        oldPath[olen] = '\0';
+    }
+    strncpy(newPath, sep + 1, 255);
+    newPath[255] = '\0';
+
+    if (fs_rename(oldPath, newPath) == 0) {
+        send_ok("RENAME", newPath);
+    } else {
+        send_err("RENAME", "failed");
+    }
+}
+
+static void handle_setcomment(const char *args)
+{
+    /* Format: path|comment */
+    const char *sep;
+    static char path[256];
+
+    if (!args || args[0] == '\0') {
+        send_err("SETCOMMENT", "needs path|comment");
+        return;
+    }
+    sep = strchr(args, '|');
+    if (!sep) {
+        send_err("SETCOMMENT", "needs path|comment");
+        return;
+    }
+    {
+        int plen = (int)(sep - args);
+        if (plen > 255) plen = 255;
+        strncpy(path, args, plen);
+        path[plen] = '\0';
+    }
+
+    if (fs_set_comment(path, sep + 1) == 0) {
+        send_ok("SETCOMMENT", path);
+    } else {
+        send_err("SETCOMMENT", "failed");
+    }
+}
+
+static void handle_copy(const char *args)
+{
+    /* Format: srcpath|dstpath */
+    const char *sep;
+    static char srcPath[256], dstPath[256];
+
+    if (!args || args[0] == '\0') {
+        send_err("COPY", "needs srcpath|dstpath");
+        return;
+    }
+    sep = strchr(args, '|');
+    if (!sep) {
+        send_err("COPY", "needs srcpath|dstpath");
+        return;
+    }
+    {
+        int slen = (int)(sep - args);
+        if (slen > 255) slen = 255;
+        strncpy(srcPath, args, slen);
+        srcPath[slen] = '\0';
+    }
+    strncpy(dstPath, sep + 1, 255);
+    dstPath[255] = '\0';
+
+    if (fs_copy(srcPath, dstPath) == 0) {
+        send_ok("COPY", dstPath);
+    } else {
+        send_err("COPY", "failed");
+    }
+}
+
+static void handle_append(const char *args)
+{
+    /* Format: path|hexdata */
+    const char *sep;
+    static char path[256];
+    static UBYTE databuf[256];
+    ULONG datalen = 0;
+
+    if (!args || args[0] == '\0') {
+        send_err("APPEND", "needs path|hexdata");
+        return;
+    }
+    sep = strchr(args, '|');
+    if (!sep) {
+        send_err("APPEND", "needs path|hexdata");
+        return;
+    }
+    {
+        int plen = (int)(sep - args);
+        if (plen > 255) plen = 255;
+        strncpy(path, args, plen);
+        path[plen] = '\0';
+    }
+    {
+        const char *hex = sep + 1;
+        ULONG hexlen = strlen(hex);
+        ULONG i;
+
+        datalen = hexlen / 2;
+        if (datalen > 256) datalen = 256;
+
+        for (i = 0; i < datalen; i++) {
+            char hb[3];
+            hb[0] = hex[i * 2];
+            hb[1] = hex[i * 2 + 1];
+            hb[2] = '\0';
+            databuf[i] = (UBYTE)strtoul(hb, NULL, 16);
+        }
+    }
+
+    if (fs_append(path, databuf, datalen) == 0) {
+        static char detail[32];
+        sprintf(detail, "%lu", (unsigned long)datalen);
+        send_ok("APPEND", detail);
+    } else {
+        send_err("APPEND", "failed");
     }
 }

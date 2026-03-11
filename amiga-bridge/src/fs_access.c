@@ -299,3 +299,198 @@ int fs_makedir(const char *path)
     }
     return -1;
 }
+
+/*
+ * Rename/move a file.
+ * Returns 0 on success, -1 on error.
+ */
+int fs_rename(const char *oldPath, const char *newPath)
+{
+    if (!oldPath || !newPath) return -1;
+    if (Rename((CONST_STRPTR)oldPath, (CONST_STRPTR)newPath)) return 0;
+    return -1;
+}
+
+/*
+ * Copy a file on the Amiga side (no round-trip through host).
+ * Reads source in chunks and writes to destination.
+ * Returns 0 on success, -1 on error.
+ */
+int fs_copy(const char *srcPath, const char *dstPath)
+{
+    BPTR srcFh, dstFh;
+    static UBYTE copyBuf[512];
+    LONG bytesRead;
+    struct Process *pr;
+    APTR oldWinPtr;
+
+    if (!srcPath || !dstPath) return -1;
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    srcFh = Open((CONST_STRPTR)srcPath, MODE_OLDFILE);
+    if (!srcFh) {
+        pr->pr_WindowPtr = oldWinPtr;
+        return -1;
+    }
+
+    dstFh = Open((CONST_STRPTR)dstPath, MODE_NEWFILE);
+    if (!dstFh) {
+        Close(srcFh);
+        pr->pr_WindowPtr = oldWinPtr;
+        return -1;
+    }
+
+    pr->pr_WindowPtr = oldWinPtr;
+
+    while ((bytesRead = Read(srcFh, copyBuf, 512)) > 0) {
+        LONG written = Write(dstFh, copyBuf, bytesRead);
+        if (written != bytesRead) {
+            Close(srcFh);
+            Close(dstFh);
+            return -1;
+        }
+    }
+
+    Close(srcFh);
+    Close(dstFh);
+
+    return (bytesRead < 0) ? -1 : 0;
+}
+
+/*
+ * Get or set protection bits.
+ * setMode=0: read bits into *bits, return 0 on success
+ * setMode=1: set bits from *bits, return 0 on success
+ * Returns -1 on error.
+ */
+int fs_protect(const char *path, ULONG *bits, int setMode)
+{
+    struct Process *pr;
+    APTR oldWinPtr;
+
+    if (!path || !bits) return -1;
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    if (setMode) {
+        /* Set protection bits */
+        BOOL ok = SetProtection((CONST_STRPTR)path, (LONG)*bits);
+        pr->pr_WindowPtr = oldWinPtr;
+        return ok ? 0 : -1;
+    } else {
+        /* Read protection bits */
+        BPTR lock = Lock((CONST_STRPTR)path, ACCESS_READ);
+        pr->pr_WindowPtr = oldWinPtr;
+
+        if (!lock) return -1;
+        {
+            struct FileInfoBlock *fib = (struct FileInfoBlock *)
+                AllocMem(sizeof(struct FileInfoBlock), MEMF_PUBLIC | MEMF_CLEAR);
+            if (!fib) {
+                UnLock(lock);
+                return -1;
+            }
+            if (Examine(lock, fib)) {
+                *bits = (ULONG)fib->fib_Protection;
+                FreeMem(fib, sizeof(struct FileInfoBlock));
+                UnLock(lock);
+                return 0;
+            }
+            FreeMem(fib, sizeof(struct FileInfoBlock));
+            UnLock(lock);
+        }
+        return -1;
+    }
+}
+
+/*
+ * Set file comment (filenote).
+ * Returns 0 on success, -1 on error.
+ */
+int fs_set_comment(const char *path, const char *comment)
+{
+    if (!path || !comment) return -1;
+    if (SetComment((CONST_STRPTR)path, (CONST_STRPTR)comment)) return 0;
+    return -1;
+}
+
+/*
+ * Compute CRC32 checksum of a file.
+ * Returns 0 on success, -1 on error.
+ * Sets *crc32Out and *sizeOut.
+ */
+int fs_checksum(const char *path, ULONG *crc32Out, ULONG *sizeOut)
+{
+    BPTR fh;
+    static UBYTE chkBuf[512];
+    LONG bytesRead;
+    ULONG crc = 0xFFFFFFFF;
+    ULONG fileSize = 0;
+    struct Process *pr;
+    APTR oldWinPtr;
+
+    /* CRC32 lookup table (standard polynomial 0xEDB88320) */
+    static const ULONG crcTable[16] = {
+        0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC,
+        0x76DC4190, 0x6B6B51F4, 0x4DB26158, 0x5005713C,
+        0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C,
+        0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C
+    };
+
+    if (!path || !crc32Out || !sizeOut) return -1;
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    fh = Open((CONST_STRPTR)path, MODE_OLDFILE);
+    pr->pr_WindowPtr = oldWinPtr;
+
+    if (!fh) return -1;
+
+    while ((bytesRead = Read(fh, chkBuf, 512)) > 0) {
+        LONG i;
+        for (i = 0; i < bytesRead; i++) {
+            crc = crcTable[(crc ^ chkBuf[i]) & 0x0F] ^ (crc >> 4);
+            crc = crcTable[(crc ^ (chkBuf[i] >> 4)) & 0x0F] ^ (crc >> 4);
+        }
+        fileSize += (ULONG)bytesRead;
+    }
+
+    Close(fh);
+
+    if (bytesRead < 0) return -1;
+
+    *crc32Out = crc ^ 0xFFFFFFFF;
+    *sizeOut = fileSize;
+    return 0;
+}
+
+/*
+ * Append data to an existing file.
+ * Returns 0 on success, -1 on error.
+ */
+int fs_append(const char *path, const UBYTE *data, ULONG size)
+{
+    BPTR fh;
+    LONG written;
+
+    if (!path || !data) return -1;
+
+    fh = Open((CONST_STRPTR)path, MODE_OLDFILE);
+    if (!fh) return -1;
+
+    /* Seek to end */
+    Seek(fh, 0, OFFSET_END);
+
+    written = Write(fh, (APTR)data, (LONG)size);
+    Close(fh);
+
+    if (written != (LONG)size) return -1;
+    return 0;
+}

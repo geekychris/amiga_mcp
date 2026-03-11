@@ -1639,3 +1639,330 @@ async def amiga_arexx_send(port: str, command: str) -> str:
     if rc == 0:
         return f"[OK] {result}" if result else "[OK]"
     return f"[RC={rc}] {result}" if result else f"[RC={rc}] Command failed"
+
+
+# ─── Capabilities ───
+
+@mcp.tool()
+async def amiga_capabilities() -> str:
+    """Query the bridge daemon's capabilities: version, protocol level, and supported commands."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "CAPABILITIES"})
+    msg = await bus.wait_for("capabilities", timeout=5.0)
+    if not msg:
+        return "No response (timeout)"
+    lines = [
+        f"Version: {msg.get('version', '?')}",
+        f"Protocol Level: {msg.get('protocolLevel', '?')}",
+        f"Max Line: {msg.get('maxLine', '?')}",
+        f"Commands ({len(msg.get('commands', []))}): {', '.join(msg.get('commands', []))}",
+    ]
+    return "\n".join(lines)
+
+
+# ─── Process Management ───
+
+@mcp.tool()
+async def amiga_proc_list() -> str:
+    """List all tracked async processes with their ID, command, and status."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "PROCLIST"})
+    msg = await bus.wait_for("proclist", timeout=5.0)
+    if not msg:
+        return "No response (timeout)"
+    procs = msg.get("processes", [])
+    if not procs:
+        return "No tracked processes"
+    lines = [f"Tracked processes ({len(procs)}):"]
+    for p in procs:
+        lines.append(f"  [{p['id']}] {p['command']} — {p['status']}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def amiga_proc_stat(proc_id: int) -> str:
+    """Get status of a specific tracked process by ID."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "PROCSTAT", "id": proc_id})
+    msg = await bus.wait_for("procstat", timeout=5.0,
+                             predicate=lambda d: d.get("id") == proc_id)
+    if not msg:
+        # Check for error
+        err = await bus.wait_for("err", timeout=0.5,
+                                 predicate=lambda d: d.get("context") == "PROCSTAT")
+        if err:
+            return f"Error: {err.get('message', '?')}"
+        return "No response (timeout)"
+    return f"Process {msg['id']}: {msg.get('command', '?')} — {msg.get('status', '?')}"
+
+
+@mcp.tool()
+async def amiga_signal(proc_id: int, signal: str = "CTRL_C") -> str:
+    """Send a signal to a tracked async process.
+
+    Args:
+        proc_id: Process ID from amiga_proc_list
+        signal: Signal type - CTRL_C (default), CTRL_D, CTRL_E, or CTRL_F
+    """
+    sig_map = {"CTRL_C": 0, "CTRL_D": 1, "CTRL_E": 2, "CTRL_F": 3}
+    sig_type = sig_map.get(signal.upper(), 0)
+    conn, state, bus = _require_connected()
+    conn.send({"type": "SIGNAL", "id": proc_id, "sigType": sig_type})
+    msg = await bus.wait_for("ok", timeout=5.0,
+                             predicate=lambda d: d.get("context") == "SIGNAL")
+    if msg:
+        return msg.get("message", "Signal sent")
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "SIGNAL")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+# ─── File Tail (Live Streaming) ───
+
+@mcp.tool()
+async def amiga_tail(path: str, duration_ms: int = 10000) -> str:
+    """Stream live file appends from an Amiga file.
+
+    Watches a file for new data being appended and returns the new content.
+    Useful for monitoring log files in real-time.
+
+    Args:
+        path: Amiga file path to tail (e.g. "T:mylog.txt")
+        duration_ms: How long to stream in milliseconds (default 10000)
+    """
+    from .protocol import hex_to_ascii
+    conn, state, bus = _require_connected()
+    conn.send({"type": "TAIL", "path": path})
+
+    # Wait for OK acknowledgment
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "TAIL")
+    if not ok:
+        err = await bus.wait_for("err", timeout=0.5,
+                                 predicate=lambda d: d.get("context") == "TAIL")
+        if err:
+            return f"Error: {err.get('message', '?')}"
+        return "No response (timeout)"
+
+    # Collect tail data
+    chunks: list[str] = []
+    try:
+        async with bus.subscribe("taildata") as queue:
+            deadline = asyncio.get_event_loop().time() + duration_ms / 1000.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    hex_data = data.get("data", "")
+                    if hex_data == "TRUNCATED":
+                        chunks.append("[file truncated]")
+                    elif hex_data:
+                        chunks.append(hex_to_ascii(hex_data))
+                except asyncio.TimeoutError:
+                    break
+    finally:
+        # Stop tailing
+        conn.send({"type": "STOPTAIL"})
+        await bus.wait_for("ok", timeout=2.0,
+                           predicate=lambda d: d.get("context") == "STOPTAIL")
+
+    if not chunks:
+        return f"No new data in {path} during {duration_ms}ms"
+    return f"Tail of {path}:\n" + "".join(chunks)
+
+
+# ─── File Checksum ───
+
+@mcp.tool()
+async def amiga_checksum(path: str) -> str:
+    """Compute CRC32 checksum of a file on the Amiga. Useful for verifying deploys.
+
+    Args:
+        path: Amiga file path (e.g. "DH2:Dev/myprogram")
+    """
+    conn, state, bus = _require_connected()
+    conn.send({"type": "CHECKSUM", "path": path})
+    msg = await bus.wait_for("checksum", timeout=10.0,
+                             predicate=lambda d: d.get("path") == path)
+    if not msg:
+        err = await bus.wait_for("err", timeout=0.5,
+                                 predicate=lambda d: d.get("context") == "CHECKSUM")
+        if err:
+            return f"Error: {err.get('message', '?')}"
+        return "No response (timeout)"
+    return f"File: {msg['path']}\nCRC32: {msg['crc32']}\nSize: {msg['size']} bytes"
+
+
+# ─── Assign Management ───
+
+@mcp.tool()
+async def amiga_list_assigns() -> str:
+    """List all DOS assigns (logical device assignments) on the Amiga."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "ASSIGNS"})
+    msg = await bus.wait_for("assigns", timeout=5.0)
+    if not msg:
+        return "No response (timeout)"
+    assigns = msg.get("assigns", [])
+    if not assigns:
+        return "No assigns found"
+    type_map = {"A": "assign", "L": "late", "N": "nonbinding", "?": "unknown"}
+    lines = [f"Assigns ({len(assigns)}):"]
+    for a in assigns:
+        atype = type_map.get(a.get("assignType", "?"), a.get("assignType", "?"))
+        lines.append(f"  {a['name']}: -> {a.get('path', '?')} [{atype}]")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def amiga_assign(name: str, path: str, mode: str = "") -> str:
+    """Create, replace, add to, or remove a DOS assign.
+
+    Args:
+        name: Assign name (without colon, e.g. "DEVTOOLS")
+        path: Target path (e.g. "DH2:Dev/Tools")
+        mode: Empty for replace (default), "ADD" to add path, "REMOVE" to remove assign
+    """
+    conn, state, bus = _require_connected()
+    cmd: dict = {"type": "ASSIGN", "name": name, "path": path}
+    if mode:
+        cmd["mode"] = mode.upper()
+    conn.send(cmd)
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "ASSIGN")
+    if ok:
+        return ok.get("message", "Assign updated")
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "ASSIGN")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+# ─── File Metadata ───
+
+@mcp.tool()
+async def amiga_protect(path: str, bits: str | None = None) -> str:
+    """Get or set AmigaOS protection bits for a file.
+
+    Args:
+        path: Amiga file path
+        bits: Hex protection bits to set (e.g. "00000000"). Omit to read current bits.
+    """
+    conn, state, bus = _require_connected()
+    cmd: dict = {"type": "PROTECT", "path": path}
+    if bits:
+        cmd["bits"] = bits
+    conn.send(cmd)
+    msg = await bus.wait_for("protect", timeout=5.0,
+                             predicate=lambda d: d.get("path") == path)
+    if msg:
+        raw = int(msg["bits"], 16)
+        # Decode AmigaOS protection bits (active-low for RWED)
+        flags = []
+        if not (raw & 0x08): flags.append("r")
+        if not (raw & 0x04): flags.append("w")
+        if not (raw & 0x02): flags.append("e")
+        if not (raw & 0x01): flags.append("d")
+        if raw & 0x80: flags.append("h")  # hidden
+        if raw & 0x40: flags.append("s")  # script
+        if raw & 0x20: flags.append("p")  # pure
+        if raw & 0x10: flags.append("a")  # archive
+        return f"File: {msg['path']}\nProtection: {msg['bits']} ({''.join(flags)})"
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "PROTECT")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+@mcp.tool()
+async def amiga_rename(old_path: str, new_path: str) -> str:
+    """Rename or move a file on the Amiga.
+
+    Args:
+        old_path: Current file path
+        new_path: New file path
+    """
+    conn, state, bus = _require_connected()
+    conn.send({"type": "RENAME", "oldPath": old_path, "newPath": new_path})
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "RENAME")
+    if ok:
+        return f"Renamed: {old_path} -> {ok.get('message', new_path)}"
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "RENAME")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+@mcp.tool()
+async def amiga_set_comment(path: str, comment: str) -> str:
+    """Set a file comment (filenote) on the Amiga.
+
+    Args:
+        path: Amiga file path
+        comment: Comment text to set
+    """
+    conn, state, bus = _require_connected()
+    conn.send({"type": "SETCOMMENT", "path": path, "comment": comment})
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "SETCOMMENT")
+    if ok:
+        return f"Comment set on {path}"
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "SETCOMMENT")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+# ─── Server-Side Copy ───
+
+@mcp.tool()
+async def amiga_copy(src: str, dst: str) -> str:
+    """Copy a file on the Amiga without round-tripping through the host.
+
+    Args:
+        src: Source file path on the Amiga
+        dst: Destination file path on the Amiga
+    """
+    conn, state, bus = _require_connected()
+    conn.send({"type": "COPY", "src": src, "dst": dst})
+    ok = await bus.wait_for("ok", timeout=30.0,
+                            predicate=lambda d: d.get("context") == "COPY")
+    if ok:
+        return f"Copied: {src} -> {ok.get('message', dst)}"
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "COPY")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+# ─── File Append ───
+
+@mcp.tool()
+async def amiga_append_file(path: str, hex_data: str) -> str:
+    """Append data to an existing file on the Amiga.
+
+    Args:
+        path: Amiga file path
+        hex_data: Hex-encoded data to append (e.g. "48656c6c6f" for "Hello")
+    """
+    conn, state, bus = _require_connected()
+    conn.send({"type": "APPEND", "path": path, "hexData": hex_data})
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "APPEND")
+    if ok:
+        return f"Appended {ok.get('message', '?')} bytes to {path}"
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "APPEND")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"

@@ -988,3 +988,227 @@ void sys_handle_libfuncs(const char *args)
 
     protocol_send_raw(linebuf);
 }
+
+/*
+ * List all DOS assigns.
+ * Format: ASSIGNS|count|name1:path1:type1,name2:path2:type2,...
+ * type: A=assign, L=late, N=nonbinding
+ */
+int sys_list_assigns(char *buf, int bufSize)
+{
+    struct DosList *dl;
+    int pos = 0;
+    int count = 0;
+    char countStr[16];
+    int headerPos;
+    static char entry[256];
+
+    sprintf(buf, "ASSIGNS|");
+    pos = strlen(buf);
+    headerPos = pos;
+    memset(buf + pos, ' ', 5);
+    pos += 5;
+    buf[pos] = '\0';
+
+    dl = LockDosList(LDF_ASSIGNS | LDF_READ);
+    while ((dl = NextDosEntry(dl, LDF_ASSIGNS)) != NULL) {
+        char namebuf[110];
+        char pathbuf[128];
+        int nlen;
+        const char *atype;
+
+        /* BSTR name */
+        if (dl->dol_Name) {
+            UBYTE *bstr = (UBYTE *)BADDR(dl->dol_Name);
+            nlen = bstr[0];
+            if (nlen > 107) nlen = 107;
+            CopyMem(bstr + 1, namebuf, nlen);
+            namebuf[nlen] = '\0';
+        } else {
+            strcpy(namebuf, "?");
+        }
+
+        /* Resolve path */
+        pathbuf[0] = '\0';
+        if (dl->dol_Type == DLT_DIRECTORY && dl->dol_Lock) {
+            NameFromLock(dl->dol_Lock, (STRPTR)pathbuf, 127);
+            atype = "A";
+        } else if (dl->dol_Type == DLT_LATE) {
+            const char *handler = (const char *)BADDR(dl->dol_misc.dol_assign.dol_AssignName);
+            if (handler) {
+                UBYTE *bh = (UBYTE *)handler;
+                int hlen = bh[0];
+                if (hlen > 126) hlen = 126;
+                CopyMem(bh + 1, pathbuf, hlen);
+                pathbuf[hlen] = '\0';
+            }
+            atype = "L";
+        } else if (dl->dol_Type == DLT_NONBINDING) {
+            const char *handler = (const char *)BADDR(dl->dol_misc.dol_assign.dol_AssignName);
+            if (handler) {
+                UBYTE *bh = (UBYTE *)handler;
+                int hlen = bh[0];
+                if (hlen > 126) hlen = 126;
+                CopyMem(bh + 1, pathbuf, hlen);
+                pathbuf[hlen] = '\0';
+            }
+            atype = "N";
+        } else {
+            atype = "?";
+        }
+
+        /* Sanitize colons in path (conflict with protocol delimiter) */
+        {
+            int pi;
+            for (pi = 0; pathbuf[pi]; pi++) {
+                if (pathbuf[pi] == ':') pathbuf[pi] = '/';
+            }
+        }
+
+        sprintf(entry, "%s:%s:%s", namebuf, pathbuf, atype);
+        entry[sizeof(entry) - 1] = '\0';
+
+        if (count > 0) {
+            if (!buf_append_char(buf, &pos, bufSize, ',')) break;
+        }
+        if (!buf_append(buf, &pos, bufSize, entry)) break;
+        count++;
+    }
+    UnLockDosList(LDF_ASSIGNS | LDF_READ);
+
+    sprintf(countStr, "%ld|", (long)count);
+    {
+        int clen = strlen(countStr);
+        int gap = 5 - clen;
+        if (gap > 0) {
+            int entryStart = headerPos + 5;
+            int entryLen = pos - entryStart;
+            memmove(buf + headerPos + clen, buf + entryStart, entryLen);
+            pos -= gap;
+        }
+        memcpy(buf + headerPos, countStr, clen);
+    }
+
+    buf[pos] = '\0';
+    return pos;
+}
+
+/*
+ * Create, replace, or remove an assign.
+ * Args format: name|path[|mode]
+ * mode: (empty)=replace, ADD=add, REMOVE=remove
+ * Response: OK|ASSIGN|name or ERR|ASSIGN|reason
+ */
+void sys_handle_assign(const char *args)
+{
+    static char linebuf[BRIDGE_MAX_LINE];
+    static char namebuf[110];
+    static char pathbuf[256];
+    const char *sep1;
+    const char *sep2;
+    const char *mode = "";
+    BPTR lock;
+    struct Process *pr;
+    APTR oldWinPtr;
+    int nlen;
+
+    if (!args || args[0] == '\0') {
+        protocol_send_raw("ERR|ASSIGN|Missing arguments (name|path[|mode])");
+        return;
+    }
+
+    sep1 = strchr(args, '|');
+    if (!sep1) {
+        protocol_send_raw("ERR|ASSIGN|Missing path");
+        return;
+    }
+    nlen = (int)(sep1 - args);
+    if (nlen > 108) nlen = 108;
+    strncpy(namebuf, args, nlen);
+    namebuf[nlen] = '\0';
+
+    sep2 = strchr(sep1 + 1, '|');
+    if (sep2) {
+        int plen = (int)(sep2 - (sep1 + 1));
+        if (plen > 254) plen = 254;
+        strncpy(pathbuf, sep1 + 1, plen);
+        pathbuf[plen] = '\0';
+        mode = sep2 + 1;
+    } else {
+        strncpy(pathbuf, sep1 + 1, 255);
+        pathbuf[255] = '\0';
+    }
+
+    if (strcmp(mode, "REMOVE") == 0) {
+        /* Remove assign */
+        if (AssignLock((CONST_STRPTR)namebuf, 0)) {
+            sprintf(linebuf, "OK|ASSIGN|Removed %s", namebuf);
+        } else {
+            sprintf(linebuf, "ERR|ASSIGN|Failed to remove %s", namebuf);
+        }
+        protocol_send_raw(linebuf);
+        return;
+    }
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    lock = Lock((CONST_STRPTR)pathbuf, ACCESS_READ);
+    pr->pr_WindowPtr = oldWinPtr;
+
+    if (!lock) {
+        sprintf(linebuf, "ERR|ASSIGN|Cannot lock path: %s", pathbuf);
+        protocol_send_raw(linebuf);
+        return;
+    }
+
+    if (strcmp(mode, "ADD") == 0) {
+        if (AssignAdd((CONST_STRPTR)namebuf, lock)) {
+            sprintf(linebuf, "OK|ASSIGN|Added %s -> %s", namebuf, pathbuf);
+        } else {
+            UnLock(lock);
+            sprintf(linebuf, "ERR|ASSIGN|Failed to add %s", namebuf);
+        }
+    } else {
+        /* Replace (default) */
+        if (AssignLock((CONST_STRPTR)namebuf, lock)) {
+            sprintf(linebuf, "OK|ASSIGN|Set %s -> %s", namebuf, pathbuf);
+        } else {
+            UnLock(lock);
+            sprintf(linebuf, "ERR|ASSIGN|Failed to set %s", namebuf);
+        }
+    }
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * CAPABILITIES - report daemon capabilities.
+ * Format: CAPABILITIES|version|protocol|maxLine|commands
+ */
+void sys_handle_capabilities(void)
+{
+    static char linebuf[BRIDGE_MAX_LINE];
+
+    sprintf(linebuf,
+        "CAPABILITIES|AmigaBridge 1.0|1|%ld|"
+        "PING,INSPECT,GETVAR,SETVAR,EXEC,LISTCLIENTS,LISTTASKS,LISTLIBS,"
+        "LISTDEVICES,LISTDEVS,LISTVOLUMES,LISTDIR,READFILE,WRITEFILE,"
+        "FILEINFO,DELETE,DELETEFILE,MAKEDIR,LAUNCH,DOSCOMMAND,RUN,BREAK,"
+        "LISTHOOKS,CALLHOOK,LISTMEMREGS,READMEMREG,CLIENTINFO,STOP,"
+        "SCRIPT,WRITEMEM,SCREENSHOT,PALETTE,SETPALETTE,COPPERLIST,SPRITES,"
+        "LISTRESOURCES,GETPERF,LASTCRASH,CRASHINIT,CRASHREMOVE,CRASHTEST,"
+        "MEMMAP,STACKINFO,CHIPREGS,READREGS,SEARCH,LIBINFO,DEVINFO,"
+        "LIBFUNCS,SNOOPSTART,SNOOPSTOP,SNOOPSTATUS,AUDIOCHANNELS,"
+        "AUDIOSAMPLE,LISTSCREENS,LISTWINDOWS,LISTWINDOWS2,LISTGADGETS,"
+        "WINACTIVATE,WINTOFRONT,WINTOBACK,WINZIP,WINMOVE,WINSIZE,"
+        "SCRTOFRONT,SCRTOBACK,INPUTKEY,INPUTMOVE,INPUTCLICK,"
+        "LISTFONTS,FONTINFO,CHIPLOGSTART,CHIPLOGSTOP,CHIPLOGSNAPSHOT,"
+        "POOLSTART,POOLSTOP,POOLS,CLIPGET,CLIPSET,AREXXPORTS,AREXXSEND,"
+        "SHUTDOWN,CAPABILITIES,PROCLIST,PROCSTAT,SIGNAL,TAIL,STOPTAIL,"
+        "CHECKSUM,ASSIGNS,ASSIGN,PROTECT,RENAME,SETCOMMENT,COPY,APPEND",
+        (long)BRIDGE_MAX_LINE);
+
+    protocol_send_raw(linebuf);
+}

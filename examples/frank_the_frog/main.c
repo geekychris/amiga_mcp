@@ -26,6 +26,7 @@
 #include "lanes.h"
 #include "score.h"
 #include "sound.h"
+#include "modplay.h"
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
@@ -264,10 +265,11 @@ int main(void)
         return 1;
     }
 
-    /* Init sound */
+    /* Init sound + music */
     if (sound_init() != 0) {
         AB_W("Sound init failed - continuing without sound");
     }
+    modplay_start();
 
     /* Open a tiny invisible IDCMP window on our screen for keyboard */
     win = OpenWindowTags(NULL,
@@ -489,6 +491,7 @@ int main(void)
 
         gfx_swap();
         gfx_vsync();
+        modplay_tick();
 
 next_frame:
         frame_count++;
@@ -517,6 +520,7 @@ next_frame:
 
     AB_I("Frank the Frog exiting");
 
+    modplay_stop();
     sound_cleanup();
     if (win) CloseWindow(win);
     gfx_cleanup();

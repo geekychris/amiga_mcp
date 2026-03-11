@@ -545,6 +545,27 @@ class SerialConnection:
         elif msg_type == "AREXXRESULT":
             self._event_bus.publish("arexxresult", msg)
 
+        elif msg_type == "CAPABILITIES":
+            self._event_bus.publish("capabilities", msg)
+
+        elif msg_type == "PROCLIST":
+            self._event_bus.publish("proclist", msg)
+
+        elif msg_type == "PROCSTAT":
+            self._event_bus.publish("procstat", msg)
+
+        elif msg_type == "TAILDATA":
+            self._event_bus.publish("taildata", msg)
+
+        elif msg_type == "CHECKSUM":
+            self._event_bus.publish("checksum", msg)
+
+        elif msg_type == "ASSIGNS":
+            self._event_bus.publish("assigns", msg)
+
+        elif msg_type == "PROTECT":
+            self._event_bus.publish("protect", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

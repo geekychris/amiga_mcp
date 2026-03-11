@@ -278,6 +278,7 @@ int main(int argc, char **argv)
     /* Crash handler NOT installed at startup - enable via CRASHINIT command */
 
     /* Init optional modules */
+    proc_init();
     font_init();
     chiplog_init();
     pool_init();
@@ -386,6 +387,11 @@ int main(int argc, char **argv)
             /* Poll ARexx for timeout */
             arexx_poll();
 
+            /* Poll tail file streaming */
+            if (g_serial_connected) {
+                tail_poll();
+            }
+
             /* Heartbeat (every ~5 seconds = 25 timer ticks) */
             hb_counter++;
             if (hb_counter >= 25 && g_serial_connected) {
@@ -426,6 +432,7 @@ int main(int argc, char **argv)
     arexx_cleanup();
     clip_cleanup();
     pool_cleanup();
+    proc_cleanup();
     chiplog_cleanup();
     font_cleanup();
     input_cleanup();

@@ -22,6 +22,37 @@
 /* Output capture buffer */
 #define PROC_OUTPUT_SIZE 480
 
+/* ---- Process tracking ---- */
+
+#define MAX_TRACKED_PROCS 16
+
+struct TrackedProc {
+    BOOL   active;
+    int    id;
+    char   command[128];
+    ULONG  startTick;
+};
+
+static struct TrackedProc g_procs[MAX_TRACKED_PROCS];
+static int g_next_proc_id = 1;
+
+/* Track a new async process. Called after proc_run_async succeeds. */
+static int proc_track(const char *command)
+{
+    int i;
+    for (i = 0; i < MAX_TRACKED_PROCS; i++) {
+        if (!g_procs[i].active) {
+            g_procs[i].active = TRUE;
+            g_procs[i].id = g_next_proc_id++;
+            strncpy(g_procs[i].command, command, 127);
+            g_procs[i].command[127] = '\0';
+            g_procs[i].startTick = *(volatile ULONG *)0xDFF004;
+            return g_procs[i].id;
+        }
+    }
+    return -1;
+}
+
 /*
  * Check if a file/path exists.
  * Suppresses system requesters.
@@ -244,8 +275,166 @@ int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSiz
         return -1;
     }
 
-    strncpy(resultBuf, "Started: ", bufSize - 1);
-    strncat(resultBuf, command, bufSize - strlen(resultBuf) - 1);
-    resultBuf[bufSize - 1] = '\0';
+    {
+        int trackId = proc_track(command);
+        if (trackId > 0) {
+            sprintf(resultBuf, "Started (proc %ld): ", (long)trackId);
+        } else {
+            strncpy(resultBuf, "Started: ", bufSize - 1);
+        }
+        strncat(resultBuf, command, bufSize - strlen(resultBuf) - 1);
+        resultBuf[bufSize - 1] = '\0';
+    }
     return 0;
+}
+
+void proc_init(void)
+{
+    int i;
+    for (i = 0; i < MAX_TRACKED_PROCS; i++) {
+        g_procs[i].active = FALSE;
+    }
+    g_next_proc_id = 1;
+}
+
+void proc_cleanup(void)
+{
+    /* Nothing to free - static buffers */
+}
+
+/*
+ * List tracked processes.
+ * Format: PROCLIST|count|id1:cmd1:status1,id2:cmd2:status2,...
+ * status: running or exited
+ */
+int proc_list(char *buf, int bufSize)
+{
+    int pos;
+    int count = 0;
+    int i;
+    static char entry[180];
+    char countStr[16];
+    int headerPos;
+
+    sprintf(buf, "PROCLIST|");
+    pos = strlen(buf);
+    headerPos = pos;
+    memset(buf + pos, ' ', 5);
+    pos += 5;
+    buf[pos] = '\0';
+
+    for (i = 0; i < MAX_TRACKED_PROCS; i++) {
+        if (!g_procs[i].active) continue;
+
+        sprintf(entry, "%ld:%s:running",
+                (long)g_procs[i].id,
+                g_procs[i].command);
+        entry[sizeof(entry) - 1] = '\0';
+
+        if (count > 0) {
+            if (pos + 1 >= bufSize - 1) break;
+            buf[pos++] = ',';
+        }
+        {
+            int elen = strlen(entry);
+            if (pos + elen >= bufSize - 1) break;
+            memcpy(buf + pos, entry, elen);
+            pos += elen;
+            buf[pos] = '\0';
+        }
+        count++;
+    }
+
+    sprintf(countStr, "%ld|", (long)count);
+    {
+        int clen = strlen(countStr);
+        int gap = 5 - clen;
+        if (gap > 0) {
+            int entryStart = headerPos + 5;
+            int entryLen = pos - entryStart;
+            memmove(buf + headerPos + clen, buf + entryStart, entryLen);
+            pos -= gap;
+        }
+        memcpy(buf + headerPos, countStr, clen);
+    }
+
+    buf[pos] = '\0';
+    return pos;
+}
+
+/*
+ * Get status of a specific tracked process.
+ * Format: PROCSTAT|id|command|status
+ */
+int proc_stat(int procId, char *buf, int bufSize)
+{
+    int i;
+    for (i = 0; i < MAX_TRACKED_PROCS; i++) {
+        if (g_procs[i].active && g_procs[i].id == procId) {
+            sprintf(buf, "PROCSTAT|%ld|%s|running",
+                    (long)g_procs[i].id,
+                    g_procs[i].command);
+            return strlen(buf);
+        }
+    }
+    sprintf(buf, "ERR|PROCSTAT|Process %ld not found", (long)procId);
+    return -1;
+}
+
+/*
+ * Send a signal to a tracked process.
+ * sigType: 0=CTRL_C, 1=CTRL_D, 2=CTRL_E, 3=CTRL_F
+ */
+int proc_signal(int procId, ULONG sigType)
+{
+    int i;
+    static const ULONG sigMasks[] = {
+        SIGBREAKF_CTRL_C, SIGBREAKF_CTRL_D,
+        SIGBREAKF_CTRL_E, SIGBREAKF_CTRL_F
+    };
+
+    if (sigType > 3) return -1;
+
+    for (i = 0; i < MAX_TRACKED_PROCS; i++) {
+        if (g_procs[i].active && g_procs[i].id == procId) {
+            /* Extract executable name from command for FindTask */
+            static char exeName[128];
+            char *sp;
+            strncpy(exeName, g_procs[i].command, 127);
+            exeName[127] = '\0';
+            /* Take just the filename part */
+            sp = strrchr(exeName, '/');
+            if (!sp) sp = strrchr(exeName, ':');
+            if (sp) {
+                memmove(exeName, sp + 1, strlen(sp + 1) + 1);
+            }
+            /* Trim args */
+            sp = strchr(exeName, ' ');
+            if (sp) *sp = '\0';
+
+            {
+                struct Task *task;
+                Forbid();
+                task = FindTask((CONST_STRPTR)exeName);
+                if (task) {
+                    Signal(task, sigMasks[sigType]);
+                }
+                Permit();
+                return task ? 0 : -1;
+            }
+        }
+    }
+    return -1;
+}
+
+/* Remove a tracked process (call when we know it's done) */
+void proc_remove(int procId)
+{
+    int i;
+    for (i = 0; i < MAX_TRACKED_PROCS; i++) {
+        if (g_procs[i].active && g_procs[i].id == procId) {
+            g_procs[i].active = FALSE;
+            return;
+        }
+    }
 }

@@ -218,6 +218,33 @@ void arexx_handle_send(const char *args);
 ULONG arexx_get_signal(void);
 void arexx_poll(void);
 
+/* ---- process_launcher.c (new) ---- */
+void proc_init(void);
+void proc_cleanup(void);
+void proc_poll(void);
+int proc_list(char *buf, int bufSize);
+int proc_stat(int procId, char *buf, int bufSize);
+int proc_signal(int procId, ULONG sigMask);
+
+/* ---- fs_access.c (new) ---- */
+int fs_rename(const char *oldPath, const char *newPath);
+int fs_copy(const char *srcPath, const char *dstPath);
+int fs_protect(const char *path, ULONG *bits, int setMode);
+int fs_set_comment(const char *path, const char *comment);
+int fs_checksum(const char *path, ULONG *crc32Out, ULONG *sizeOut);
+int fs_append(const char *path, const UBYTE *data, ULONG size);
+
+/* ---- system_inspector.c (new) ---- */
+int sys_list_assigns(char *buf, int bufSize);
+void sys_handle_assign(const char *args);
+void sys_handle_capabilities(void);
+
+/* Tail file streaming */
+extern BOOL g_tail_active;
+extern char g_tail_path[256];
+extern ULONG g_tail_pos;
+void tail_poll(void);
+
 /* ---- UI state (main.c) ---- */
 #define UI_MAX_LOG_LINES 5
 #define UI_MAX_LOG_LEN   50

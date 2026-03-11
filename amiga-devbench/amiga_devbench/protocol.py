@@ -7,7 +7,8 @@ Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
                CINFO, DEVICES, ERR, OK, SCRINFO, SCRDATA, PALETTE,
                COPPER, SPRITE, CRASH, RESOURCES, PERF, MEMMAP,
                STACKINFO, CHIPREGS, REGS, SEARCH, LIBINFO, DEVINFO,
-               SNOOP, SNOOPSTATE, LIBFUNCS
+               SNOOP, SNOOPSTATE, LIBFUNCS, CAPABILITIES, PROCLIST,
+               PROCSTAT, TAILDATA, CHECKSUM, ASSIGNS, PROTECT
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
@@ -17,7 +18,9 @@ Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                COPPERLIST, SPRITES, LISTRESOURCES, GETPERF, LASTCRASH,
                LISTWINDOWS, MEMMAP, STACKINFO, CHIPREGS, READREGS,
                SEARCH, LIBINFO, DEVINFO, LIBFUNCS, SNOOPSTART,
-               SNOOPSTOP, SNOOPSTATUS
+               SNOOPSTOP, SNOOPSTATUS, CAPABILITIES, PROCLIST,
+               PROCSTAT, SIGNAL, TAIL, STOPTAIL, CHECKSUM, ASSIGNS,
+               ASSIGN, PROTECT, RENAME, SETCOMMENT, COPY, APPEND
 """
 
 from __future__ import annotations
@@ -788,6 +791,77 @@ def parse_message(line: str) -> dict[str, Any] | None:
         text = parts[2] if len(parts) > 2 else ""
         return {"type": "CLIPBOARD", "length": length, "text": text}
 
+    if msg_type == "CAPABILITIES":
+        # Format: CAPABILITIES|version|protocol|maxLine|commands
+        version = parts[1] if len(parts) > 1 else ""
+        protocol_level = _int(parts[2]) if len(parts) > 2 else 0
+        max_line = _int(parts[3]) if len(parts) > 3 else 0
+        commands = parts[4].split(",") if len(parts) > 4 else []
+        return {"type": "CAPABILITIES", "version": version, "protocolLevel": protocol_level,
+                "maxLine": max_line, "commands": commands}
+
+    if msg_type == "PROCLIST":
+        # Format: PROCLIST|count|id1:cmd1:status1,id2:cmd2:status2,...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        procs = []
+        if len(parts) > 2 and parts[2]:
+            for entry in parts[2].split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                pp = entry.split(":", 2)
+                if len(pp) >= 3:
+                    procs.append({"id": _int(pp[0]), "command": pp[1], "status": pp[2]})
+        return {"type": "PROCLIST", "count": count, "processes": procs}
+
+    if msg_type == "PROCSTAT":
+        # Format: PROCSTAT|id|command|status
+        return {
+            "type": "PROCSTAT",
+            "id": _int(parts[1]) if len(parts) > 1 else 0,
+            "command": parts[2] if len(parts) > 2 else "",
+            "status": parts[3] if len(parts) > 3 else "",
+        }
+
+    if msg_type == "TAILDATA":
+        # Format: TAILDATA|path|hexdata_or_TRUNCATED
+        path = parts[1] if len(parts) > 1 else ""
+        data = parts[2] if len(parts) > 2 else ""
+        return {"type": "TAILDATA", "path": path, "data": data}
+
+    if msg_type == "CHECKSUM":
+        # Format: CHECKSUM|path|crc32_hex|size
+        return {
+            "type": "CHECKSUM",
+            "path": parts[1] if len(parts) > 1 else "",
+            "crc32": parts[2] if len(parts) > 2 else "00000000",
+            "size": _int(parts[3]) if len(parts) > 3 else 0,
+        }
+
+    if msg_type == "ASSIGNS":
+        # Format: ASSIGNS|count|name1:path1:type1,name2:path2:type2,...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        assigns = []
+        if len(parts) > 2 and parts[2]:
+            for entry in parts[2].split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                ap = entry.split(":", 2)
+                if len(ap) >= 3:
+                    assigns.append({"name": ap[0], "path": ap[1], "assignType": ap[2]})
+                elif len(ap) >= 1:
+                    assigns.append({"name": ap[0], "path": "", "assignType": "?"})
+        return {"type": "ASSIGNS", "count": count, "assigns": assigns}
+
+    if msg_type == "PROTECT":
+        # Format: PROTECT|path|bits_hex
+        return {
+            "type": "PROTECT",
+            "path": parts[1] if len(parts) > 1 else "",
+            "bits": parts[2] if len(parts) > 2 else "00000000",
+        }
+
     return None
 
 
@@ -961,6 +1035,40 @@ def format_command(cmd: dict[str, Any]) -> str:
         return "AREXXPORTS"
     if t == "AREXXSEND":
         return f"AREXXSEND|{cmd['port']}|{cmd['command']}"
+    if t == "CAPABILITIES":
+        return "CAPABILITIES"
+    if t == "PROCLIST":
+        return "PROCLIST"
+    if t == "PROCSTAT":
+        return f"PROCSTAT|{cmd['id']}"
+    if t == "SIGNAL":
+        return f"SIGNAL|{cmd['id']}|{cmd['sigType']}"
+    if t == "TAIL":
+        return f"TAIL|{cmd['path']}"
+    if t == "STOPTAIL":
+        return "STOPTAIL"
+    if t == "CHECKSUM":
+        return f"CHECKSUM|{cmd['path']}"
+    if t == "ASSIGNS":
+        return "ASSIGNS"
+    if t == "ASSIGN":
+        mode = cmd.get('mode', '')
+        if mode:
+            return f"ASSIGN|{cmd['name']}|{cmd['path']}|{mode}"
+        return f"ASSIGN|{cmd['name']}|{cmd['path']}"
+    if t == "PROTECT":
+        bits = cmd.get('bits', '')
+        if bits:
+            return f"PROTECT|{cmd['path']}|{bits}"
+        return f"PROTECT|{cmd['path']}"
+    if t == "RENAME":
+        return f"RENAME|{cmd['oldPath']}|{cmd['newPath']}"
+    if t == "SETCOMMENT":
+        return f"SETCOMMENT|{cmd['path']}|{cmd['comment']}"
+    if t == "COPY":
+        return f"COPY|{cmd['src']}|{cmd['dst']}"
+    if t == "APPEND":
+        return f"APPEND|{cmd['path']}|{cmd['hexData']}"
     raise ValueError(f"Unknown command type: {t}")
 
 
