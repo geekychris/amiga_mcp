@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.o
+*.a
+hello_world
+bouncing_ball
+

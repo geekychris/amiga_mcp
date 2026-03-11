@@ -1,0 +1,50 @@
+# Minimal Amiga environment for debug development
+# Uses FS-UAE with serial TCP for MCP debug communication
+
+[fs-uae]
+
+# Kickstart ROM (encrypted, needs rom.key in same dir)
+kickstart_file = /Users/chris/Documents/FS-UAE/Kickstarts/kick.rom
+
+# CPU: 68020 + FPU
+amiga_model = A1200
+cpu = 68060
+#fpu = 68882
+
+# Memory: 2MB chip, 8MB fast (plenty for our programs)
+chip_memory = 2048
+fast_memory = 8192
+
+# Hard drives
+# DH0: = minimal bootable system
+hard_drive_0 = /Users/chris/Documents/FS-UAE/Hard Drives/System
+hard_drive_0_label = System
+
+# DH1: = AmiKit's installed OS files (for extra libs/devs if needed)
+hard_drive_1 = /Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/RabbitHole/InstalledOS
+hard_drive_1_label = InstalledOS
+
+# DH2: = Dropbox shared folder (our Dev binaries)
+hard_drive_2 = /Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/Dropbox
+hard_drive_2_label = Dropbox
+
+# Serial port via TCP (more reliable than PTY - proper flow control)
+# FS-UAE listens on port 1234, devbench connects as client
+serial_port = tcp://0.0.0.0:1234
+serial_on_demand = false
+serial_direct = false
+serial_hardware_ctsrts = false
+
+# Networking
+bsdsocket_library = 1
+
+# Display
+window_width = 800
+window_height = 600
+fullscreen = 0
+
+# Mouse: don't capture - let host mouse pass through
+mouse_integration = 1
+automatic_input_grab = 0
+initial_input_grab = 0
+cursor_integration = 1
