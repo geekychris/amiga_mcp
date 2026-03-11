@@ -127,26 +127,6 @@
   }
   .tab-panel.active { display: block; }
 
-  /* Tool sub-tabs */
-  .tool-subtab {
-    padding: 5px 14px;
-    cursor: pointer;
-    font-size: 12px;
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    transition: all 0.2s;
-    user-select: none;
-  }
-  .tool-subtab:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
-  .tool-subtab.active {
-    color: var(--accent-blue);
-    border-color: var(--accent-blue);
-    background: rgba(74,144,217,0.1);
-  }
-  .tool-subpanel { display: none; }
-  .tool-subpanel.active { display: block; }
-
   /* Cards */
   .card {
     background: var(--bg-card);
@@ -675,8 +655,12 @@
     <div class="tab" data-tab="memory">Memory</div>
     <div class="tab" data-tab="variables">Variables</div>
     <div class="tab" data-tab="shell">Shell</div>
-    <div class="tab" data-tab="tools">Tools</div>
+    <div class="tab" data-tab="graphics">Graphics</div>
+    <div class="tab" data-tab="system">System</div>
+    <div class="tab" data-tab="debug">Debug</div>
+    <div class="tab" data-tab="develop">Develop</div>
     <div class="tab" data-tab="config">Config</div>
+    <div class="tab" data-tab="traffic">Traffic</div>
   </div>
 
   <!-- Content -->
@@ -910,20 +894,8 @@
       </div>
     </div>
 
-    <!-- Tools -->
-    <div class="tab-panel" id="panel-tools">
-      <!-- Sub-tabs for tool categories -->
-      <div style="display:flex;gap:2px;margin-bottom:12px;flex-wrap:wrap;" id="toolSubTabs">
-        <div class="tool-subtab active" data-subtab="graphics" onclick="switchToolSubTab('graphics')">Graphics</div>
-        <div class="tool-subtab" data-subtab="system" onclick="switchToolSubTab('system')">System</div>
-        <div class="tool-subtab" data-subtab="debug" onclick="switchToolSubTab('debug')">Debug</div>
-        <div class="tool-subtab" data-subtab="develop" onclick="switchToolSubTab('develop')">Develop</div>
-        <div class="tool-subtab" data-subtab="inspect" onclick="switchToolSubTab('inspect')">Inspect</div>
-        <div class="tool-subtab" data-subtab="control" onclick="switchToolSubTab('control')">Control</div>
-      </div>
-
-      <!-- Graphics tools -->
-      <div class="tool-subpanel active" id="toolpanel-graphics">
+    <!-- Graphics (display & visual tools) -->
+    <div class="tab-panel" id="panel-graphics">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <div class="card" style="padding:14px;">
@@ -991,21 +963,6 @@
           <div id="iffResult" style="text-align:center;"></div>
         </div>
 
-        <!-- Audio Inspector -->
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Audio Inspector <span class="tool-help" title="Inspect Paula audio chip status. Shows which DMA channels are active, interrupt request/enable state. Read sample data from chip RAM for waveform visualization.">?</span></h3>
-          <button class="btn" onclick="audioRefresh()" style="margin-bottom:8px;">Read Channels</button>
-          <div id="audioChannels" style="font-family:var(--mono);font-size:12px;margin-bottom:8px;"></div>
-          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-            <label style="font-size:11px;">Sample addr:</label>
-            <input id="audioSampleAddr" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:100px;font-family:var(--mono);" placeholder="chip RAM hex">
-            <label style="font-size:11px;">Size:</label>
-            <input id="audioSampleSize" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:60px;" value="256" type="number">
-            <button class="btn" onclick="audioReadSample()">Read Sample</button>
-          </div>
-          <canvas id="audioWaveform" width="280" height="80" style="background:#1a1a2e;border-radius:4px;display:none;width:100%;"></canvas>
-        </div>
-
         <!-- Visual Diff -->
         <div class="card" style="padding:14px;grid-column:span 2;">
           <h3 style="margin-bottom:6px;">Visual Diff <span class="tool-help" title="Compare two Amiga screenshots to find pixel differences. Take a baseline screenshot, make changes, take another, then diff them. Highlights changed regions for visual regression testing.">?</span></h3>
@@ -1025,80 +982,128 @@
           <div id="vdiffImages" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"></div>
         </div>
 
-      </div></div>
+      </div>
+    </div>
 
-      <!-- System tools -->
-      <div class="tool-subpanel" id="toolpanel-system">
+    <!-- System (OS inspection, config & interaction) -->
+    <div class="tab-panel" id="panel-system">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
-
-        <!-- Memory Map -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Memory Map <span class="tool-help" title="Visual map of Amiga memory regions showing chip RAM, fast RAM, and ROM with free/used breakdown and fragmentation info. Walks ExecBase memory lists.">?</span></h3>
-          <button class="btn" onclick="toolMemMap()" style="margin-bottom:8px;">Read Memory Map</button>
-          <div id="memmapResult"></div>
-        </div>
-
-        <!-- Memory Search -->
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Memory Search <span class="tool-help" title="Search Amiga memory for byte patterns or ASCII strings. Searches up to 1MB range on the Amiga side (fast). Returns up to 32 matching addresses.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
-            <input type="text" id="searchAddr" placeholder="Start addr (hex)" value="000000" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
-            <input type="text" id="searchSize" placeholder="Size" value="65536" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:80px;">
-            <select id="searchType" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;">
-              <option value="hex">Hex</option>
-              <option value="ascii">ASCII</option>
-            </select>
-          </div>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <input type="text" id="searchPattern" placeholder="Pattern (hex bytes or text)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
-            <button class="btn" onclick="toolMemorySearch()">Search</button>
-          </div>
-          <div id="searchResult" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
-        </div>
-
-        <!-- Stack Monitor -->
-        <div class="card" style="padding:14px;overflow:hidden;">
-          <h3 style="margin-bottom:6px;">Stack Monitor <span class="tool-help" title="Shows stack usage for a task. Amiga's default 4KB stack is a common source of crashes. Monitors SP position relative to stack bounds to detect potential overflows.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
-            <select id="stackTask" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;min-width:0;appearance:none;"><option value="">Select task...</option></select>
-            <button class="btn" onclick="toolRefreshTasks()" title="Refresh task list" style="padding:4px 8px;font-size:11px;flex-shrink:0;">&#x21bb;</button>
-            <button class="btn" onclick="toolStackInfo()" style="padding:4px 8px;font-size:11px;white-space:nowrap;flex-shrink:0;">Check</button>
-          </div>
-          <div id="stackResult" style="font-family:var(--mono);font-size:11px;"></div>
-        </div>
-
-        <!-- Memory Diff -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Memory Diff <span class="tool-help" title="Take memory snapshots and compare them. Take a snapshot, perform an action on the Amiga, take another snapshot, then diff to see what changed. Great for reverse engineering and understanding program behavior.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
-            <input type="text" id="snapAddr" placeholder="Address (hex)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
-            <input type="number" id="snapSize" placeholder="Size" value="256" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:80px;">
-            <input type="text" id="snapName" placeholder="Label" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:100px;">
-            <button class="btn" onclick="toolSnapshot('take')">Take Snapshot</button>
-            <button class="btn" onclick="toolSnapshot('diff')">Diff</button>
-            <button class="btn-danger" onclick="toolSnapshot('clear')">Clear All</button>
-          </div>
-          <div id="snapList" style="font-size:11px;margin-bottom:6px;"></div>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <select id="snapId1" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;"><option>--</option></select>
-            <span style="line-height:28px;">vs</span>
-            <select id="snapId2" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;"><option>--</option></select>
-          </div>
-          <div id="snapResult" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;"></div>
-        </div>
-
-        <!-- Boot Log -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Boot Log <span class="tool-help" title="Shows all log messages from the current session, capturing the bridge startup sequence and early app initialization. Useful for diagnosing startup issues.">?</span></h3>
-          <button class="btn" onclick="toolBootLog()" style="margin-bottom:8px;">Load Boot Log</button>
-          <div id="bootlogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;"></div>
-        </div>
 
         <!-- System Info Dashboard -->
         <div class="card" style="padding:14px;grid-column:span 2;">
           <h3 style="margin-bottom:6px;">System Info <span class="tool-help" title="Comprehensive system overview: memory status, running tasks, loaded libraries, mounted volumes. Aggregates multiple queries into one dashboard.">?</span></h3>
           <button class="btn" onclick="toolSysInfo()" style="margin-bottom:8px;">Refresh</button>
           <div id="sysinfoResult"></div>
+        </div>
+
+        <!-- Intuition Inspector -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Intuition Inspector <span class="tool-help" title="Browse and manage Intuition screens, windows, and gadgets. Click a screen to list its windows, click a window to see gadgets. Use window controls to activate, front/back, and manage windows remotely.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button class="btn" onclick="intuiRefreshScreens()">Refresh</button>
+            <span id="intuiStatus" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <div style="flex:1;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Screens</div>
+              <div id="intuiScreens" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
+            </div>
+            <div style="flex:1.5;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Windows</div>
+              <div id="intuiWindows" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Gadgets</div>
+              <div id="intuiGadgets" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
+            </div>
+          </div>
+          <div id="intuiActions" style="display:none;border-top:1px solid var(--border);padding-top:8px;">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Selected: <span id="intuiSelectedName" style="color:var(--accent-orange);"></span> <span id="intuiSelectedAddr" style="color:var(--text-dim);font-family:var(--mono);"></span></div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              <button class="btn" onclick="intuiAction('activate')" title="Give focus to this window">Activate</button>
+              <button class="btn" onclick="intuiAction('tofront')" title="Bring to front">To Front</button>
+              <button class="btn" onclick="intuiAction('toback')" title="Send to back">To Back</button>
+              <button class="btn" onclick="intuiAction('zip')" title="Toggle min/max size">Zip</button>
+              <button class="btn" onclick="intuiAction('scrtofront')" title="Bring screen to front">Screen Front</button>
+              <button class="btn" onclick="intuiAction('scrtoback')" title="Send screen to back">Screen Back</button>
+            </div>
+            <div id="intuiActionResult" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
+          </div>
+        </div>
+
+        <!-- Input Injection -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Input Injection <span class="tool-help" title="Inject keyboard and mouse events into the Amiga via input.device. Use Intuition Inspector above to activate a window first, then send input to it.">?</span></h3>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Keyboard</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+                <button class="btn" onclick="inputKey('44')" title="Return">Return</button>
+                <button class="btn" onclick="inputKey('45')" title="Escape">Esc</button>
+                <button class="btn" onclick="inputKey('40')" title="Space">Space</button>
+                <button class="btn" onclick="inputKey('41')" title="Backspace">BS</button>
+                <button class="btn" onclick="inputKey('46')" title="Delete">Del</button>
+                <button class="btn" onclick="inputKey('42')" title="Tab">Tab</button>
+              </div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+                <button class="btn" onclick="inputKey('4f')" title="Left arrow">&#8592;</button>
+                <button class="btn" onclick="inputKey('4e')" title="Right arrow">&#8594;</button>
+                <button class="btn" onclick="inputKey('4c')" title="Up arrow">&#8593;</button>
+                <button class="btn" onclick="inputKey('4d')" title="Down arrow">&#8595;</button>
+              </div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+                <button class="btn" onclick="inputKey('50')" title="F1" style="font-size:10px;">F1</button>
+                <button class="btn" onclick="inputKey('51')" title="F2" style="font-size:10px;">F2</button>
+                <button class="btn" onclick="inputKey('52')" title="F3" style="font-size:10px;">F3</button>
+                <button class="btn" onclick="inputKey('53')" title="F4" style="font-size:10px;">F4</button>
+                <button class="btn" onclick="inputKey('54')" title="F5" style="font-size:10px;">F5</button>
+                <button class="btn" onclick="inputKey('55')" title="F6" style="font-size:10px;">F6</button>
+                <button class="btn" onclick="inputKey('56')" title="F7" style="font-size:10px;">F7</button>
+                <button class="btn" onclick="inputKey('57')" title="F8" style="font-size:10px;">F8</button>
+                <button class="btn" onclick="inputKey('58')" title="F9" style="font-size:10px;">F9</button>
+                <button class="btn" onclick="inputKey('59')" title="F10" style="font-size:10px;">F10</button>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <input id="inputRawKey" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:60px;font-family:var(--mono);" placeholder="hex">
+                <button class="btn" onclick="inputKey(document.getElementById('inputRawKey').value)">Send Key</button>
+              </div>
+            </div>
+            <div style="min-width:150px;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Mouse</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:6px;">
+                <div></div>
+                <button class="btn" onclick="inputMove(0,-20)" style="padding:4px;">&#8593;</button>
+                <div></div>
+                <button class="btn" onclick="inputMove(-20,0)" style="padding:4px;">&#8592;</button>
+                <div style="text-align:center;line-height:28px;font-size:10px;color:var(--text-dim);">20px</div>
+                <button class="btn" onclick="inputMove(20,0)" style="padding:4px;">&#8594;</button>
+                <div></div>
+                <button class="btn" onclick="inputMove(0,20)" style="padding:4px;">&#8595;</button>
+                <div></div>
+              </div>
+              <div style="display:flex;gap:4px;flex-direction:column;">
+                <button class="btn" onclick="inputClick('left','down');setTimeout(()=>inputClick('left','up'),50)">Left Click</button>
+                <button class="btn" onclick="inputClick('right','down');setTimeout(()=>inputClick('right','up'),50)">Right Click</button>
+                <button class="btn" onclick="inputClick('left','down');setTimeout(()=>{inputClick('left','up');setTimeout(()=>{inputClick('left','down');setTimeout(()=>inputClick('left','up'),50)},80)},50)">Double Click</button>
+              </div>
+            </div>
+          </div>
+          <div id="inputResult" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:6px;"></div>
+        </div>
+
+        <!-- Library / Device Inspector -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Library / Device Inspector <span class="tool-help" title="Lists all loaded Amiga libraries and devices. Click any entry to see detailed info (version, open count, flags, base address, ID string).">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="libdev-type" onchange="libdevRefresh()" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;">
+              <option value="lib">Libraries</option>
+              <option value="dev">Devices</option>
+            </select>
+            <button class="btn" onclick="libdevRefresh()">Refresh</button>
+            <span id="libdevCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+          </div>
+          <div id="libdevList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="libdevDetail" style="font-family:var(--mono);font-size:11px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;"></div>
         </div>
 
         <!-- Assign Manager -->
@@ -1115,6 +1120,54 @@
             <label style="font-size:11px;color:var(--text-secondary);"><input type="checkbox" id="assignAdd"> ADD</label>
             <button class="btn" onclick="assignSet()">Set</button>
           </div>
+        </div>
+
+        <!-- Font Browser -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Font Browser <span class="tool-help" title="List installed Amiga fonts with available sizes. Uses diskfont.library AvailFonts() to enumerate disk and memory fonts. Click a font to see metrics (baseline, style, flags).">?</span></h3>
+          <button class="btn" onclick="fontRefresh()" style="margin-bottom:6px;">List Fonts</button>
+          <div id="fontList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="fontDetail" style="font-family:var(--mono);font-size:11px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;"></div>
+        </div>
+
+        <!-- Locale/Catalog Inspector -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Locale/Catalog Inspector <span class="tool-help" title="Browse installed locale catalogs for multi-language apps. Lists catalog directories under LOCALE:Catalogs/ and their contents. Uses SCRIPT-based directory listing.">?</span></h3>
+          <button class="btn" onclick="localeRefresh()" style="margin-bottom:6px;">List Catalogs</button>
+          <div id="localeList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="localeDetail" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+
+        <!-- ARexx Bridge -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">ARexx Bridge <span class="tool-help" title="Send ARexx commands to any application with a public message port. List ports to discover available targets, then send commands and see results. Many Amiga apps support ARexx scripting.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button class="btn" onclick="arexxListPorts()">List Ports</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <label style="font-size:11px;color:var(--text-dim);white-space:nowrap;">Port:</label>
+            <select id="arexxPort" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;flex:1;">
+              <option value="">-- list ports first --</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input id="arexxCmd" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;" placeholder="ARexx command..." onkeydown="if(event.key==='Enter')arexxSend()">
+            <button class="btn" onclick="arexxSend()">Send</button>
+          </div>
+          <div id="arexxResult" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:6px;font-family:var(--mono);font-size:11px;color:var(--text-primary);min-height:40px;max-height:150px;overflow-y:auto;white-space:pre-wrap;"></div>
+          <div id="arexxStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
+        </div>
+
+        <!-- Clipboard Bridge -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Clipboard Bridge <span class="tool-help" title="Share clipboard between host and Amiga. Uses clipboard.device with iffparse.library to read/write FTXT clipboard data. Get copies Amiga clipboard to the text area, Set writes text to Amiga clipboard.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button class="btn" onclick="clipGet()">Get from Amiga</button>
+            <button class="btn" onclick="clipSet()">Set on Amiga</button>
+            <button class="btn" onclick="clipCopyHost()" title="Copy to host clipboard">Copy to Host</button>
+          </div>
+          <textarea id="clipText" style="width:100%;height:80px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--mono);font-size:11px;padding:6px;resize:vertical;" placeholder="Clipboard content..."></textarea>
+          <div id="clipStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
         </div>
 
         <!-- Startup-Sequence Editor -->
@@ -1141,10 +1194,18 @@
           <div id="prefsDetail" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
         </div>
 
-      </div></div>
+        <!-- Boot Log -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Boot Log <span class="tool-help" title="Shows all log messages from the current session, capturing the bridge startup sequence and early app initialization. Useful for diagnosing startup issues.">?</span></h3>
+          <button class="btn" onclick="toolBootLog()" style="margin-bottom:8px;">Load Boot Log</button>
+          <div id="bootlogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;"></div>
+        </div>
 
-      <!-- Debug tools -->
-      <div class="tool-subpanel" id="toolpanel-debug">
+      </div>
+    </div>
+
+    <!-- Debug (runtime debugging, profiling & hardware inspection) -->
+    <div class="tab-panel" id="panel-debug">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <!-- Symbol Table -->
@@ -1202,6 +1263,62 @@
           <div id="regsResult" style="font-family:var(--mono);font-size:12px;"></div>
         </div>
 
+        <!-- Memory Map -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Memory Map <span class="tool-help" title="Visual map of Amiga memory regions showing chip RAM, fast RAM, and ROM with free/used breakdown and fragmentation info. Walks ExecBase memory lists.">?</span></h3>
+          <button class="btn" onclick="toolMemMap()" style="margin-bottom:8px;">Read Memory Map</button>
+          <div id="memmapResult"></div>
+        </div>
+
+        <!-- Memory Search -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Memory Search <span class="tool-help" title="Search Amiga memory for byte patterns or ASCII strings. Searches up to 1MB range on the Amiga side (fast). Returns up to 32 matching addresses.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="searchAddr" placeholder="Start addr (hex)" value="000000" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
+            <input type="text" id="searchSize" placeholder="Size" value="65536" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:80px;">
+            <select id="searchType" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;">
+              <option value="hex">Hex</option>
+              <option value="ascii">ASCII</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input type="text" id="searchPattern" placeholder="Pattern (hex bytes or text)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
+            <button class="btn" onclick="toolMemorySearch()">Search</button>
+          </div>
+          <div id="searchResult" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+
+        <!-- Stack Monitor -->
+        <div class="card" style="padding:14px;overflow:hidden;">
+          <h3 style="margin-bottom:6px;">Stack Monitor <span class="tool-help" title="Shows stack usage for a task. Amiga's default 4KB stack is a common source of crashes. Monitors SP position relative to stack bounds to detect potential overflows.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="stackTask" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;min-width:0;appearance:none;"><option value="">Select task...</option></select>
+            <button class="btn" onclick="toolRefreshTasks()" title="Refresh task list" style="padding:4px 8px;font-size:11px;flex-shrink:0;">&#x21bb;</button>
+            <button class="btn" onclick="toolStackInfo()" style="padding:4px 8px;font-size:11px;white-space:nowrap;flex-shrink:0;">Check</button>
+          </div>
+          <div id="stackResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- Memory Diff -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Memory Diff <span class="tool-help" title="Take memory snapshots and compare them. Take a snapshot, perform an action on the Amiga, take another snapshot, then diff to see what changed. Great for reverse engineering and understanding program behavior.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="snapAddr" placeholder="Address (hex)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
+            <input type="number" id="snapSize" placeholder="Size" value="256" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:80px;">
+            <input type="text" id="snapName" placeholder="Label" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:100px;">
+            <button class="btn" onclick="toolSnapshot('take')">Take Snapshot</button>
+            <button class="btn" onclick="toolSnapshot('diff')">Diff</button>
+            <button class="btn-danger" onclick="toolSnapshot('clear')">Clear All</button>
+          </div>
+          <div id="snapList" style="font-size:11px;margin-bottom:6px;"></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <select id="snapId1" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;"><option>--</option></select>
+            <span style="line-height:28px;">vs</span>
+            <select id="snapId2" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;appearance:none;"><option>--</option></select>
+          </div>
+          <div id="snapResult" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;"></div>
+        </div>
+
         <!-- Chip Registers -->
         <div class="card" style="padding:14px;grid-column:span 2;">
           <h3 style="margin-bottom:6px;">Chip Registers <span class="tool-help" title="Reads safe custom chip read-only registers. Shows DMA channels, interrupts, video position, joystick data, and serial status with bitfield decoding.">?</span></h3>
@@ -1209,19 +1326,19 @@
           <div id="chipRegsResult" style="font-family:var(--mono);font-size:11px;"></div>
         </div>
 
-        <!-- Library / Device Inspector -->
+        <!-- Audio Inspector -->
         <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Library / Device Inspector <span class="tool-help" title="Lists all loaded Amiga libraries and devices. Click any entry to see detailed info (version, open count, flags, base address, ID string).">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
-            <select id="libdev-type" onchange="libdevRefresh()" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;">
-              <option value="lib">Libraries</option>
-              <option value="dev">Devices</option>
-            </select>
-            <button class="btn" onclick="libdevRefresh()">Refresh</button>
-            <span id="libdevCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+          <h3 style="margin-bottom:6px;">Audio Inspector <span class="tool-help" title="Inspect Paula audio chip status. Shows which DMA channels are active, interrupt request/enable state. Read sample data from chip RAM for waveform visualization.">?</span></h3>
+          <button class="btn" onclick="audioRefresh()" style="margin-bottom:8px;">Read Channels</button>
+          <div id="audioChannels" style="font-family:var(--mono);font-size:12px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+            <label style="font-size:11px;">Sample addr:</label>
+            <input id="audioSampleAddr" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:100px;font-family:var(--mono);" placeholder="chip RAM hex">
+            <label style="font-size:11px;">Size:</label>
+            <input id="audioSampleSize" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:60px;" value="256" type="number">
+            <button class="btn" onclick="audioReadSample()">Read Sample</button>
           </div>
-          <div id="libdevList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
-          <div id="libdevDetail" style="font-family:var(--mono);font-size:11px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;"></div>
+          <canvas id="audioWaveform" width="280" height="80" style="background:#1a1a2e;border-radius:4px;display:none;width:100%;"></canvas>
         </div>
 
         <!-- SnoopDos -->
@@ -1235,6 +1352,18 @@
             <span id="snoopCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;">0 events</span>
           </div>
           <div id="snoopLog" style="font-family:var(--mono);font-size:11px;max-height:350px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
+        </div>
+
+        <!-- Custom Chip Write Logger -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Custom Chip Logger <span class="tool-help" title="Monitor readable custom chip registers ($DFF000 range) for changes. Periodically reads DMACONR, INTENAR, INTREQR, JOY/POT data, and video position. Reports register changes in real-time.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+            <button class="btn" onclick="chiplogStart()" id="btnChiplogStart">Start</button>
+            <button class="btn" onclick="chiplogStop()" id="btnChiplogStop">Stop</button>
+            <button class="btn" onclick="chiplogSnapshot()">Snapshot</button>
+            <span id="chiplogStatus" style="font-size:11px;color:var(--text-dim);margin-left:8px;">Inactive</span>
+          </div>
+          <div id="chiplogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
         </div>
 
         <div class="card" style="padding:14px;">
@@ -1261,18 +1390,6 @@
           <div id="toolPerfResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
         </div>
 
-        <!-- Custom Chip Write Logger -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Custom Chip Logger <span class="tool-help" title="Monitor readable custom chip registers ($DFF000 range) for changes. Periodically reads DMACONR, INTENAR, INTREQR, JOY/POT data, and video position. Reports register changes in real-time.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
-            <button class="btn" onclick="chiplogStart()" id="btnChiplogStart">Start</button>
-            <button class="btn" onclick="chiplogStop()" id="btnChiplogStop">Stop</button>
-            <button class="btn" onclick="chiplogSnapshot()">Snapshot</button>
-            <span id="chiplogStatus" style="font-size:11px;color:var(--text-dim);margin-left:8px;">Inactive</span>
-          </div>
-          <div id="chiplogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
-        </div>
-
         <!-- Memory Pool Tracker -->
         <div class="card" style="padding:14px;">
           <h3 style="margin-bottom:6px;">Memory Pool Tracker <span class="tool-help" title="Track CreatePool/DeletePool/AllocPooled/FreePooled calls. Patches exec.library pool functions to monitor pool-based memory allocation. Shows active pools with allocation counts and sizes.">?</span></h3>
@@ -1284,10 +1401,11 @@
           <div id="poolResult" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
         </div>
 
-      </div></div>
+      </div>
+    </div>
 
-      <!-- Develop tools -->
-      <div class="tool-subpanel" id="toolpanel-develop">
+    <!-- Develop -->
+    <div class="tab-panel" id="panel-develop">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <div class="card" style="padding:14px;">
@@ -1328,164 +1446,7 @@
           <div id="testSummary" style="font-size:12px;"></div>
         </div>
 
-      </div></div>
-
-      <!-- Inspect tools -->
-      <div class="tool-subpanel" id="toolpanel-inspect">
-      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
-
-        <!-- Intuition Inspector -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Intuition Inspector <span class="tool-help" title="Browse and manage Intuition screens, windows, and gadgets. Click a screen to list its windows, click a window to see gadgets. Use window controls to activate, front/back, and manage windows remotely.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:8px;">
-            <button class="btn" onclick="intuiRefreshScreens()">Refresh</button>
-            <span id="intuiStatus" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
-          </div>
-          <div style="display:flex;gap:8px;margin-bottom:8px;">
-            <div style="flex:1;">
-              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Screens</div>
-              <div id="intuiScreens" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
-            </div>
-            <div style="flex:1.5;">
-              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Windows</div>
-              <div id="intuiWindows" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
-            </div>
-            <div style="flex:1;">
-              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Gadgets</div>
-              <div id="intuiGadgets" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
-            </div>
-          </div>
-          <!-- Window/Screen actions -->
-          <div id="intuiActions" style="display:none;border-top:1px solid var(--border);padding-top:8px;">
-            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Selected: <span id="intuiSelectedName" style="color:var(--accent-orange);"></span> <span id="intuiSelectedAddr" style="color:var(--text-dim);font-family:var(--mono);"></span></div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;">
-              <button class="btn" onclick="intuiAction('activate')" title="Give focus to this window">Activate</button>
-              <button class="btn" onclick="intuiAction('tofront')" title="Bring to front">To Front</button>
-              <button class="btn" onclick="intuiAction('toback')" title="Send to back">To Back</button>
-              <button class="btn" onclick="intuiAction('zip')" title="Toggle min/max size">Zip</button>
-              <button class="btn" onclick="intuiAction('scrtofront')" title="Bring screen to front">Screen Front</button>
-              <button class="btn" onclick="intuiAction('scrtoback')" title="Send screen to back">Screen Back</button>
-            </div>
-            <div id="intuiActionResult" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
-          </div>
-        </div>
-
-        <!-- Font Browser -->
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Font Browser <span class="tool-help" title="List installed Amiga fonts with available sizes. Uses diskfont.library AvailFonts() to enumerate disk and memory fonts. Click a font to see metrics (baseline, style, flags).">?</span></h3>
-          <button class="btn" onclick="fontRefresh()" style="margin-bottom:6px;">List Fonts</button>
-          <div id="fontList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
-          <div id="fontDetail" style="font-family:var(--mono);font-size:11px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;"></div>
-        </div>
-
-        <!-- Locale/Catalog Inspector -->
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Locale/Catalog Inspector <span class="tool-help" title="Browse installed locale catalogs for multi-language apps. Lists catalog directories under LOCALE:Catalogs/ and their contents. Uses SCRIPT-based directory listing.">?</span></h3>
-          <button class="btn" onclick="localeRefresh()" style="margin-bottom:6px;">List Catalogs</button>
-          <div id="localeList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
-          <div id="localeDetail" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
-        </div>
-
-      </div></div>
-
-      <!-- Control tools -->
-      <div class="tool-subpanel" id="toolpanel-control">
-      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
-
-        <!-- Input Injection -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Input Injection <span class="tool-help" title="Inject keyboard and mouse events into the Amiga via input.device. First activate a window in the Inspect tab, then use these controls to send input to it.">?</span></h3>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <div style="flex:1;min-width:200px;">
-              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Keyboard</div>
-              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
-                <button class="btn" onclick="inputKey('44')" title="Return">Return</button>
-                <button class="btn" onclick="inputKey('45')" title="Escape">Esc</button>
-                <button class="btn" onclick="inputKey('40')" title="Space">Space</button>
-                <button class="btn" onclick="inputKey('41')" title="Backspace">BS</button>
-                <button class="btn" onclick="inputKey('46')" title="Delete">Del</button>
-                <button class="btn" onclick="inputKey('42')" title="Tab">Tab</button>
-              </div>
-              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
-                <button class="btn" onclick="inputKey('4f')" title="Left arrow">←</button>
-                <button class="btn" onclick="inputKey('4e')" title="Right arrow">→</button>
-                <button class="btn" onclick="inputKey('4c')" title="Up arrow">↑</button>
-                <button class="btn" onclick="inputKey('4d')" title="Down arrow">↓</button>
-              </div>
-              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
-                <button class="btn" onclick="inputKey('50')" title="F1" style="font-size:10px;">F1</button>
-                <button class="btn" onclick="inputKey('51')" title="F2" style="font-size:10px;">F2</button>
-                <button class="btn" onclick="inputKey('52')" title="F3" style="font-size:10px;">F3</button>
-                <button class="btn" onclick="inputKey('53')" title="F4" style="font-size:10px;">F4</button>
-                <button class="btn" onclick="inputKey('54')" title="F5" style="font-size:10px;">F5</button>
-                <button class="btn" onclick="inputKey('55')" title="F6" style="font-size:10px;">F6</button>
-                <button class="btn" onclick="inputKey('56')" title="F7" style="font-size:10px;">F7</button>
-                <button class="btn" onclick="inputKey('57')" title="F8" style="font-size:10px;">F8</button>
-                <button class="btn" onclick="inputKey('58')" title="F9" style="font-size:10px;">F9</button>
-                <button class="btn" onclick="inputKey('59')" title="F10" style="font-size:10px;">F10</button>
-              </div>
-              <div style="display:flex;gap:4px;align-items:center;">
-                <input id="inputRawKey" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:60px;font-family:var(--mono);" placeholder="hex">
-                <button class="btn" onclick="inputKey(document.getElementById('inputRawKey').value)">Send Key</button>
-              </div>
-            </div>
-            <div style="min-width:150px;">
-              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Mouse</div>
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:6px;">
-                <div></div>
-                <button class="btn" onclick="inputMove(0,-20)" style="padding:4px;">↑</button>
-                <div></div>
-                <button class="btn" onclick="inputMove(-20,0)" style="padding:4px;">←</button>
-                <div style="text-align:center;line-height:28px;font-size:10px;color:var(--text-dim);">20px</div>
-                <button class="btn" onclick="inputMove(20,0)" style="padding:4px;">→</button>
-                <div></div>
-                <button class="btn" onclick="inputMove(0,20)" style="padding:4px;">↓</button>
-                <div></div>
-              </div>
-              <div style="display:flex;gap:4px;flex-direction:column;">
-                <button class="btn" onclick="inputClick('left','down');setTimeout(()=>inputClick('left','up'),50)">Left Click</button>
-                <button class="btn" onclick="inputClick('right','down');setTimeout(()=>inputClick('right','up'),50)">Right Click</button>
-                <button class="btn" onclick="inputClick('left','down');setTimeout(()=>{inputClick('left','up');setTimeout(()=>{inputClick('left','down');setTimeout(()=>inputClick('left','up'),50)},80)},50)">Double Click</button>
-              </div>
-            </div>
-          </div>
-          <div id="inputResult" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:6px;"></div>
-        </div>
-
-        <!-- ARexx Bridge -->
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">ARexx Bridge <span class="tool-help" title="Send ARexx commands to any application with a public message port. List ports to discover available targets, then send commands and see results. Many Amiga apps support ARexx scripting.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <button class="btn" onclick="arexxListPorts()">List Ports</button>
-          </div>
-          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
-            <label style="font-size:11px;color:var(--text-dim);white-space:nowrap;">Port:</label>
-            <select id="arexxPort" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;flex:1;">
-              <option value="">-- list ports first --</option>
-            </select>
-          </div>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <input id="arexxCmd" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;" placeholder="ARexx command..." onkeydown="if(event.key==='Enter')arexxSend()">
-            <button class="btn" onclick="arexxSend()">Send</button>
-          </div>
-          <div id="arexxResult" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:6px;font-family:var(--mono);font-size:11px;color:var(--text-primary);min-height:40px;max-height:150px;overflow-y:auto;white-space:pre-wrap;"></div>
-          <div id="arexxStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
-        </div>
-
-        <!-- Clipboard Bridge -->
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Clipboard Bridge <span class="tool-help" title="Share clipboard between host and Amiga. Uses clipboard.device with iffparse.library to read/write FTXT clipboard data. Get copies Amiga clipboard to the text area, Set writes text to Amiga clipboard.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <button class="btn" onclick="clipGet()">Get from Amiga</button>
-            <button class="btn" onclick="clipSet()">Set on Amiga</button>
-            <button class="btn" onclick="clipCopyHost()" title="Copy to host clipboard">Copy to Host</button>
-          </div>
-          <textarea id="clipText" style="width:100%;height:80px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--mono);font-size:11px;padding:6px;resize:vertical;" placeholder="Clipboard content..."></textarea>
-          <div id="clipStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
-        </div>
-
-      </div></div>
-
+      </div>
     </div>
 
     <!-- Config -->
@@ -1528,6 +1489,43 @@
       </div>
     </div>
 
+    <!-- Traffic Log -->
+    <div class="tab-panel" id="panel-traffic">
+      <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
+        <select id="trafficKind" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;" onchange="trafficLoad()">
+          <option value="">All</option>
+          <option value="mcp">MCP</option>
+          <option value="rest">REST</option>
+        </select>
+        <input id="trafficSearch" type="text" placeholder="Search traffic..." style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;max-width:400px;" onkeydown="if(event.key==='Enter')trafficLoad()">
+        <button class="btn" onclick="trafficLoad()">Search</button>
+        <button class="btn" onclick="trafficClear()">Clear Log</button>
+        <span id="trafficCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+      </div>
+      <div style="display:flex;gap:10px;height:calc(100vh - 160px);">
+        <!-- Entry list -->
+        <div style="flex:0 0 55%;overflow-y:auto;border:1px solid var(--border);border-radius:4px;background:var(--bg-card);">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:var(--bg-primary);position:sticky;top:0;z-index:1;">
+                <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);">Time</th>
+                <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);">Type</th>
+                <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);">Method</th>
+                <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);">Path</th>
+                <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);">ms</th>
+                <th style="text-align:center;padding:4px 8px;border-bottom:1px solid var(--border);">Status</th>
+              </tr>
+            </thead>
+            <tbody id="trafficList"></tbody>
+          </table>
+        </div>
+        <!-- Detail panel -->
+        <div style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:4px;background:var(--bg-card);padding:10px;">
+          <div id="trafficDetail" style="font-size:12px;color:var(--text-dim);">Select an entry to view details</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 <script>
@@ -1557,18 +1555,27 @@ document.getElementById('tabBar').addEventListener('click', (e) => {
   tab.classList.add('active');
   const tabName = tab.dataset.tab;
   document.getElementById('panel-' + tabName).classList.add('active');
-  // Auto-refresh clients, windows, tasks when switching to tools tab
-  if (tabName === 'tools') {
-    api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
+  // Auto-refresh relevant data when switching tabs
+  if (tabName === 'graphics') {
     if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
-    if (typeof toolRefreshProjects === 'function') toolRefreshProjects();
+  }
+  if (tabName === 'debug') {
+    api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
     if (typeof toolRefreshTasks === 'function') toolRefreshTasks();
+  }
+  if (tabName === 'develop') {
+    api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
+    if (typeof toolRefreshProjects === 'function') toolRefreshProjects();
   }
   // Load config when switching to config tab
   if (tabName === 'config') {
     cfgLoad();
     emuCfgLoad();
     emuRefresh();
+  }
+  // Load traffic log when switching to traffic tab
+  if (tabName === 'traffic') {
+    trafficLoad();
   }
 });
 
@@ -3785,19 +3792,17 @@ async function libdevShowFuncs(startIdx) {
 }
 
 function libdevDumpMem(addrHex) {
-  // Navigate to the Disassembler/Memory card and set address
   const addrInput = document.getElementById('toolDisasmAddr');
   const countInput = document.getElementById('toolDisasmCount');
   if (addrInput) { addrInput.value = addrHex; }
   if (countInput) { countInput.value = '64'; }
-  // Switch to Tools tab if not already there
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  // Switch to Debug tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  const toolsBtn = document.querySelector('[data-tab="tools"]');
-  const toolsPanel = document.getElementById('panel-tools');
-  if (toolsBtn) toolsBtn.classList.add('active');
-  if (toolsPanel) toolsPanel.classList.add('active');
-  // Trigger disassembly
+  const debugBtn = document.querySelector('[data-tab="debug"]');
+  const debugPanel = document.getElementById('panel-debug');
+  if (debugBtn) debugBtn.classList.add('active');
+  if (debugPanel) debugPanel.classList.add('active');
   if (typeof toolDisasm === 'function') toolDisasm();
 }
 
@@ -3911,38 +3916,18 @@ function renderSnoopLog() {
   el.scrollTop = 0;
 }
 
-// ─── Tool Sub-Tabs ───
-function switchToolSubTab(name) {
-  document.querySelectorAll('.tool-subtab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tool-subpanel').forEach(p => p.classList.remove('active'));
-  const tab = document.querySelector('[data-subtab="' + name + '"]');
-  const panel = document.getElementById('toolpanel-' + name);
-  if (tab) tab.classList.add('active');
-  if (panel) panel.classList.add('active');
-  localStorage.setItem('amigaDevbench_activeToolTab', name);
-}
-
-// Restore last active tool sub-tab
-{
-  const saved = localStorage.getItem('amigaDevbench_activeToolTab');
-  if (saved) {
-    // Defer to after DOM is ready
-    setTimeout(() => switchToolSubTab(saved), 0);
-  }
-}
-
 // ─── Audio Inspector ───
 async function audioRefresh() {
   const el = document.getElementById('audioChannels');
   el.textContent = 'Reading...';
-  const data = await api('/tools/audio/channels');
+  const data = await api('/tool/audio/channels');
   if (!data || data.error) {
     el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</span>';
     return;
   }
-  const dma = parseInt(data.dmaEnabled, 10);
-  const ireq = parseInt(data.intReq, 10);
-  const iena = parseInt(data.intEna, 10);
+  const dma = parseInt(data.dmaEnabled, 16);
+  const ireq = parseInt(data.intReq, 16);
+  const iena = parseInt(data.intEna, 16);
   let html = '<table style="width:100%;border-collapse:collapse;">';
   html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:2px 4px;color:var(--text-dim);font-size:10px;">Ch</th><th style="padding:2px 4px;color:var(--text-dim);font-size:10px;">DMA</th><th style="padding:2px 4px;color:var(--text-dim);font-size:10px;">IRQ</th><th style="padding:2px 4px;color:var(--text-dim);font-size:10px;">IEN</th></tr>';
   for (let ch = 0; ch < 4; ch++) {
@@ -3966,7 +3951,7 @@ async function audioReadSample() {
   const size = parseInt(document.getElementById('audioSampleSize').value) || 256;
   if (!addr) return;
   const canvas = document.getElementById('audioWaveform');
-  const data = await api('/tools/audio/sample?address=' + encodeURIComponent(addr) + '&size=' + size);
+  const data = await api('/tool/audio/sample?address=' + encodeURIComponent(addr) + '&size=' + size);
   if (!data || data.error) {
     canvas.style.display = 'none';
     document.getElementById('audioChannels').innerHTML += '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
@@ -4621,6 +4606,142 @@ async function init() {
 }
 
 init();
+
+// ─── Traffic Log ───
+
+let trafficAutoRefresh = null;
+
+async function trafficLoad() {
+  const kind = document.getElementById('trafficKind').value;
+  const q = document.getElementById('trafficSearch').value;
+  const params = new URLSearchParams();
+  if (kind) params.set('kind', kind);
+  if (q) params.set('q', q);
+  params.set('limit', '200');
+  try {
+    const data = await api('/traffic?' + params.toString());
+    document.getElementById('trafficCount').textContent = `${data.total} entries`;
+    const tbody = document.getElementById('trafficList');
+    tbody.innerHTML = data.entries.map(e => {
+      const t = new Date(e.timestamp * 1000);
+      const time = t.toLocaleTimeString('en-US', {hour12:false}) + '.' + String(t.getMilliseconds()).padStart(3,'0');
+      const kindBadge = e.kind === 'mcp'
+        ? '<span style="color:var(--accent-orange);font-weight:bold;">MCP</span>'
+        : '<span style="color:var(--accent-blue);">REST</span>';
+      const statusColor = e.status >= 400 || e.error ? 'var(--red)' : 'var(--green)';
+      const method = e.kind === 'mcp' ? '' : e.method;
+      const path = e.kind === 'mcp' ? e.method : e.path;
+      return `<tr onclick="trafficDetail('${e.id}')" style="cursor:pointer;border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--bg-primary)'" onmouseout="this.style.background=''">
+        <td style="padding:3px 8px;white-space:nowrap;color:var(--text-dim);">${time}</td>
+        <td style="padding:3px 8px;">${kindBadge}</td>
+        <td style="padding:3px 8px;color:var(--text-dim);">${method}</td>
+        <td style="padding:3px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(path)}">${esc(path)}</td>
+        <td style="padding:3px 8px;text-align:right;color:var(--text-dim);">${e.duration_ms.toFixed(0)}</td>
+        <td style="padding:3px 8px;text-align:center;color:${statusColor};">${e.status}${e.error ? ' !' : ''}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    console.error('Traffic load error:', e);
+  }
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function trafficDetail(id) {
+  try {
+    const data = await api('/traffic/detail?id=' + id);
+    const t = new Date(data.timestamp * 1000);
+    const time = t.toLocaleString();
+    const isError = data.status >= 400 || data.error;
+    const isMcp = data.kind === 'mcp';
+
+    let reqStr = '';
+    if (data.request_body) {
+      try { reqStr = JSON.stringify(data.request_body, null, 2); } catch(e) { reqStr = String(data.request_body); }
+    }
+
+    let respStr = '';
+    if (data.response_body) {
+      if (typeof data.response_body === 'string') {
+        // Try to parse as JSON for pretty-printing
+        try { respStr = JSON.stringify(JSON.parse(data.response_body), null, 2); } catch(e) { respStr = data.response_body; }
+      } else {
+        try { respStr = JSON.stringify(data.response_body, null, 2); } catch(e) { respStr = String(data.response_body); }
+      }
+    }
+
+    let html = `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;font-weight:bold;color:${isError ? 'var(--red)' : 'var(--text-primary)'};">
+          ${isMcp ? 'MCP: ' + esc(data.method) : data.method + ' ' + esc(data.path)}
+        </span>
+        <span style="color:var(--text-dim);">${data.duration_ms.toFixed(1)}ms</span>
+      </div>
+      <div style="color:var(--text-dim);font-size:11px;margin-top:2px;">${time} &mdash; ${data.kind.toUpperCase()} &mdash; Status: ${data.status}</div>
+    </div>`;
+
+    if (data.error) {
+      html += `<div style="background:rgba(255,50,50,0.1);border:1px solid var(--red);border-radius:4px;padding:8px;margin-bottom:10px;color:var(--red);font-size:12px;">
+        <strong>Error:</strong> ${esc(data.error)}
+      </div>`;
+    }
+
+    if (reqStr) {
+      html += `<div style="margin-bottom:10px;">
+        <div style="color:var(--accent-orange);font-weight:bold;margin-bottom:4px;">Request</div>
+        <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;padding:8px;overflow-x:auto;max-height:250px;overflow-y:auto;margin:0;font-size:11px;color:var(--text-primary);">${esc(reqStr)}</pre>
+      </div>`;
+    }
+
+    if (respStr) {
+      html += `<div style="margin-bottom:10px;">
+        <div style="color:var(--accent-blue);font-weight:bold;margin-bottom:4px;">Response</div>
+        <pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;padding:8px;overflow-x:auto;max-height:400px;overflow-y:auto;margin:0;font-size:11px;color:var(--text-primary);">${esc(respStr)}</pre>
+      </div>`;
+    }
+
+    if (isMcp) {
+      html += `<div style="margin-top:10px;">
+        <button class="btn orange" onclick="trafficReplay('${data.id}')">Replay This Call</button>
+      </div>`;
+    }
+
+    document.getElementById('trafficDetail').innerHTML = html;
+  } catch(e) {
+    document.getElementById('trafficDetail').innerHTML = '<div style="color:var(--red);">Error loading detail</div>';
+  }
+}
+
+async function trafficReplay(id) {
+  const detail = document.getElementById('trafficDetail');
+  const btn = detail.querySelector('.btn.orange');
+  if (btn) { btn.textContent = 'Replaying...'; btn.disabled = true; }
+  try {
+    const data = await api('/traffic/replay', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id}) });
+    // Refresh to show the new entry
+    await trafficLoad();
+    // Show result
+    let html = `<div style="margin-bottom:10px;">
+      <div style="font-size:14px;font-weight:bold;color:var(--green);">Replay Result (${data.duration_ms.toFixed(1)}ms)</div>
+    </div>`;
+    let respStr = data.result || '';
+    try { respStr = JSON.stringify(JSON.parse(respStr), null, 2); } catch(e) {}
+    html += `<pre style="background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;padding:8px;overflow-x:auto;max-height:500px;overflow-y:auto;margin:0;font-size:11px;color:var(--text-primary);">${esc(respStr)}</pre>`;
+    detail.innerHTML = html;
+  } catch(e) {
+    detail.innerHTML = `<div style="color:var(--red);">Replay failed: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+async function trafficClear() {
+  await api('/traffic/clear', { method: 'POST' });
+  document.getElementById('trafficList').innerHTML = '';
+  document.getElementById('trafficDetail').innerHTML = 'Log cleared';
+  document.getElementById('trafficCount').textContent = '0 entries';
+}
 </script>
 </body>
 </html>

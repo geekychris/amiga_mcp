@@ -30,6 +30,7 @@ from .protocol import format_hex_dump, level_name
 from .serial_conn import SerialConnection
 from .simulator import AmigaSimulator
 from .state import AmigaState, EventBus
+from .traffic_log import TrafficLog
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ _builder: Builder | None = None
 _deployer: Deployer | None = None
 _emulator: EmulatorManager | None = None
 _config: DevBenchConfig | None = None
+_traffic: TrafficLog | None = None
 
 
 # ─── Web API Routes ───
@@ -908,9 +910,10 @@ async def serve_index(request: Request) -> HTMLResponse:
 
 def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     """Create the Starlette application with MCP + Web API + static files."""
-    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config
+    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config, _traffic
 
     _state = AmigaState()
+    _traffic = TrafficLog(maxlen=2000)
     _event_bus = EventBus()
 
     # Use config if provided, fall back to args
@@ -2877,6 +2880,274 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             except asyncio.TimeoutError:
                 return JSONResponse({"error": "Timeout"}, status_code=504)
 
+    # ─── Traffic Log API ───
+
+    async def api_traffic_list(request: Request) -> JSONResponse:
+        """List traffic log entries with optional filtering."""
+        assert _traffic is not None
+        kind = request.query_params.get("kind")
+        search = request.query_params.get("q")
+        limit = int(request.query_params.get("limit", "100"))
+        offset = int(request.query_params.get("offset", "0"))
+        return JSONResponse(_traffic.list_entries(kind=kind, search=search, limit=limit, offset=offset))
+
+    async def api_traffic_detail(request: Request) -> JSONResponse:
+        """Get full detail for a traffic entry."""
+        assert _traffic is not None
+        entry_id = request.query_params.get("id", "")
+        detail = _traffic.get_detail(entry_id)
+        if not detail:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        return JSONResponse(detail)
+
+    async def api_traffic_clear(request: Request) -> JSONResponse:
+        """Clear traffic log."""
+        assert _traffic is not None
+        _traffic.clear()
+        return JSONResponse({"status": "ok"})
+
+    async def api_traffic_replay(request: Request) -> JSONResponse:
+        """Replay an MCP tool call."""
+        assert _traffic is not None
+        body = await request.json()
+        entry_id = body.get("id", "")
+        detail = _traffic.get_detail(entry_id)
+        if not detail:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        if detail["kind"] != "mcp":
+            return JSONResponse({"error": "Only MCP calls can be replayed"}, status_code=400)
+
+        tool_name = detail["method"]
+        args = detail.get("request_body") or {}
+
+        # Find the tool function from FastMCP
+        tool_fn = None
+        for t in mcp._tool_manager.list_tools():
+            if t.name == tool_name:
+                tool_fn = t
+                break
+        if not tool_fn:
+            return JSONResponse({"error": f"Tool '{tool_name}' not found"}, status_code=404)
+
+        t0 = time.time()
+        try:
+            result = await mcp._tool_manager.call_tool(tool_name, args)
+            duration = (time.time() - t0) * 1000
+            # Extract text content from result
+            resp_text = ""
+            for item in result:
+                if hasattr(item, "text"):
+                    resp_text += item.text
+            _traffic.record(
+                kind="mcp",
+                method=tool_name,
+                path=f"mcp://{tool_name}",
+                request_body=args,
+                response_body=resp_text,
+                duration_ms=round(duration, 1),
+            )
+            return JSONResponse({"result": resp_text, "duration_ms": round(duration, 1)})
+        except Exception as exc:
+            duration = (time.time() - t0) * 1000
+            _traffic.record(
+                kind="mcp",
+                method=tool_name,
+                path=f"mcp://{tool_name}",
+                request_body=args,
+                response_body=None,
+                status=500,
+                duration_ms=round(duration, 1),
+                error=str(exc),
+            )
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    # ─── MCP logging wrapper ───
+    # Wrap the MCP ASGI handler to capture tool calls from the JSON-RPC stream
+
+    class McpLoggingWrapper:
+        """ASGI wrapper that logs MCP tool calls.
+
+        Must be a class so Starlette's Route recognizes __call__(scope,
+        receive, send) as an ASGI app rather than an endpoint function.
+        """
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] != "http":
+                return await self._inner(scope, receive, send)
+
+            body_parts = []
+            async def logging_receive():
+                msg = await receive()
+                if msg.get("type") == "http.request":
+                    body_parts.append(msg.get("body", b""))
+                return msg
+
+            response_status = [200]
+            response_parts = []
+
+            async def logging_send(msg):
+                if msg.get("type") == "http.response.start":
+                    response_status[0] = msg.get("status", 200)
+                elif msg.get("type") == "http.response.body":
+                    chunk = msg.get("body", b"")
+                    if chunk:
+                        response_parts.append(chunk)
+                await send(msg)
+
+            t0 = time.time()
+            try:
+                await self._inner(scope, logging_receive, logging_send)
+            except Exception:
+                raise
+            finally:
+                duration = (time.time() - t0) * 1000
+                try:
+                    self._log_traffic(body_parts, response_parts, resp_by_id={},
+                                      response_status=response_status[0], duration=duration)
+                except Exception:
+                    pass
+
+        @staticmethod
+        def _parse_sse_responses(raw: bytes) -> list[dict]:
+            """Extract JSON-RPC responses from SSE or plain JSON body."""
+            text = raw.decode("utf-8", errors="replace")
+            results = []
+            # Try plain JSON first
+            try:
+                data = json.loads(text)
+                return data if isinstance(data, list) else [data]
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # Parse SSE: look for "data: {...}" lines
+            for line in text.split("\n"):
+                line = line.strip()
+                if line.startswith("data:"):
+                    payload = line[5:].strip()
+                    if payload:
+                        try:
+                            results.append(json.loads(payload))
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+            return results
+
+        def _log_traffic(self, body_parts, response_parts, resp_by_id, response_status, duration):
+            raw_body = b"".join(body_parts)
+            if not raw_body:
+                return
+            req_data = json.loads(raw_body)
+            reqs = req_data if isinstance(req_data, list) else [req_data]
+
+            raw_resp = b"".join(response_parts)
+            resp_list = self._parse_sse_responses(raw_resp) if raw_resp else []
+            resp_by_id = {}
+            for r in resp_list:
+                if isinstance(r, dict) and "id" in r:
+                    resp_by_id[r["id"]] = r
+
+            for req in reqs:
+                if not isinstance(req, dict):
+                    continue
+                rpc_method = req.get("method", "")
+                params = req.get("params", {})
+                req_id = req.get("id")
+                resp = resp_by_id.get(req_id, {}) if req_id else {}
+
+                if rpc_method == "tools/call":
+                    tool_name = params.get("name", "unknown")
+                    tool_args = params.get("arguments", {})
+                    result = resp.get("result", {})
+                    content = result.get("content", []) if isinstance(result, dict) else []
+                    resp_text = ""
+                    for item in content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            resp_text += item.get("text", "")
+                    is_error = result.get("isError", False) if isinstance(result, dict) else False
+                    _traffic.record(
+                        kind="mcp",
+                        method=tool_name,
+                        path=f"mcp://{tool_name}",
+                        request_body=tool_args,
+                        response_body=resp_text if resp_text else None,
+                        status=500 if is_error else response_status,
+                        duration_ms=round(duration, 1),
+                        error=resp_text if is_error else None,
+                    )
+                elif rpc_method and rpc_method not in ("notifications/initialized",):
+                    result = resp.get("result") if resp else None
+                    _traffic.record(
+                        kind="mcp",
+                        method=rpc_method,
+                        path=f"mcp://{rpc_method}",
+                        request_body=params if params else None,
+                        response_body=result,
+                        status=response_status,
+                        duration_ms=round(duration, 1),
+                    )
+
+    mcp_asgi_handler = McpLoggingWrapper(mcp_asgi_handler)
+
+    # ─── REST traffic logging middleware ───
+
+    _SKIP_TRAFFIC_PATHS = {"/api/events", "/api/traffic", "/api/traffic/detail",
+                           "/api/traffic/clear", "/api/traffic/replay", "/health", "/", "/mcp"}
+
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class TrafficMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            path = request.url.path
+            if path in _SKIP_TRAFFIC_PATHS or not path.startswith("/api/"):
+                return await call_next(request)
+
+            method = request.method
+            req_body = None
+            if method in ("POST", "PUT", "PATCH"):
+                try:
+                    raw = await request.body()
+                    if raw:
+                        req_body = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+
+            t0 = time.time()
+            try:
+                response = await call_next(request)
+                duration = (time.time() - t0) * 1000
+
+                # Capture response body for JSON responses
+                resp_body = None
+                if hasattr(response, "body"):
+                    try:
+                        resp_body = json.loads(response.body)
+                    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+                        pass
+
+                _traffic.record(
+                    kind="rest",
+                    method=method,
+                    path=path + ("?" + str(request.query_params) if request.query_params else ""),
+                    request_body=req_body,
+                    response_body=resp_body,
+                    status=response.status_code,
+                    duration_ms=round(duration, 1),
+                )
+                return response
+            except Exception as exc:
+                duration = (time.time() - t0) * 1000
+                _traffic.record(
+                    kind="rest",
+                    method=method,
+                    path=path,
+                    request_body=req_body,
+                    status=500,
+                    duration_ms=round(duration, 1),
+                    error=str(exc),
+                )
+                raise
+
     # Define routes
     routes = [
         # Web API
@@ -3020,6 +3291,12 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         # DevBench config
         Route("/api/config", api_devbench_config_get, methods=["GET"]),
         Route("/api/config", api_devbench_config_save, methods=["POST"]),
+        # Traffic log
+        Route("/api/traffic", api_traffic_list, methods=["GET"]),
+        Route("/api/traffic/detail", api_traffic_detail, methods=["GET"]),
+        Route("/api/traffic/clear", api_traffic_clear, methods=["POST"]),
+        Route("/api/traffic/replay", api_traffic_replay, methods=["POST"]),
+
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),
@@ -3028,6 +3305,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     ]
 
     app = Starlette(routes=routes, lifespan=lifespan)
+    app.add_middleware(TrafficMiddleware)
 
     return app
 
