@@ -78,19 +78,19 @@ void lanes_init(int level)
 
     memset(lanes, 0, sizeof(lanes));
 
-    /* Speed scaling: level 1 feels active, higher levels get intense */
+    /* Speed scaling: level 1 feels like classic Frogger, higher levels get intense */
     base = level;
     if (base > 6) base = 6;
 
-    /* Road lanes: speed = pixels per move, tick_div = frames between moves
-     * Level 1: most lanes move every frame (tick_div=1), speed=1
-     * Higher levels: speed increases
+    /* Road lanes: speed = pixels per frame, tick_div = 1 (every frame)
+     * Level 1: 2-3 px/frame = ~100-150 px/sec at 50fps
+     * Higher levels: +0.5-1 px/frame per level
      */
-    setup_lane(0, ROW_ROAD_1, DIR_RIGHT, 1 + base/2, 1, COL_CAR_RED,    0, 3, 16, 120);
-    setup_lane(1, ROW_ROAD_2, DIR_LEFT,  1,           1, COL_CAR_YELLOW, 0, 3, 16, 110);
-    setup_lane(2, ROW_ROAD_3, DIR_RIGHT, 1 + base/3, 1, COL_CAR_BLUE,   0, 3, 16, 110);
-    setup_lane(3, ROW_ROAD_4, DIR_LEFT,  1,           2, COL_TRUCK,      0, 2, 32, 160);
-    setup_lane(4, ROW_ROAD_5, DIR_RIGHT, 1 + base/2, 1, COL_CAR_RED,    0, 3, 16, 120);
+    setup_lane(0, ROW_ROAD_1, DIR_RIGHT, 2 + base/2, 1, COL_CAR_RED,    0, 3, 16, 120);
+    setup_lane(1, ROW_ROAD_2, DIR_LEFT,  3 + base/3, 1, COL_CAR_YELLOW, 0, 3, 16, 110);
+    setup_lane(2, ROW_ROAD_3, DIR_RIGHT, 2 + base/2, 1, COL_CAR_BLUE,   0, 3, 16, 110);
+    setup_lane(3, ROW_ROAD_4, DIR_LEFT,  2 + base/3, 1, COL_TRUCK,      0, 2, 32, 160);
+    setup_lane(4, ROW_ROAD_5, DIR_RIGHT, 3 + base/2, 1, COL_CAR_RED,    0, 3, 16, 120);
 
     /* Clamp tick_div minimum to 1 */
     {
@@ -100,12 +100,12 @@ void lanes_init(int level)
         }
     }
 
-    /* River lanes: logs and turtles - also faster */
-    setup_lane(5, ROW_RIVER_1, DIR_RIGHT, 1, 1, COL_LOG,    1, 3, 48, 110);
-    setup_lane(6, ROW_RIVER_2, DIR_LEFT,  1, 2, COL_TURTLE, 1, 3, 32, 100);
-    setup_lane(7, ROW_RIVER_3, DIR_RIGHT, 1, 1, COL_LOG,    1, 2, 64, 170);
-    setup_lane(8, ROW_RIVER_4, DIR_LEFT,  1, 1, COL_TURTLE, 1, 3, 32, 110);
-    setup_lane(9, ROW_RIVER_5, DIR_RIGHT, 1, 1, COL_LOG,    1, 2, 48, 160);
+    /* River lanes: logs and turtles */
+    setup_lane(5, ROW_RIVER_1, DIR_RIGHT, 2 + base/3, 1, COL_LOG,    1, 3, 48, 110);
+    setup_lane(6, ROW_RIVER_2, DIR_LEFT,  1 + base/3, 1, COL_TURTLE, 1, 3, 32, 100);
+    setup_lane(7, ROW_RIVER_3, DIR_RIGHT, 2 + base/2, 1, COL_LOG,    1, 2, 64, 170);
+    setup_lane(8, ROW_RIVER_4, DIR_LEFT,  2 + base/3, 1, COL_TURTLE, 1, 3, 32, 110);
+    setup_lane(9, ROW_RIVER_5, DIR_RIGHT, 2 + base/2, 1, COL_LOG,    1, 2, 48, 160);
 }
 
 void lanes_tick(void)
