@@ -1075,16 +1075,38 @@
       <div class="tool-subpanel" id="toolpanel-debug">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
+        <!-- Symbol Table -->
         <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Disassembler <span class="tool-help" title="Reads memory from the Amiga via INSPECT and disassembles 68000 machine code. Supports all 68k addressing modes and annotates known exec/dos/intuition/graphics library calls (LVOs). Try $FC0000 for Kickstart ROM.">?</span></h3>
+          <h3 style="margin-bottom:6px;">Symbol Table <span class="tool-help" title="Load debug symbols from cross-compiled binaries. Uses m68k-amigaos-nm for symbols and objdump --stabs for source line mappings (requires -g flag). Once loaded, the disassembler and crash reports show function names and source locations.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_load_symbols</code> / <code>amiga_lookup_symbol</code> / <code>amiga_list_functions</code></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+            <select id="symProject" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select project...</option>
+            </select>
+            <button class="btn" onclick="symLoad()">Load Symbols</button>
+            <button class="btn" onclick="symRefreshLoaded()">Refresh</button>
+          </div>
+          <div id="symLoadedList" style="font-size:11px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+            <label style="font-size:11px;color:var(--text-secondary);">Lookup:</label>
+            <input type="text" id="symLookupAddr" placeholder="hex address" style="width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <button class="btn" onclick="symLookup()">Lookup</button>
+            <button class="btn" onclick="symListFuncs()">Functions</button>
+            <button class="btn" onclick="symListStructs()">Structs</button>
+          </div>
+          <div id="symResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Disassembler <span class="tool-help" title="Reads memory from the Amiga via INSPECT and disassembles 68000 machine code. Supports all 68k addressing modes and annotates known exec/dos/intuition/graphics library calls (LVOs). When symbols are loaded, shows function names and source line references. Try $FC0000 for Kickstart ROM.">?</span></h3>
           <div style="display:flex;gap:6px;align-items:center;">
             <label style="font-size:11px;color:var(--text-secondary);">Addr:</label>
-            <input type="text" id="toolDisasmAddr" placeholder="hex address" value="FC0000" style="width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <input type="text" id="toolDisasmAddr" placeholder="hex address or func name" value="FC0000" style="width:120px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
             <label style="font-size:11px;color:var(--text-secondary);">Count:</label>
             <input type="number" id="toolDisasmCount" value="20" min="1" max="200" style="width:55px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
             <button class="btn" onclick="toolDisasm()">Disasm</button>
           </div>
-          <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">MCP: <code>amiga_disassemble</code></div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">MCP: <code>amiga_disassemble</code> | Symbols auto-annotate when loaded</div>
           <div id="toolDisasmResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre;max-height:400px;overflow:auto;color:var(--green);"></div>
         </div>
 
@@ -2442,10 +2464,128 @@ async function toolSprites() {
   document.getElementById('toolSprResult').textContent = data ? (data.listing || data.error || JSON.stringify(data)) : 'No response';
 }
 
+// ---- Symbol Table ----
+
+async function symLoad() {
+  const project = document.getElementById('symProject').value;
+  if (!project) { document.getElementById('symResult').textContent = 'Select a project first'; return; }
+  document.getElementById('symResult').textContent = 'Loading symbols...';
+  const data = await api('/symbols/load', { method: 'POST', body: JSON.stringify({ project }) });
+  if (data.error) {
+    document.getElementById('symResult').textContent = 'Error: ' + data.error;
+  } else {
+    let msg = project + ': ' + data.total + ' symbols (' + data.functions + ' functions, ' + data.data + ' data)';
+    if (data.sourceLines > 0) msg += '\nSTABS debug info: ' + data.sourceLines + ' source line mappings';
+    if (data.structs && data.structs.length) msg += '\nStruct types: ' + data.structs.join(', ');
+    if (data.funcSources > 0) msg += '\nFunction sources: ' + data.funcSources + ' mapped to source files';
+    document.getElementById('symResult').textContent = msg;
+  }
+  symRefreshLoaded();
+}
+
+async function symRefreshLoaded() {
+  const data = await api('/symbols/loaded');
+  const el = document.getElementById('symLoadedList');
+  if (!data || !data.tables || data.tables.length === 0) {
+    el.innerHTML = '<span style="color:var(--text-dim);">No symbols loaded</span>';
+    return;
+  }
+  let html = '';
+  for (const t of data.tables) {
+    const debug = t.hasDebugInfo ? ' <span style="color:var(--green);">[STABS]</span>' : '';
+    html += '<div style="font-size:11px;padding:2px 0;">';
+    html += '<span style="color:var(--accent-blue);">' + escapeHtml(t.project) + '</span>: ';
+    html += t.symbols + ' syms, ' + t.functions + ' funcs';
+    if (t.sourceLines > 0) html += ', ' + t.sourceLines + ' lines';
+    if (t.structs.length > 0) html += ', ' + t.structs.length + ' structs';
+    html += debug + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function symLookup() {
+  const addr = document.getElementById('symLookupAddr').value;
+  if (!addr) return;
+  const data = await api('/symbols/lookup?address=' + encodeURIComponent(addr));
+  let msg = '0x' + (data.address || addr);
+  if (data.symbol) msg += ' = ' + data.symbol;
+  else msg += ': no symbol found';
+  if (data.file) msg += '\nSource: ' + data.file + ':' + (data.line || '?');
+  document.getElementById('symResult').textContent = msg;
+}
+
+async function symListFuncs() {
+  const project = document.getElementById('symProject').value;
+  if (!project) { document.getElementById('symResult').textContent = 'Select a project'; return; }
+  document.getElementById('symResult').textContent = 'Loading...';
+  const data = await api('/symbols/functions?project=' + encodeURIComponent(project));
+  if (!data.functions || data.functions.length === 0) {
+    document.getElementById('symResult').textContent = 'No functions (load symbols first)';
+    return;
+  }
+  let lines = ['Functions in ' + project + ' (' + data.functions.length + '):\n'];
+  for (const f of data.functions) {
+    let line = '  ' + f.address + '  ' + f.name;
+    if (f.file) line += '  [' + f.file + ':' + (f.line || '?') + ']';
+    lines.push(line);
+  }
+  document.getElementById('symResult').textContent = lines.join('\n');
+}
+
+async function symListStructs() {
+  const project = document.getElementById('symProject').value;
+  if (!project) { document.getElementById('symResult').textContent = 'Select a project'; return; }
+  document.getElementById('symResult').textContent = 'Loading...';
+  const data = await api('/symbols/structs?project=' + encodeURIComponent(project));
+  if (!data.structs || data.structs.length === 0) {
+    document.getElementById('symResult').textContent = 'No struct types found (compile with -g for STABS debug info)';
+    return;
+  }
+  let lines = [];
+  for (const s of data.structs) {
+    lines.push('struct ' + s.name + ' (' + s.size + ' bytes):');
+    for (const f of s.fields) {
+      lines.push('  +' + String(f.offset).padStart(3) + '  ' + f.name + ': ' + f.type + ' (' + f.size + ' bytes)');
+    }
+    lines.push('');
+  }
+  document.getElementById('symResult').textContent = lines.join('\n');
+}
+
+// Disassemble at a function name (if symbols loaded)
+async function symDisasmFunc(funcName, project) {
+  const data = await api('/symbols/functions?project=' + encodeURIComponent(project));
+  if (data.functions) {
+    const f = data.functions.find(fn => fn.name === funcName);
+    if (f) {
+      document.getElementById('toolDisasmAddr').value = f.address;
+      await toolDisasm();
+      return;
+    }
+  }
+  document.getElementById('toolDisasmResult').textContent = 'Function not found: ' + funcName;
+}
+
 async function toolDisasm() {
-  const addr = document.getElementById('toolDisasmAddr').value;
+  let addr = document.getElementById('toolDisasmAddr').value;
   const count = document.getElementById('toolDisasmCount').value || 20;
   document.getElementById('toolDisasmResult').textContent = 'Reading...';
+
+  // Check if addr is a function name rather than hex
+  if (addr && !/^[0-9a-fA-F$]+$/.test(addr.replace('0x',''))) {
+    // Try to resolve function name from loaded symbols
+    const loaded = await api('/symbols/loaded');
+    if (loaded && loaded.tables) {
+      for (const t of loaded.tables) {
+        const funcs = await api('/symbols/functions?project=' + encodeURIComponent(t.project));
+        if (funcs.functions) {
+          const f = funcs.functions.find(fn => fn.name === addr);
+          if (f) { addr = f.address; break; }
+        }
+      }
+    }
+  }
+
   const data = await api('/disasm?address=' + encodeURIComponent(addr) + '&count=' + count);
   document.getElementById('toolDisasmResult').textContent = data ? (data.listing || data.error || JSON.stringify(data)) : 'No response';
 }
@@ -2504,6 +2644,7 @@ function renderCrashReport(data) {
   }
 
   // Registers in a grid
+  const regSymbols = data.regSymbols || {};
   html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px 12px;margin-bottom:8px;font-size:11px;">';
   for (let i = 0; i < 8; i++) {
     const val = dregs[i] || '--------';
@@ -2511,14 +2652,37 @@ function renderCrashReport(data) {
   }
   for (let i = 0; i < 7; i++) {
     const val = aregs[i] || '--------';
-    html += '<div style="color:var(--accent-blue);">A' + i + ': <span style="color:var(--text-primary);">' + val + '</span></div>';
+    const sym = regSymbols['A' + i];
+    let symHtml = '';
+    if (sym) {
+      symHtml = ' <span style="color:var(--yellow);font-size:10px;">' + escapeHtml(sym.symbol);
+      if (sym.source) symHtml += ' [' + escapeHtml(sym.source) + ']';
+      symHtml += '</span>';
+    }
+    html += '<div style="color:var(--accent-blue);">A' + i + ': <span style="color:var(--text-primary);">' + val + '</span>' + symHtml + '</div>';
   }
   html += '<div style="color:var(--accent-blue);">SP: <span style="color:var(--text-primary);">' + sp + '</span></div>';
   html += '</div>';
 
-  // Stack dump
+  // Symbolic stack trace
+  const stackTrace = data.stackTrace || [];
+  if (stackTrace.length > 0) {
+    html += '<div style="margin-bottom:8px;"><span style="color:var(--text-dim);font-size:10px;">Symbolic Stack Trace:</span>';
+    html += '<div style="font-size:11px;margin-top:4px;background:var(--bg-input);border-radius:4px;padding:6px;">';
+    for (const entry of stackTrace) {
+      html += '<div style="padding:1px 0;">';
+      html += '<span style="color:var(--text-dim);">SP+' + String(entry.offset).padStart(2, '0') + '</span> ';
+      html += '<span style="color:var(--text-secondary);">0x' + entry.address + '</span> ';
+      html += '<span style="color:var(--yellow);">' + escapeHtml(entry.symbol) + '</span>';
+      if (entry.source) html += ' <span style="color:var(--accent-blue);">[' + escapeHtml(entry.source) + ']</span>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+
+  // Raw stack dump
   if (stack) {
-    html += '<div style="margin-bottom:8px;"><span style="color:var(--text-dim);font-size:10px;">Stack (64 bytes from SP):</span><br>';
+    html += '<div style="margin-bottom:8px;"><span style="color:var(--text-dim);font-size:10px;">Raw Stack (64 bytes from SP):</span><br>';
     html += '<span style="color:var(--text-secondary);font-size:11px;">';
     const groups = [];
     for (let i = 0; i < stack.length; i += 8) groups.push(stack.substring(i, i + 8));
@@ -2596,18 +2760,35 @@ async function toolPerf() {
 
 async function toolRefreshProjects() {
   const sel = document.getElementById('toolRunProject');
+  const symSel = document.getElementById('symProject');
   const prev = sel.value;
+  const symPrev = symSel ? symSel.value : '';
   const data = await api('/projects');
   while (sel.options.length > 1) sel.remove(1);
+  if (symSel) while (symSel.options.length > 1) symSel.remove(1);
   if (data && data.projects) {
     data.projects.forEach(p => {
       const opt = document.createElement('option');
       opt.value = 'examples/' + p;
       opt.textContent = p;
       sel.add(opt);
+      if (symSel) {
+        const opt2 = document.createElement('option');
+        opt2.value = p;
+        opt2.textContent = p;
+        symSel.add(opt2);
+      }
     });
+    // Also add amiga-bridge as an option for symbol loading
+    if (symSel) {
+      const opt = document.createElement('option');
+      opt.value = 'amiga-bridge';
+      opt.textContent = 'amiga-bridge';
+      symSel.add(opt);
+    }
   }
   if (prev) sel.value = prev;
+  if (symPrev && symSel) symSel.value = symPrev;
 }
 
 async function toolRun() {

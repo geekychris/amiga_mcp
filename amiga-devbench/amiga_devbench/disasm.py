@@ -1269,11 +1269,40 @@ def disassemble_hex(hex_data: str, base_addr: int, count: int = 20) -> list[tupl
     return disassemble(data, base_addr, count)
 
 
-def format_listing(instructions: list[tuple[int, str, str]]) -> str:
-    """Format disassembly output as a readable listing."""
+def format_listing(instructions: list[tuple[int, str, str]], project: str | None = None) -> str:
+    """Format disassembly output as a readable listing.
+
+    If project is given and symbols are loaded, annotates with function names
+    and source file:line references.
+    """
+    from . import symbols as sym_mod
+
     lines: list[str] = []
+    last_source = ""
+
     for addr, hexbytes, mnemonic in instructions:
-        # Pad hex to a consistent width (max instruction = 10 bytes = 20 hex chars)
+        # Check for symbol at this exact address (function entry point)
+        sym_name = sym_mod.annotate_address(addr, project) if project else ""
+        if sym_name and "+" not in sym_name:
+            # This is a function entry point - add a label
+            lines.append("")
+            src_info = sym_mod.source_line_for_address(addr, project)
+            if src_info:
+                lines.append(f"; {src_info}")
+            lines.append(f"{sym_name}:")
+
+        # Show source line changes inline
+        if project:
+            src = sym_mod.source_line_for_address(addr, project)
+            if src and src != last_source:
+                lines.append(f"                                          ; {src}")
+                last_source = src
+
         hex_padded = hexbytes.ljust(20)
-        lines.append(f"  {addr:08X}  {hex_padded}  {mnemonic}")
+        # Add symbol annotation for branch/jump targets in the mnemonic
+        annotation = ""
+        if project and sym_name and "+" in sym_name:
+            annotation = f"  ; <{sym_name}>"
+        lines.append(f"  {addr:08X}  {hex_padded}  {mnemonic}{annotation}")
+
     return "\n".join(lines)

@@ -1,0 +1,15 @@
+CC = m68k-amigaos-gcc
+CFLAGS = -noixemul -O0 -m68020 -g -Wall -I../../amiga-bridge/include
+LDFLAGS = -noixemul -g -L../../amiga-bridge -lbridge -lamiga
+TARGET = symbol_demo
+
+all: $(TARGET)
+
+$(TARGET): main.o
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	rm -f *.o $(TARGET)

@@ -1212,24 +1212,99 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             return JSONResponse({"error": "Not connected"})
         addr_str = request.query_params.get("address", "0")
         count = int(request.query_params.get("count", "20"))
+        project = request.query_params.get("project", "")
         addr = int(addr_str.replace("$", "").replace("0x", ""), 16)
         size = min(count * 10, 4096)
-        cmd_id = int(time.time() * 1000) % 100000
         _conn.send({"type": "INSPECT", "address": f"{addr:08X}", "size": str(size)})
         msg = await _event_bus.wait_for("mem", timeout=5.0)
         if msg:
             try:
                 from .disasm import disassemble_hex, format_listing
+                from . import symbols as sym_mod
                 hex_data = msg.get("hexData", "")
                 result = disassemble_hex(hex_data, addr, count)
-                listing = format_listing(result)
+                # Auto-detect project from loaded symbols if not specified
+                if not project:
+                    for name, table in sym_mod.get_all_tables().items():
+                        if table.lookup_address(addr):
+                            project = name
+                            break
+                listing = format_listing(result, project=project or None)
                 return JSONResponse({"listing": listing})
             except Exception as e:
                 return JSONResponse({"error": str(e)})
         return JSONResponse({"error": "No memory data response"})
 
+    async def api_symbols_load(request: Request) -> JSONResponse:
+        """Load symbols for a project."""
+        body = await request.json()
+        project = body.get("project", "")
+        if not project:
+            return JSONResponse({"error": "Missing project name"}, status_code=400)
+        from . import symbols
+        table = await symbols.load_symbols(project)
+        if not table.symbols:
+            return JSONResponse({"error": f"No symbols found for '{project}'"}, status_code=404)
+        funcs = [s for s in table.symbols if s.sym_type in ("T", "t")]
+        data_syms = [s for s in table.symbols if s.sym_type in ("D", "d", "B", "b")]
+        return JSONResponse({
+            "project": project,
+            "binary": table.binary_path,
+            "total": len(table.symbols),
+            "functions": len(funcs),
+            "data": len(data_syms),
+            "sourceLines": len(table.source_lines),
+            "structs": list(table.struct_types.keys()),
+            "funcSources": len(table.func_source),
+        })
+
+    async def api_symbols_lookup(request: Request) -> JSONResponse:
+        """Look up a symbol by address."""
+        addr_str = request.query_params.get("address", "0")
+        project = request.query_params.get("project", "")
+        addr = int(addr_str.replace("$", "").replace("0x", ""), 16)
+        from . import symbols
+        ann = symbols.annotate_address_full(addr, project or None)
+        return JSONResponse(ann)
+
+    async def api_symbols_functions(request: Request) -> JSONResponse:
+        """List functions for a project."""
+        project = request.query_params.get("project", "")
+        if not project:
+            return JSONResponse({"error": "Missing project"}, status_code=400)
+        from . import symbols
+        funcs = symbols.list_functions(project)
+        return JSONResponse({"project": project, "functions": funcs})
+
+    async def api_symbols_structs(request: Request) -> JSONResponse:
+        """List struct types for a project."""
+        project = request.query_params.get("project", "")
+        if not project:
+            return JSONResponse({"error": "Missing project"}, status_code=400)
+        from . import symbols
+        structs = symbols.list_structs(project)
+        return JSONResponse({"project": project, "structs": structs})
+
+    async def api_symbols_loaded(request: Request) -> JSONResponse:
+        """List all currently loaded symbol tables."""
+        from . import symbols
+        tables = symbols.get_all_tables()
+        result = []
+        for name, table in tables.items():
+            funcs = [s for s in table.symbols if s.sym_type in ("T", "t")]
+            result.append({
+                "project": name,
+                "symbols": len(table.symbols),
+                "functions": len(funcs),
+                "sourceLines": len(table.source_lines),
+                "structs": list(table.struct_types.keys()),
+                "hasDebugInfo": len(table.source_lines) > 0,
+            })
+        return JSONResponse({"tables": result})
+
     async def api_tool_crash(request: Request) -> JSONResponse:
         if _state and _state.last_crash:
+            from . import symbols as sym_mod
             c = _state.last_crash
             alert_num = c.get('alertNum', '00000000')
             alert_name = c.get('alertName', 'Unknown')
@@ -1246,34 +1321,60 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             sp = c.get('sp', '00000000')
             report += f"SP: ${sp}\n"
 
-            # PC is typically on the stack or in A5/A6 for Alert calls
-            # Try to find a likely PC from the address registers
             pc_addr = None
             if aregs and len(aregs) > 5:
-                # A5 often holds the caller's address
                 for reg_idx in [5, 4, 3, 2, 1, 0]:
                     try:
                         addr = int(aregs[reg_idx], 16)
-                        # Heuristic: looks like code if in ROM ($F80000+) or RAM ranges
                         if 0x1000 < addr < 0x10000000:
                             pc_addr = aregs[reg_idx]
                             break
                     except (ValueError, IndexError):
                         pass
 
+            # Symbolic annotations for address registers
+            reg_symbols = {}
+            for i, val in enumerate(aregs):
+                try:
+                    addr = int(val, 16)
+                    sym = sym_mod.annotate_address(addr)
+                    if sym:
+                        src = sym_mod.source_line_for_address(addr)
+                        reg_symbols[f"A{i}"] = {"symbol": sym, "source": src} if src else {"symbol": sym}
+                except (ValueError, TypeError):
+                    pass
+
+            # Symbolic stack trace
             stack = c.get('stackHex', '')
+            stack_trace = []
             if stack:
                 groups = [stack[i:i+8] for i in range(0, len(stack), 8)]
                 report += "Stack: " + " ".join(groups) + "\n"
-                # First long word on stack is often the return address (PC)
                 if len(stack) >= 8 and pc_addr is None:
                     pc_addr = stack[:8]
+
+                # Resolve stack entries as potential return addresses
+                for i in range(0, min(len(stack), 64), 8):
+                    word_hex = stack[i:i + 8]
+                    if len(word_hex) < 8:
+                        break
+                    addr = int(word_hex, 16)
+                    if addr > 0x1000 and addr < 0x10000000:
+                        sym = sym_mod.annotate_address(addr)
+                        if sym:
+                            src = sym_mod.source_line_for_address(addr)
+                            entry = {"offset": i // 2, "address": word_hex, "symbol": sym}
+                            if src:
+                                entry["source"] = src
+                            stack_trace.append(entry)
 
             return JSONResponse({
                 "report": report,
                 "crash": c,
                 "alertDetail": alert_detail,
                 "pcAddr": pc_addr,
+                "regSymbols": reg_symbols,
+                "stackTrace": stack_trace,
             })
         return JSONResponse({"report": "No crash recorded"})
 
@@ -2486,6 +2587,11 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/copper", api_tool_copper, methods=["GET"]),
         Route("/api/sprites", api_tool_sprites, methods=["GET"]),
         Route("/api/disasm", api_tool_disasm, methods=["GET"]),
+        Route("/api/symbols/load", api_symbols_load, methods=["POST"]),
+        Route("/api/symbols/lookup", api_symbols_lookup, methods=["GET"]),
+        Route("/api/symbols/functions", api_symbols_functions, methods=["GET"]),
+        Route("/api/symbols/structs", api_symbols_structs, methods=["GET"]),
+        Route("/api/symbols/loaded", api_symbols_loaded, methods=["GET"]),
         Route("/api/crash", api_tool_crash, methods=["GET"]),
         Route("/api/crash/enable", api_crash_enable, methods=["POST"]),
         Route("/api/crash/disable", api_crash_disable, methods=["POST"]),

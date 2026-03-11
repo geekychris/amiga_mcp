@@ -862,7 +862,14 @@ async def amiga_disassemble(address: str, count: int = 20) -> str:
     if not instructions:
         return f"No instructions decoded at ${addr_hex}"
 
-    return format_listing(instructions)
+    # Use symbol annotations if any tables are loaded
+    from . import symbols
+    project = None
+    for name, table in symbols.get_all_tables().items():
+        if table.lookup_address(addr_int):
+            project = name
+            break
+    return format_listing(instructions, project=project)
 
 
 # ─── Screenshot Tool ───
@@ -1115,7 +1122,9 @@ async def amiga_last_crash() -> str:
 
 
 def _format_crash(crash: dict) -> str:
-    """Format crash data into a readable report."""
+    """Format crash data into a readable report with symbolic annotations."""
+    from . import symbols
+
     lines = [
         "=== AMIGA CRASH REPORT ===",
         f"Alert: 0x{crash.get('alertNum', '?')} ({crash.get('alertName', 'Unknown')})",
@@ -1132,7 +1141,18 @@ def _format_crash(crash: dict) -> str:
     lines.append("Address Registers:")
     aregs = crash.get("addrRegs", [])
     for i, val in enumerate(aregs):
-        lines.append(f"  A{i}: 0x{val}")
+        ann = ""
+        try:
+            addr = int(val, 16)
+            sym = symbols.annotate_address(addr)
+            if sym:
+                ann = f"  ; {sym}"
+                src = symbols.source_line_for_address(addr)
+                if src:
+                    ann += f" [{src}]"
+        except (ValueError, TypeError):
+            pass
+        lines.append(f"  A{i}: 0x{val}{ann}")
 
     lines.append("")
     lines.append(f"Stack Pointer: 0x{crash.get('sp', '?')}")
@@ -1140,8 +1160,25 @@ def _format_crash(crash: dict) -> str:
     stack_hex = crash.get("stackHex", "")
     if stack_hex:
         lines.append("")
-        lines.append("Stack Snapshot:")
+        lines.append("Stack Trace:")
         sp = int(crash.get("sp", "0"), 16)
+        # Try to resolve stack entries as return addresses
+        for i in range(0, min(len(stack_hex), 64), 8):
+            word_hex = stack_hex[i:i + 8]
+            if len(word_hex) < 8:
+                break
+            addr = int(word_hex, 16)
+            offset = i // 2
+            sym = symbols.annotate_address(addr)
+            if sym and addr > 0x1000:
+                src = symbols.source_line_for_address(addr)
+                src_str = f" [{src}]" if src else ""
+                lines.append(f"  SP+{offset:02d}: 0x{word_hex} -> {sym}{src_str}")
+            else:
+                lines.append(f"  SP+{offset:02d}: 0x{word_hex}")
+
+        lines.append("")
+        lines.append("Raw Stack:")
         from .protocol import format_hex_dump
         lines.append(format_hex_dump(f"{sp:08X}", stack_hex))
 
@@ -1278,37 +1315,52 @@ def _format_perf(perf: dict) -> str:
 
 @mcp.tool()
 async def amiga_load_symbols(project: str) -> str:
-    """Load debug symbols from a compiled Amiga binary. Enables symbolic disassembly and crash analysis."""
+    """Load debug symbols from a compiled Amiga binary. Parses nm symbols and
+    STABS debug info (source lines, struct types) if compiled with -g.
+    Enables symbolic disassembly and crash analysis."""
     from . import symbols
     table = await symbols.load_symbols(project)
     if not table.symbols:
-        return f"No symbols found for project '{project}'"
+        return f"No symbols found for project '{project}' (binary: {table.binary_path})"
     funcs = [s for s in table.symbols if s.sym_type in ("T", "t")]
     data = [s for s in table.symbols if s.sym_type in ("D", "d", "B", "b")]
-    return f"Loaded {len(table.symbols)} symbols ({len(funcs)} functions, {len(data)} data) from {table.binary_path}"
+    parts = [f"Loaded {len(table.symbols)} symbols ({len(funcs)} functions, {len(data)} data) from {table.binary_path}"]
+    if table.source_lines:
+        parts.append(f"STABS debug info: {len(table.source_lines)} source line mappings")
+    if table.struct_types:
+        parts.append(f"Struct types: {', '.join(table.struct_types.keys())}")
+    if table.func_source:
+        parts.append(f"Function sources: {len(table.func_source)} mapped to source files")
+    return "\n".join(parts)
 
 
 @mcp.tool()
 async def amiga_lookup_symbol(address: str, project: str = "") -> str:
-    """Look up a symbol by hex address. Searches all loaded symbol tables."""
+    """Look up a symbol by hex address. Returns symbol name, offset, and source file:line if available."""
     from . import symbols
     addr = int(address, 16)
-    result = symbols.annotate_address(addr, project or None)
-    if result:
-        return f"0x{addr:08x} = {result}"
-    return f"0x{addr:08x}: no symbol found (load symbols first with amiga_load_symbols)"
+    ann = symbols.annotate_address_full(addr, project or None)
+    if "symbol" not in ann:
+        return f"0x{addr:08x}: no symbol found (load symbols first with amiga_load_symbols)"
+    parts = [f"0x{addr:08x} = {ann['symbol']}"]
+    if "file" in ann:
+        parts.append(f"Source: {ann['file']}:{ann.get('line', '?')}")
+    return "\n".join(parts)
 
 
 @mcp.tool()
 async def amiga_list_functions(project: str) -> str:
-    """List all function symbols loaded for a project."""
+    """List all function symbols loaded for a project, with source file:line if available."""
     from . import symbols
     funcs = symbols.list_functions(project)
     if not funcs:
         return f"No functions found for '{project}' (load symbols first)"
     lines = [f"Functions in {project} ({len(funcs)}):", ""]
     for f in funcs:
-        lines.append(f"  {f['address']}  {f['name']}")
+        src = ""
+        if "file" in f:
+            src = f"  [{f['file']}:{f.get('line', '?')}]"
+        lines.append(f"  {f['address']}  {f['name']}{src}")
     return "\n".join(lines)
 
 
