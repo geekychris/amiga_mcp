@@ -984,6 +984,133 @@ All tools are available through Claude Code when connected to the MCP server.
 | `amiga_list_resources` | `client` | Query client resource tracking (alloc/free, open/close) |
 | `amiga_perf_report` | `client` | Query client performance data (frame timing, sections) |
 
+### Debug & Symbols
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_load_symbols` | `project` | Load STABS debug symbols from a cross-compiled binary (requires `-g` flag) |
+| `amiga_lookup_symbol` | `address`, `project?` | Look up function name + source file:line for a code address |
+| `amiga_list_functions` | `project` | List all function symbols with source file:line mappings |
+| `amiga_run_tests` | `project`, `command?` | Build, deploy, run a test suite and collect pass/fail results |
+
+Once symbols are loaded, the disassembler annotates function entry points and source
+line changes, and crash reports include symbolic register annotations and stack traces.
+
+### Audio
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_audio_channels` | — | Read all 4 Paula audio channel registers (period, volume, length, pointer) |
+| `amiga_audio_sample` | `address`, `size?` | Read audio sample data from chip RAM, returns hex + waveform |
+
+### Intuition Inspection
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_list_screens` | — | List all Intuition screens with dimensions, depth, title, flags |
+| `amiga_list_screen_windows` | `screen?` | List all windows on a screen with positions, sizes, flags |
+| `amiga_list_gadgets` | `window` | List gadgets attached to a window (type, position, size, flags) |
+
+### Input Injection
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_input_key` | `rawkey`, `direction?` | Inject a keyboard event via input.device (raw key code) |
+| `amiga_input_mouse_move` | `dx`, `dy` | Inject a relative mouse move event |
+| `amiga_input_click` | `button?`, `direction?` | Inject a mouse button press/release |
+
+### Font Browser
+
+Available via the web UI (Tools > Inspect > Font Browser). Enumerates installed Amiga
+fonts via `diskfont.library` `AvailFonts()`, grouped by family with available sizes.
+Click a font to view metrics: baseline, x/y size, style flags, font type.
+
+Protocol commands: `LISTFONTS` → `FONTS|count|name:sizes|...`, `FONTINFO|name|size` → `FONTINFO|name|size|ysize|xsize|style|flags|baseline`.
+
+### Locale/Catalog Inspector
+
+Available via the web UI (Tools > Inspect > Locale/Catalog Inspector). Browses
+installed locale catalogs under `LOCALE:Catalogs/` using the `SCRIPT` command to run
+AmigaDOS `list` commands. Click a catalog directory to see its contents.
+
+### Assign Manager
+
+Available via the web UI (Tools > System > Assign Manager). Lists, creates, modifies,
+and removes AmigaOS logical assigns (SYS:, LIBS:, FONTS:, etc.). Supports the ADD
+flag for multi-directory assigns. Uses the `SCRIPT` command to run `assign` on the Amiga.
+
+### Startup-Sequence Editor
+
+Available via the web UI (Tools > System > Startup-Sequence Editor). Remotely edit
+`S:Startup-Sequence`, `S:User-Startup`, or `S:Shell-Startup`. Uses `READFILE`/`WRITEFILE`
+protocol commands. Changes take effect on next boot.
+
+### Preferences Editor
+
+Available via the web UI (Tools > System > Preferences Editor). Lists available
+Workbench preferences files from `ENV:sys/` and reads their contents. Prefs files
+are IFF binary format.
+
+### Custom Chip Register Logger
+
+Available via the web UI (Tools > Debug > Custom Chip Logger). Monitors 13 readable
+custom chip registers at $DFF000 for changes: DMACONR, VPOSR, VHPOSR, JOY0DAT,
+JOY1DAT, POT0DAT, POT1DAT, POTGOR, INTENAR, INTREQR, DSKBYTR, DENISEID, ADKCONR.
+
+- **Start** — takes initial snapshot and begins polling from the bridge main loop (200ms interval)
+- **Stop** — stops monitoring
+- **Snapshot** — one-shot read of all registers
+
+Register changes are reported in real-time via `CHIPLOGCHANGE|tick|reg:old:new|...` events.
+
+Protocol commands: `CHIPLOGSTART`, `CHIPLOGSTOP`, `CHIPLOGSNAPSHOT` → `CHIPLOG|reg:val|...`.
+
+### Memory Pool Tracker
+
+Available via the web UI (Tools > Debug > Memory Pool Tracker). Tracks pool-based
+memory allocation by patching `exec.library` pool functions via `SetFunction()`:
+`CreatePool`, `DeletePool`, `AllocPooled`, `FreePooled`.
+
+- **Start** — installs patches, begins tracking (up to 32 pools)
+- **Stop** — restores original function vectors
+- **Refresh** — lists active pools with allocation counts and total sizes
+
+Uses `Forbid()`/`Permit()` to protect tracking data and `Disable()`/`Enable()` around
+`SetFunction()` calls.
+
+Protocol commands: `POOLSTART`, `POOLSTOP`, `POOLS` → `POOLS|count|addr:puddle:thresh:allocs:total|...`.
+
+### Visual Diff for Screenshots
+
+Available via the web UI (Tools > Graphics > Visual Diff). Pixel-level comparison of
+two Amiga screenshots for visual regression testing.
+
+1. **Capture A** — take baseline screenshot
+2. Make changes on the Amiga
+3. **Capture B** — take comparison screenshot
+4. **Compare** — generates diff image with configurable threshold (0-255)
+
+Produces a diff image (dimmed background + magenta changed pixels + yellow bounding boxes).
+Reports change percentage, pixel counts, and detected change regions using 16x16 block
+grid with flood-fill connected component analysis. Requires Pillow (`pip install Pillow`).
+
+### Clipboard Bridge
+
+Available via the web UI (Tools > Control > Clipboard Bridge). Shares clipboard text
+between the host and the Amiga.
+
+- **Get from Amiga** — reads FTXT/CHRS clipboard data via `clipboard.device` + `iffparse.library`
+- **Set on Amiga** — writes text to the Amiga clipboard in IFF FTXT format
+- **Copy to Host** — copies the displayed text to the host system clipboard via `navigator.clipboard`
+
+Protocol commands: `CLIPGET` → `CLIPBOARD|length|text`, `CLIPSET|text` → `OK|CLIPBOARD|set N bytes`.
+
+### CLI History & Aliases
+
+Available in the web UI Shell tab. Provides persistent command history with arrow-key
+navigation and named aliases (e.g., `ll` = `list LFORMAT "%n %l"`). History and aliases
+are maintained server-side across sessions.
+
 ### Project Scaffolding
 
 | Tool | Parameters | Description |
@@ -1047,6 +1174,8 @@ Remote AmigaDOS shell via the `shell_proxy` bridge client.
 - Terminal-style interface with scrolling output (green text on dark background)
 - Type AmigaDOS commands (`dir`, `type`, `list`, `assign`, etc.) and see output in real-time
 - Commands execute on the Amiga via the bridge protocol, output streams back over serial
+- Arrow keys (Up/Down) navigate command history
+- Aliases: define named shortcuts (e.g., `ll` = `list LFORMAT "%n %l"`), persisted server-side
 - Status indicator shows connection state
 ![img.png](doc_images/shell_tab.png)
 #### Tools Tab
@@ -1099,6 +1228,24 @@ Useful for finding library versions, checking if a library is loaded, and revers
 
 Click **Start** to install patches, **Stop** to remove them. While active, every call to a patched function is logged to a ring buffer on the Amiga side and streamed to the host at 200ms intervals. The log table shows: function name, caller address, arg1 (file path, library name, or BPTR address), arg2 (mode, version, etc.), result (OK/FAIL), and tick count. Status bar shows total event count, drop count (ring buffer overflow), and buffered count. The log is capped at 500 entries with rendering throttled for performance.
 
+**Assign Manager** — View, create, modify, and remove AmigaOS logical assigns. The list shows all current assigns with their target paths. Use the input fields to create new assigns or click the red `x` to remove one. Supports the ADD checkbox for multi-directory assigns. Uses the `SCRIPT` command to run `assign` on the Amiga.
+
+**Startup-Sequence Editor** — Remotely edit `S:Startup-Sequence`, `S:User-Startup`, or `S:Shell-Startup`. Select a file from the dropdown, click **Load** to read it into the editor, make changes, and click **Save** to write it back. Changes take effect on next Amiga boot.
+
+**Preferences Editor** — Browse Workbench preferences files stored in `ENV:sys/`. Click **List Prefs** to see available `.prefs` files with sizes, then click any entry to view its contents (IFF binary format shown as hex).
+
+**Custom Chip Logger** — Monitor readable custom chip registers for changes. Click **Start** to begin polling 13 registers (DMACONR, INTENAR, INTREQR, JOY/POT data, etc.) at 200ms intervals. Register changes appear in real-time. Click **Snapshot** for a one-shot read. Click **Stop** to end monitoring.
+
+**Memory Pool Tracker** — Track pool-based memory allocation. **Start** patches `CreatePool`/`DeletePool`/`AllocPooled`/`FreePooled` in `exec.library` via `SetFunction()`. **Refresh** shows active pools with allocation counts, free counts, and total sizes. **Stop** restores original function vectors. Tracks up to 32 pools.
+
+**Visual Diff** — Compare two Amiga screenshots to find pixel differences. Click **Capture A** for a baseline, make changes on the Amiga, click **Capture B**, then **Compare**. Produces a diff image highlighting changed regions in magenta with yellow bounding boxes. Adjustable threshold (0-255) controls sensitivity. Reports change percentage and number of changed regions.
+
+**Font Browser** — Enumerate installed Amiga fonts. Click **List Fonts** to query `diskfont.library` via `AvailFonts()`. Shows font families grouped with available sizes. Click any font entry to view detailed metrics: baseline, x/y size, style flags, and font type. Located in the Inspect sub-tab.
+
+**Locale/Catalog Inspector** — Browse installed locale catalogs under `LOCALE:Catalogs/`. Click **List Catalogs** to see available catalog directories. Click a directory to see its contents (catalog files with sizes). Located in the Inspect sub-tab.
+
+**Clipboard Bridge** — Share clipboard text between host and Amiga. **Get from Amiga** reads IFF FTXT data from `clipboard.device`. **Set on Amiga** writes text to the Amiga clipboard. **Copy to Host** copies the displayed text to the host system clipboard. Located in the Control sub-tab.
+
 **System Info Dashboard** — One-click system overview combining multiple queries. Shows free chip RAM, free fast RAM, number of connected bridge clients, loaded library count, running task count, and mounted volume count. Provides a quick health check of the Amiga system state.
 
 **Build & Run** — Full development cycle in one click: cross-compile via Docker (using a persistent container for ~10x speedup), deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), then launch. Select a project from the dropdown (populated from the `examples/` directory).
@@ -1125,6 +1272,12 @@ The web UI connects to `/api/events` for real-time updates:
 | `tasks` | `{tasks: [...]}` | Tasks panel |
 | `snoop` | `{func, caller, arg1, arg2, result, tick}` | SnoopDos event log |
 | `snoopstate` | `{active, eventCount, dropCount, buffered}` | SnoopDos status |
+| `fonts` | `{count, fonts: [...]}` | Font enumeration response |
+| `fontinfo` | `{name, size, ysize, xsize, style, flags, baseline}` | Font metrics response |
+| `chiplog` | `{registers: {name: value, ...}}` | Chip register snapshot |
+| `chiplogchange` | `{tick, changes: {reg: {old, new}, ...}}` | Chip register change notification |
+| `pools` | `{count, pools: [...]}` | Pool tracker data |
+| `clipboard` | `{length, text}` | Clipboard content response |
 | `libinfo` | `{name, version, revision, openCnt, ...}` | Library detail response |
 | `devinfo` | `{name, version, revision, openCnt, ...}` | Device detail response |
 | `libfuncs` | `{name, page, totalPages, entries: [...]}` | Library jump table entries |

@@ -2707,31 +2707,29 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
     # ---- Startup-Sequence Editor ----
     async def api_tool_startup_read(request: Request) -> JSONResponse:
-        """Read S:Startup-Sequence or S:User-Startup."""
-        if not _conn or not _conn.connected:
-            return JSONResponse({"error": "Not connected"})
+        """Read S:Startup-Sequence or S:User-Startup using SCRIPT type command."""
         file_path = request.query_params.get("file", "S:Startup-Sequence")
-        # Sanitize path
         allowed = ["S:Startup-Sequence", "S:User-Startup", "S:Shell-Startup"]
         if file_path not in allowed:
             return JSONResponse({"error": f"Not allowed: {file_path}"}, status_code=403)
-        _conn.send({"type": "READFILE", "path": file_path})
-        msg = await _event_bus.wait_for("file", timeout=10.0)
-        if msg:
-            return JSONResponse({"path": file_path, "content": msg.get("content", ""), "size": msg.get("size", 0)})
-        return JSONResponse({"error": "Timeout"}, status_code=504)
+        output, err = await _run_script(f"type {file_path}")
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        return JSONResponse({"path": file_path, "content": output or "", "size": len(output or "")})
 
     async def api_tool_startup_write(request: Request) -> JSONResponse:
-        """Write to S:Startup-Sequence or S:User-Startup."""
-        if not _conn or not _conn.connected:
-            return JSONResponse({"error": "Not connected"})
+        """Write to S:Startup-Sequence or S:User-Startup via SCRIPT echo commands."""
         body = await request.json()
         file_path = body.get("file", "")
         content = body.get("content", "")
         allowed = ["S:Startup-Sequence", "S:User-Startup", "S:Shell-Startup"]
         if file_path not in allowed:
             return JSONResponse({"error": f"Not allowed: {file_path}"}, status_code=403)
-        _conn.send({"type": "WRITEFILE", "path": file_path, "content": content})
+        # Write via READFILE/WRITEFILE protocol with hex encoding
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        hex_data = content.encode("latin-1", errors="replace").hex()
+        _conn.send({"type": "WRITEFILE", "path": file_path, "offset": 0, "hexData": hex_data})
         async with _event_bus.subscribe("ok", "err") as q:
             try:
                 evt, data = await asyncio.wait_for(q.get(), timeout=10.0)
@@ -2762,7 +2760,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if not name.endswith(".prefs"):
             return JSONResponse({"error": "Invalid prefs file"}, status_code=400)
         path = f"ENV:sys/{name}"
-        _conn.send({"type": "READFILE", "path": path})
+        # Read up to 4KB of the prefs file
+        _conn.send({"type": "READFILE", "path": path, "offset": 0, "size": 4096})
         msg = await _event_bus.wait_for("file", timeout=10.0)
         if msg:
             return JSONResponse({"path": path, "content": msg.get("content", ""), "size": msg.get("size", 0)})
