@@ -10,6 +10,7 @@
 #include <dos/dos.h>
 #include <dos/dosextens.h>
 #include <dos/exall.h>
+#include <dos/var.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 
@@ -493,4 +494,119 @@ int fs_append(const char *path, const UBYTE *data, ULONG size)
 
     if (written != (LONG)size) return -1;
     return 0;
+}
+
+/*
+ * Get an environment variable.
+ * If archive=1, read from ENVARC:name as a file instead of using GetVar().
+ * Returns 0 on success, -1 on error.
+ */
+int fs_get_env(const char *name, int archive, char *buf, int bufSize)
+{
+    if (!name || !buf || bufSize <= 0) return -1;
+
+    buf[0] = '\0';
+
+    if (archive) {
+        /* Read from ENVARC:name as a file */
+        static char envpath[300];
+        BPTR fh;
+        LONG bytesRead;
+        struct Process *pr;
+        APTR oldWinPtr;
+
+        sprintf(envpath, "ENVARC:%s", name);
+
+        pr = (struct Process *)FindTask(NULL);
+        oldWinPtr = pr->pr_WindowPtr;
+        pr->pr_WindowPtr = (APTR)-1;
+
+        fh = Open((CONST_STRPTR)envpath, MODE_OLDFILE);
+        pr->pr_WindowPtr = oldWinPtr;
+
+        if (!fh) return -1;
+
+        bytesRead = Read(fh, buf, (LONG)(bufSize - 1));
+        Close(fh);
+
+        if (bytesRead < 0) return -1;
+        buf[bytesRead] = '\0';
+
+        /* Strip trailing newline if present */
+        if (bytesRead > 0 && buf[bytesRead - 1] == '\n') {
+            buf[bytesRead - 1] = '\0';
+        }
+        return 0;
+    } else {
+        /* Use GetVar() from dos.library */
+        LONG result = GetVar((CONST_STRPTR)name, (STRPTR)buf,
+                             (LONG)(bufSize - 1), 0);
+        if (result < 0) return -1;
+        buf[result] = '\0';
+        return 0;
+    }
+}
+
+/*
+ * Set an environment variable.
+ * If archive=1, also write to ENVARC:name for persistence.
+ * Returns 0 on success, -1 on error.
+ */
+int fs_set_env(const char *name, const char *value, int archive)
+{
+    LONG result;
+
+    if (!name || !value) return -1;
+
+    /* Set in ENV: (volatile) */
+    result = SetVar((CONST_STRPTR)name, (CONST_STRPTR)value,
+                    (LONG)strlen(value), GVF_GLOBAL_ONLY);
+    if (!result) return -1;
+
+    if (archive) {
+        /* Also write to ENVARC: for persistence */
+        static char envpath[300];
+        BPTR fh;
+        LONG written;
+
+        sprintf(envpath, "ENVARC:%s", name);
+        fh = Open((CONST_STRPTR)envpath, MODE_NEWFILE);
+        if (!fh) return -1;
+
+        written = Write(fh, (APTR)value, (LONG)strlen(value));
+        Close(fh);
+
+        if (written != (LONG)strlen(value)) return -1;
+    }
+
+    return 0;
+}
+
+/*
+ * Set the datestamp on a file.
+ * Uses SetFileDate() from dos.library.
+ * Returns 0 on success, -1 on error.
+ */
+int fs_set_date(const char *path, LONG days, LONG mins, LONG ticks)
+{
+    struct DateStamp ds;
+    struct Process *pr;
+    APTR oldWinPtr;
+    BOOL ok;
+
+    if (!path) return -1;
+
+    ds.ds_Days = days;
+    ds.ds_Minute = mins;
+    ds.ds_Tick = ticks;
+
+    pr = (struct Process *)FindTask(NULL);
+    oldWinPtr = pr->pr_WindowPtr;
+    pr->pr_WindowPtr = (APTR)-1;
+
+    ok = SetFileDate((CONST_STRPTR)path, &ds);
+
+    pr->pr_WindowPtr = oldWinPtr;
+
+    return ok ? 0 : -1;
 }

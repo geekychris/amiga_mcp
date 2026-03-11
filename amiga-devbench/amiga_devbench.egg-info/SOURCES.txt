@@ -2,13 +2,22 @@ pyproject.toml
 amiga_devbench/__init__.py
 amiga_devbench/__main__.py
 amiga_devbench/builder.py
+amiga_devbench/config.py
+amiga_devbench/copper.py
 amiga_devbench/deployer.py
+amiga_devbench/disasm.py
+amiga_devbench/emulator.py
 amiga_devbench/mcp_tools.py
 amiga_devbench/protocol.py
+amiga_devbench/scaffolder.py
+amiga_devbench/screenshot.py
+amiga_devbench/screenshot_diff.py
 amiga_devbench/serial_conn.py
 amiga_devbench/server.py
 amiga_devbench/simulator.py
 amiga_devbench/state.py
+amiga_devbench/symbols.py
+amiga_devbench/traffic_log.py
 amiga_devbench.egg-info/PKG-INFO
 amiga_devbench.egg-info/SOURCES.txt
 amiga_devbench.egg-info/dependency_links.txt
@@ -16,3 +25,4 @@ amiga_devbench.egg-info/entry_points.txt
 amiga_devbench.egg-info/requires.txt
 amiga_devbench.egg-info/top_level.txt
 amiga_devbench/web/index.html
+tests/test_protocol_new_features.py

@@ -284,6 +284,7 @@ int main(int argc, char **argv)
     pool_init();
     clip_init();
     arexx_init();
+    sys_init_uptime();
 
     /* Set up periodic timer (200ms) for snoop drain and heartbeat */
     timerPort = CreateMsgPort();
@@ -327,6 +328,13 @@ int main(int argc, char **argv)
         /* Check CTRL-C */
         if (received & SIGBREAKF_CTRL_C) {
             ui_add_log("CTRL-C received");
+            running = FALSE;
+            break;
+        }
+
+        /* Check shutdown request from protocol handler */
+        if (g_shutdown_requested) {
+            ui_add_log("Shutdown requested");
             running = FALSE;
             break;
         }

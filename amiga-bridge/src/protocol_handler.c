@@ -17,8 +17,13 @@
 
 #include "bridge_internal.h"
 
+/* Version defines */
+#define BRIDGE_VERSION_MAJOR 1
+#define BRIDGE_VERSION_MINOR 0
+
 ULONG g_tx_count = 0;
 ULONG g_rx_count = 0;
+BOOL g_shutdown_requested = FALSE;
 
 static const char *level_chars = "DIWE";
 static const char *type_names[] = {"i32", "u32", "str", "f32", "ptr"};
@@ -68,6 +73,15 @@ static void handle_rename(const char *args);
 static void handle_setcomment(const char *args);
 static void handle_copy(const char *args);
 static void handle_append(const char *args);
+static void handle_version(void);
+static void handle_getenv(const char *args);
+static void handle_setenv(const char *args);
+static void handle_setdate(const char *args);
+static void handle_volumes_ext(void);
+static void handle_ports(void);
+static void handle_sysinfo(void);
+static void handle_uptime(void);
+static void handle_reboot(void);
 
 static void send_line(const char *line)
 {
@@ -340,9 +354,27 @@ void protocol_parse_line(const char *line)
         handle_copy(args);
     } else if (strcmp(cmd, "APPEND") == 0) {
         handle_append(args);
+    } else if (strcmp(cmd, "VERSION") == 0) {
+        handle_version();
+    } else if (strcmp(cmd, "GETENV") == 0) {
+        handle_getenv(args);
+    } else if (strcmp(cmd, "SETENV") == 0) {
+        handle_setenv(args);
+    } else if (strcmp(cmd, "SETDATE") == 0) {
+        handle_setdate(args);
+    } else if (strcmp(cmd, "VOLUMES") == 0) {
+        handle_volumes_ext();
+    } else if (strcmp(cmd, "PORTS") == 0) {
+        handle_ports();
+    } else if (strcmp(cmd, "SYSINFO") == 0) {
+        handle_sysinfo();
+    } else if (strcmp(cmd, "UPTIME") == 0) {
+        handle_uptime();
+    } else if (strcmp(cmd, "REBOOT") == 0) {
+        handle_reboot();
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
-        /* The main loop will exit via CTRL-C or window close */
+        g_shutdown_requested = TRUE;
     } else {
         send_err("Unknown command", cmd);
     }
@@ -1441,41 +1473,100 @@ static void handle_clientinfo(const char *args)
 
 static void handle_stop(const char *args)
 {
-    /* Format: client_name
-     * Sends CTRL-C to the client's task, then waits briefly
-     * and checks if it unregistered. */
+    /* Format: name_or_addr[|CTRLC|CTRLD|CTRLE|CTRLF]
+     * If name starts with "0x", treat as hex task address.
+     * Sends specified signal (default CTRL-C) to the task. */
     struct ClientEntry *ce;
     int result;
+    static char namebuf[256];
+    const char *sigArg = NULL;
+    const char *sep;
+    ULONG sigMask = SIGBREAKF_CTRL_C;
 
     if (!args || args[0] == '\0') {
-        send_err("STOP", "needs client name");
+        send_err("STOP", "needs client name or address");
         return;
     }
 
-    ce = client_find_by_name(args);
-    if (!ce) {
-        /* Try as a raw task name for non-bridge processes */
-        result = sys_break_task(args);
+    /* Parse optional signal type */
+    sep = strchr(args, '|');
+    if (sep) {
+        int nlen = (int)(sep - args);
+        if (nlen > 255) nlen = 255;
+        strncpy(namebuf, args, nlen);
+        namebuf[nlen] = '\0';
+        sigArg = sep + 1;
+    } else {
+        strncpy(namebuf, args, 255);
+        namebuf[255] = '\0';
+    }
+
+    /* Determine signal mask from argument */
+    if (sigArg) {
+        if (strcmp(sigArg, "CTRLD") == 0) {
+            sigMask = SIGBREAKF_CTRL_D;
+        } else if (strcmp(sigArg, "CTRLE") == 0) {
+            sigMask = SIGBREAKF_CTRL_E;
+        } else if (strcmp(sigArg, "CTRLF") == 0) {
+            sigMask = SIGBREAKF_CTRL_F;
+        }
+        /* CTRLC or anything else stays as default */
+    }
+
+    /* Check if name is a hex address (starts with "0x") */
+    if (namebuf[0] == '0' && (namebuf[1] == 'x' || namebuf[1] == 'X')) {
+        ULONG addr = strtoul(namebuf, NULL, 16);
+        result = sys_signal_task_by_addr(addr, sigMask);
         if (result == 0) {
-            send_ok("STOP", args);
+            send_ok("STOP", namebuf);
         } else {
-            send_err("Client/task not found", args);
+            send_err("STOP", "address not found in task lists");
         }
         return;
     }
 
-    /* Send CTRL-C to the client's task */
-    result = sys_break_task(ce->name);
-    if (result == 0) {
-        send_ok("STOP", ce->name);
-    } else {
-        /* Task not found by name - try sending SHUTDOWN via IPC */
-        if (ce->replyPort) {
-            ipc_send_to_client(ce->replyPort, ABMSG_SHUTDOWN,
-                               ce->clientId, 0, NULL, 0);
-            send_ok("STOP", "shutdown sent");
+    ce = client_find_by_name(namebuf);
+    if (!ce) {
+        /* Try as a raw task name for non-bridge processes */
+        /* For non-default signals, use FindTask + Signal directly */
+        {
+            struct Task *task;
+            Forbid();
+            task = FindTask((CONST_STRPTR)namebuf);
+            if (task) {
+                Signal(task, sigMask);
+            }
+            Permit();
+            if (task) {
+                send_ok("STOP", namebuf);
+            } else {
+                send_err("Client/task not found", namebuf);
+            }
+        }
+        return;
+    }
+
+    /* Send signal to the client's task */
+    {
+        struct Task *task;
+        Forbid();
+        task = FindTask((CONST_STRPTR)ce->name);
+        if (task) {
+            Signal(task, sigMask);
+        }
+        Permit();
+
+        if (task) {
+            send_ok("STOP", ce->name);
         } else {
-            send_err("STOP", "cannot reach client");
+            /* Task not found by name - try sending SHUTDOWN via IPC */
+            if (ce->replyPort) {
+                ipc_send_to_client(ce->replyPort, ABMSG_SHUTDOWN,
+                                   ce->clientId, 0, NULL, 0);
+                send_ok("STOP", "shutdown sent");
+            } else {
+                send_err("STOP", "cannot reach client");
+            }
         }
     }
 }
@@ -2191,4 +2282,170 @@ static void handle_append(const char *args)
     } else {
         send_err("APPEND", "failed");
     }
+}
+
+static void handle_version(void)
+{
+    static char buf[128];
+    sprintf(buf, "VERSION|AmigaBridge|%ld|%ld|%s",
+        (long)BRIDGE_VERSION_MAJOR,
+        (long)BRIDGE_VERSION_MINOR,
+        __DATE__);
+    send_line(buf);
+}
+
+static void handle_getenv(const char *args)
+{
+    /* Format: name[|1] - if |1, read from ENVARC: */
+    static char namebuf[256];
+    static char valbuf[512];
+    const char *sep;
+    int archive = 0;
+
+    if (!args || args[0] == '\0') {
+        send_err("GETENV", "needs variable name");
+        return;
+    }
+
+    sep = strchr(args, '|');
+    if (sep) {
+        int nlen = (int)(sep - args);
+        if (nlen > 255) nlen = 255;
+        strncpy(namebuf, args, nlen);
+        namebuf[nlen] = '\0';
+        if (*(sep + 1) == '1') archive = 1;
+    } else {
+        strncpy(namebuf, args, 255);
+        namebuf[255] = '\0';
+    }
+
+    if (fs_get_env(namebuf, archive, valbuf, sizeof(valbuf)) == 0) {
+        static char linebuf[BRIDGE_MAX_LINE];
+        sprintf(linebuf, "ENV|%s|", namebuf);
+        strncat(linebuf, valbuf, BRIDGE_MAX_LINE - strlen(linebuf) - 1);
+        linebuf[BRIDGE_MAX_LINE - 1] = '\0';
+        send_line(linebuf);
+    } else {
+        send_err("GETENV", namebuf);
+    }
+}
+
+static void handle_setenv(const char *args)
+{
+    /* Format: name|value[|1] - if |1, also archive to ENVARC: */
+    static char namebuf[256];
+    static char valbuf[512];
+    const char *sep1;
+    const char *sep2;
+    int archive = 0;
+
+    if (!args || args[0] == '\0') {
+        send_err("SETENV", "needs name|value");
+        return;
+    }
+
+    sep1 = strchr(args, '|');
+    if (!sep1) {
+        send_err("SETENV", "needs name|value");
+        return;
+    }
+
+    {
+        int nlen = (int)(sep1 - args);
+        if (nlen > 255) nlen = 255;
+        strncpy(namebuf, args, nlen);
+        namebuf[nlen] = '\0';
+    }
+
+    sep2 = strchr(sep1 + 1, '|');
+    if (sep2) {
+        int vlen = (int)(sep2 - (sep1 + 1));
+        if (vlen > 511) vlen = 511;
+        strncpy(valbuf, sep1 + 1, vlen);
+        valbuf[vlen] = '\0';
+        if (*(sep2 + 1) == '1') archive = 1;
+    } else {
+        strncpy(valbuf, sep1 + 1, 511);
+        valbuf[511] = '\0';
+    }
+
+    if (fs_set_env(namebuf, valbuf, archive) == 0) {
+        send_ok("SETENV", namebuf);
+    } else {
+        send_err("SETENV", namebuf);
+    }
+}
+
+static void handle_setdate(const char *args)
+{
+    /* Format: path|days|mins|ticks */
+    static char path[256];
+    LONG days, mins, ticks;
+    const char *sep1, *sep2, *sep3;
+
+    if (!args || args[0] == '\0') {
+        send_err("SETDATE", "needs path|days|mins|ticks");
+        return;
+    }
+
+    sep1 = strchr(args, '|');
+    if (!sep1) {
+        send_err("SETDATE", "needs path|days|mins|ticks");
+        return;
+    }
+
+    {
+        int plen = (int)(sep1 - args);
+        if (plen > 255) plen = 255;
+        strncpy(path, args, plen);
+        path[plen] = '\0';
+    }
+
+    days = strtol(sep1 + 1, NULL, 10);
+    sep2 = strchr(sep1 + 1, '|');
+    if (!sep2) {
+        send_err("SETDATE", "needs days|mins|ticks");
+        return;
+    }
+    mins = strtol(sep2 + 1, NULL, 10);
+    sep3 = strchr(sep2 + 1, '|');
+    if (!sep3) {
+        send_err("SETDATE", "needs mins|ticks");
+        return;
+    }
+    ticks = strtol(sep3 + 1, NULL, 10);
+
+    if (fs_set_date(path, days, mins, ticks) == 0) {
+        send_ok("SETDATE", path);
+    } else {
+        send_err("SETDATE", path);
+    }
+}
+
+static void handle_volumes_ext(void)
+{
+    sys_handle_volumes_ext();
+}
+
+static void handle_ports(void)
+{
+    sys_handle_ports();
+}
+
+static void handle_sysinfo(void)
+{
+    sys_handle_sysinfo();
+}
+
+static void handle_uptime(void)
+{
+    sys_handle_uptime();
+}
+
+static void handle_reboot(void)
+{
+    send_ok("REBOOT", NULL);
+    /* Small delay to ensure the response is transmitted */
+    Delay(10);
+    ColdReboot();
 }

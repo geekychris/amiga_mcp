@@ -18,9 +18,10 @@ with Claude Code.
 7. [Client Library API](#client-library-api)
 8. [Programming Examples](#programming-examples)
 9. [MCP Tools Reference](#mcp-tools-reference)
-10. [Web UI Reference](#web-ui-reference)
-11. [Scripts & Utilities](#scripts--utilities)
-12. [Future Improvements](#future-improvements)
+10. [Developing Amiga Software with Claude Code](#developing-amiga-software-with-claude-code)
+11. [Web UI Reference](#web-ui-reference)
+12. [Scripts & Utilities](#scripts--utilities)
+13. [Future Improvements](#future-improvements)
 
 ---
 
@@ -41,6 +42,9 @@ Amiga over a serial link.
 - Execute arbitrary AmigaDOS scripts on the Amiga from the host
 - Read and write files on the Amiga filesystem
 - Monitor everything through a web dashboard or Claude Code MCP tools
+- Manage files, assigns, processes, and protection bits without touching the Amiga
+- Verify deployments with CRC32 checksums, tail log files in real-time
+- Full process lifecycle: launch, track, signal, and stop async processes
 
 ```mermaid
 graph LR
@@ -102,8 +106,8 @@ graph TB
     end
 
     subgraph "Layer 3 — Host Server"
-        MCP_TOOLS[MCP Tools<br/>32 tools]
-        WEB_API[Web API<br/>25+ endpoints]
+        MCP_TOOLS[MCP Tools<br/>45+ tools]
+        WEB_API[Web API<br/>80+ endpoints]
         SSE[SSE Event Stream]
         BUILDER[Builder<br/>Docker wrapper]
         DEPLOYER[Deployer<br/>Shared folder copy]
@@ -207,8 +211,8 @@ The heart of the Amiga side. A single process that:
 | `client_registry.c` | Track active clients by name/ID |
 | `protocol_handler.c` | Parse host commands, format responses (~1400 lines) |
 | `system_inspector.c` | Task/lib/device/volume listing, memory inspection |
-| `fs_access.c` | Directory listing, file read/write |
-| `process_launcher.c` | Launch processes (async), path validation, CTRL-C |
+| `fs_access.c` | Directory listing, file read/write, rename, copy, protect, comment, checksum (CRC32), append |
+| `process_launcher.c` | Launch processes (async), path validation, CTRL-C, process tracking (up to 16), signal delivery |
 
 **Key design decisions:**
 
@@ -290,7 +294,7 @@ Read and write to amiga memory from the host.
 | Module | Purpose |
 |---|---|
 | `server.py` | Starlette app, all HTTP/SSE endpoints, PID file singleton |
-| `mcp_tools.py` | 32 MCP tool definitions using FastMCP |
+| `mcp_tools.py` | 45+ MCP tool definitions using FastMCP |
 | `protocol.py` | `parse_message()` and `format_command()` — protocol codec |
 | `serial_conn.py` | `SerialConnection` class — PTY creation, TCP connect, auto-reconnect |
 | `state.py` | `AmigaState` (log buffer, var cache) + `EventBus` (async queue-based pub/sub) |
@@ -587,6 +591,51 @@ fields are pipe-delimited (`|`), maximum 1024 characters per line.
 | LISTMEMREGS | `LISTMEMREGS\|client` | List memory regions |
 | READMEMREG | `READMEMREG\|client\|region` | Read region |
 | CLIENTINFO | `CLIENTINFO\|client` | Get client details |
+
+#### Capabilities & Process Management
+| Command | Format | Description |
+|---|---|---|
+| CAPABILITIES | `CAPABILITIES` | Query daemon version, protocol level, supported commands |
+| PROCLIST | `PROCLIST` | List tracked async processes |
+| PROCSTAT | `PROCSTAT\|id` | Get status of a tracked process |
+| SIGNAL | `SIGNAL\|id\|sigType` | Send signal to tracked process (0=CTRL-C, 1=CTRL-D, 2=CTRL-E, 3=CTRL-F) |
+
+#### Extended Filesystem Operations
+| Command | Format | Description |
+|---|---|---|
+| RENAME | `RENAME\|oldPath\|newPath` | Rename or move a file |
+| COPY | `COPY\|src\|dst` | Copy a file server-side (no host round-trip) |
+| APPEND | `APPEND\|path\|hexData` | Append hex-encoded data to a file |
+| CHECKSUM | `CHECKSUM\|path` | Compute CRC32 checksum and file size |
+| PROTECT | `PROTECT\|path` | Get protection bits |
+| PROTECT | `PROTECT\|path\|bits` | Set protection bits (hex) |
+| SETCOMMENT | `SETCOMMENT\|path\|comment` | Set file comment (filenote) |
+
+#### Assign Management
+| Command | Format | Description |
+|---|---|---|
+| ASSIGNS | `ASSIGNS` | List all DOS assigns |
+| ASSIGN | `ASSIGN\|name\|path` | Create/replace an assign |
+| ASSIGN | `ASSIGN\|name\|path\|ADD` | Add path to multi-assign |
+| ASSIGN | `ASSIGN\|name\|\|REMOVE` | Remove an assign |
+
+#### File Tail (Live Streaming)
+| Command | Format | Description |
+|---|---|---|
+| TAIL | `TAIL\|path` | Start tailing a file for new data |
+| STOPTAIL | `STOPTAIL` | Stop tailing |
+
+### Amiga → Host (New Messages)
+
+| Message | Format | Description |
+|---|---|---|
+| CAPABILITIES | `CAPABILITIES\|version\|protocolLevel\|maxLine\|cmd1,cmd2,...` | Daemon capabilities |
+| PROCLIST | `PROCLIST\|count\|id:cmd:status,...` | Tracked process list |
+| PROCSTAT | `PROCSTAT\|id\|command\|status` | Single process status |
+| TAILDATA | `TAILDATA\|path\|hexData` | New data appended to tailed file |
+| CHECKSUM | `CHECKSUM\|path\|crc32\|size` | File CRC32 and size |
+| ASSIGNS | `ASSIGNS\|count\|name:path:type,...` | Assign list (type: A=assign, L=late, N=nonbinding) |
+| PROTECT | `PROTECT\|path\|bits` | File protection bits (hex) |
 
 ---
 
@@ -930,17 +979,23 @@ All tools are available through Claude Code when connected to the MCP server.
 | `amiga_run_script` | `script` | Execute multi-line AmigaDOS script |
 | `amiga_break` | `name` | Send CTRL-C break to a task |
 | `amiga_stop_client` | `name` | Gracefully stop a bridge client |
+| `amiga_proc_list` | — | List tracked async processes with IDs and status |
+| `amiga_proc_stat` | `proc_id` | Get status of a specific tracked process |
+| `amiga_signal` | `proc_id`, `signal?` | Send signal to tracked process (CTRL_C/D/E/F) |
 
 ### System Information
 
 | Tool | Parameters | Description |
 |---|---|---|
+| `amiga_capabilities` | — | Query daemon version, protocol level, and supported commands |
 | `amiga_list_clients` | — | List connected bridge clients |
 | `amiga_list_tasks` | — | List all running tasks/processes |
 | `amiga_list_libs` | — | List loaded libraries with versions |
 | `amiga_lib_info` | `name` | Detailed library info: version, revision, openCnt, flags, negSize, posSize, base address, ID string |
 | `amiga_dev_info` | `name` | Detailed device info: same fields as lib_info but for devices |
 | `amiga_client_info` | `client` | Detailed info: vars, hooks, memregs |
+| `amiga_list_assigns` | — | List all DOS assigns (logical device assignments) |
+| `amiga_assign` | `name`, `path`, `mode?` | Create, replace, add to, or remove a DOS assign |
 
 ### Filesystem
 
@@ -949,6 +1004,13 @@ All tools are available through Claude Code when connected to the MCP server.
 | `amiga_list_dir` | `path?` | List directory contents |
 | `amiga_read_file` | `path`, `offset?`, `size?` | Read file content (hex) |
 | `amiga_write_file` | `path`, `offset`, `hex_data` | Write hex data to file |
+| `amiga_rename` | `old_path`, `new_path` | Rename or move a file |
+| `amiga_copy` | `src`, `dst` | Copy a file server-side (no host round-trip) |
+| `amiga_append_file` | `path`, `hex_data` | Append hex-encoded data to a file |
+| `amiga_checksum` | `path` | Compute CRC32 checksum and file size |
+| `amiga_protect` | `path`, `bits?` | Get or set AmigaOS protection bits |
+| `amiga_set_comment` | `path`, `comment` | Set file comment (filenote) |
+| `amiga_tail` | `path`, `duration_ms?` | Stream live file appends (log monitoring) |
 
 ### Hooks & Memory Regions
 
@@ -1018,6 +1080,13 @@ line changes, and crash reports include symbolic register annotations and stack 
 | `amiga_input_key` | `rawkey`, `direction?` | Inject a keyboard event via input.device (raw key code) |
 | `amiga_input_mouse_move` | `dx`, `dy` | Inject a relative mouse move event |
 | `amiga_input_click` | `button?`, `direction?` | Inject a mouse button press/release |
+
+### ARexx
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_arexx_ports` | — | List all ARexx message ports (running ARexx-aware apps) |
+| `amiga_arexx_send` | `port`, `command` | Send an ARexx command to a named port and get the result |
 
 ### Font Browser
 
@@ -1117,6 +1186,141 @@ are maintained server-side across sessions.
 |---|---|---|
 | `amiga_create_project` | `name`, `template?` | Create new example project (window/screen/headless) |
 | `amiga_run` | `project`, `command?` | Deploy and launch (skip build) |
+
+---
+
+## Developing Amiga Software with Claude Code
+
+This section explains how the MCP tools, REST API, and web UI work together to create a modern development workflow for the Amiga — all driven from Claude Code on a Mac.
+
+### The Development Loop
+
+The typical cycle when building Amiga software with Claude Code:
+
+1. **Write code** — Claude edits C source files on macOS
+2. **Build** — `amiga_build("myproject")` cross-compiles via Docker
+3. **Deploy** — `amiga_deploy("myproject")` copies the binary to the shared folder
+4. **Run** — `amiga_launch("DH2:Dev/myproject")` starts it on the Amiga
+5. **Observe** — `amiga_watch_logs()` streams output, `amiga_get_var()` reads state
+6. **Debug** — `amiga_inspect_memory()`, `amiga_last_crash()`, `amiga_disassemble()`
+7. **Iterate** — `amiga_stop_client()`, fix code, repeat from step 2
+
+Or in one shot: `amiga_build_deploy_run("myproject")` does steps 2-4 together.
+
+### How Each Tool Category Helps
+
+#### Build & Deploy Tools
+Claude can write C code, compile it, and deploy without you ever touching a terminal. The persistent Docker container makes rebuilds fast (~1-2 seconds). `amiga_checksum()` verifies the deployed binary matches what was built — essential when debugging "why isn't my change showing up?" issues.
+
+#### Process Management
+After launching a program, Claude can track it with `amiga_proc_list()` and `amiga_proc_stat()`. If a program hangs, `amiga_signal()` sends CTRL-C/D/E/F without needing the Amiga keyboard. `amiga_stop_client()` gracefully shuts down bridge-aware apps. This makes the Amiga act like a headless build target — you never need to interact with the emulator window during normal development.
+
+#### File Operations
+Claude can manage the Amiga filesystem directly:
+- **`amiga_rename`/`amiga_copy`** — reorganize project files without AmigaDOS commands
+- **`amiga_protect`** — set executable/script bits after deploying
+- **`amiga_set_comment`** — tag files with version info or build timestamps
+- **`amiga_append_file`** — write to log files or config files incrementally
+- **`amiga_tail`** — watch a log file in real-time (like `tail -f` on Unix)
+
+These run server-side on the Amiga, avoiding slow serial round-trips for bulk operations.
+
+#### System Inspection
+When something goes wrong, Claude can query the Amiga's state comprehensively:
+- **`amiga_list_tasks`** — see all running processes, find runaway tasks
+- **`amiga_list_libs`** / **`amiga_lib_info`** — check library versions, verify a library loaded
+- **`amiga_list_assigns`** / **`amiga_assign`** — manage logical assigns (crucial for AmigaOS path resolution)
+- **`amiga_capabilities`** — verify which protocol commands the daemon supports
+- **`amiga_inspect_memory`** — read any memory address (chip RAM, fast RAM, ROM)
+
+#### Debugging
+The most powerful tools for tracking down bugs:
+- **`amiga_last_crash`** — when the dreaded Guru Meditation hits, Claude reads the alert code, all registers, and stack data
+- **`amiga_load_symbols`** + **`amiga_lookup_symbol`** — map crash addresses back to C source lines
+- **`amiga_disassemble`** — inspect generated 68k code with LVO annotations
+- **`amiga_watch_logs`** — stream app debug output in real-time
+- **`amiga_get_var`** / **`amiga_set_var`** — read and write instrumented variables while the app runs
+
+#### Remote Control
+Claude can interact with the Amiga's GUI without screen access:
+- **`amiga_input_key`/`amiga_input_click`/`amiga_input_mouse_move`** — simulate user input
+- **`amiga_screenshot`** — see what's on screen
+- **`amiga_list_screens`/`amiga_list_screen_windows`** — understand the current UI state
+
+### REST API Endpoints (New)
+
+The web UI and external tools can call these HTTP endpoints directly:
+
+#### Capabilities & Process Management
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/tools/capabilities` | GET | Query daemon version and supported commands |
+| `/api/tools/proclist` | GET | List tracked async processes |
+| `/api/tools/signal` | POST | Send signal to tracked process (`id`, `sigType`) |
+
+#### Extended File Operations
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/tools/checksum` | GET | CRC32 + size for a file (`path`) |
+| `/api/tools/protect` | GET/POST | Get or set protection bits (`path`, `bits?`) |
+| `/api/tools/rename` | POST | Rename a file (`oldPath`, `newPath`) |
+| `/api/tools/copy` | POST | Copy a file server-side (`src`, `dst`) |
+| `/api/tools/tail` | GET (SSE) | Stream live file appends (`path`) |
+
+#### Assign Management (Native Protocol)
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/tools/assigns` | GET | List all DOS assigns (native ASSIGNS command) |
+| `/api/tools/assign/set` | POST | Create/replace/add assign (native ASSIGN command) |
+
+### Example: Full Debugging Session
+
+```
+You: "My bouncing_ball app crashes after a few seconds"
+
+Claude: [builds and deploys the project]
+  amiga_build_deploy_run("bouncing_ball")
+
+Claude: [watches the crash happen]
+  amiga_watch_logs(duration_ms=30000)
+  → CLOG|bouncing_ball|I|1234|Starting...
+  → CLOG|bouncing_ball|I|1567|Frame 100
+  → [crash]
+
+Claude: [reads the crash report]
+  amiga_last_crash()
+  → Alert: 80000004 (Access Fault)
+  → PC: 0040A2B8, SR: 0000
+  → D0=00000000 A0=DEADBEEF ...
+
+Claude: [maps the crash address to source]
+  amiga_load_symbols("bouncing_ball")
+  amiga_lookup_symbol("0040A2B8")
+  → bouncing_ball.c:142 in draw_ball()
+
+Claude: [inspects the source, finds the bug, fixes it, rebuilds]
+  amiga_build_deploy_run("bouncing_ball")
+  → Build OK → Deploy OK → Running
+```
+
+### Example: File Verification Workflow
+
+```
+You: "Deploy my app and verify it's correct"
+
+Claude:
+  amiga_build("myapp")
+  amiga_deploy("myapp")
+  amiga_checksum("DH2:Dev/myapp")
+  → CRC32: a1b2c3d4, Size: 12340 bytes
+
+  # Compare with local build
+  # CRC matches → deployment verified
+
+  amiga_protect("DH2:Dev/myapp", "00000000")  # Ensure rwed bits set
+  amiga_launch("DH2:Dev/myapp")
+  amiga_tail("T:myapp.log", duration_ms=5000)  # Watch the log file
+```
 
 ---
 
@@ -1281,6 +1485,13 @@ The web UI connects to `/api/events` for real-time updates:
 | `libinfo` | `{name, version, revision, openCnt, ...}` | Library detail response |
 | `devinfo` | `{name, version, revision, openCnt, ...}` | Device detail response |
 | `libfuncs` | `{name, page, totalPages, entries: [...]}` | Library jump table entries |
+| `capabilities` | `{version, protocolLevel, maxLine, commands}` | Daemon capabilities response |
+| `proclist` | `{count, processes: [{id, command, status}]}` | Tracked process list |
+| `procstat` | `{id, command, status}` | Single process status |
+| `taildata` | `{path, data}` | New data appended to tailed file |
+| `checksum` | `{path, crc32, size}` | File checksum response |
+| `assigns` | `{count, assigns: [{name, path, assignType}]}` | Assign list response |
+| `protect` | `{path, bits}` | Protection bits response |
 | `connected` | `{}` | Status indicator → green |
 | `disconnected` | `{}` | Status indicator → red |
 
@@ -1344,14 +1555,14 @@ working in this project directory.
 - **Build error parsing**: Parse GCC error output and map to source files on the host for clickable error navigation.
 - **Auto-rebuild on save**: Watch source files and trigger build+deploy+relaunch automatically.
 - **Multiple target configs**: Support different CPU targets (68000, 68020, 68040) and memory configurations.
-- **Unit test framework**: Lightweight test harness that runs on the Amiga and reports results via the bridge.
+- **Unit test framework**: ~~Lightweight test harness that runs on the Amiga and reports results via the bridge~~ *(done — `ab_test_begin`/`AB_ASSERT`/`ab_test_end` + `amiga_run_tests` MCP tool)*.
 
 ### Protocol & Communication
 
 - **Binary protocol option**: Replace text protocol with a compact binary format for higher throughput (especially for large memory dumps).
 - **Compression**: Compress large transfers (file reads, memory dumps) to reduce serial bandwidth.
 - **Flow control**: Implement proper XON/XOFF or hardware flow control for reliability on real hardware.
-- **Checksum/CRC**: Add integrity checking for serial data (bit errors on real serial links).
+- **Checksum/CRC**: ~~Add integrity checking for serial data~~ *(done — CRC32 file checksums via `amiga_checksum`)*. Still needed: per-message CRC for serial link integrity.
 - **Multi-serial**: Support multiple serial connections for parallel debugging of networked Amiga setups.
 
 ### Web UI
@@ -1380,8 +1591,8 @@ working in this project directory.
 
 ### AmigaOS Integration
 
-- **Intuition event forwarding**: Forward mouse clicks and keyboard events from the host to the Amiga (remote control).
-- **Clipboard bridge**: Share clipboard between host and Amiga.
-- **Assign management**: Create/modify/remove Amiga assigns from the host.
-- **Preference editing**: Read and write AmigaOS preference files from the host.
+- **Intuition event forwarding**: ~~Forward mouse clicks and keyboard events from the host to the Amiga~~ *(done — `amiga_input_key`, `amiga_input_mouse_move`, `amiga_input_click`)*.
+- **Clipboard bridge**: ~~Share clipboard between host and Amiga~~ *(done — Clipboard Bridge in web UI + CLIPGET/CLIPSET protocol)*.
+- **Assign management**: ~~Create/modify/remove Amiga assigns from the host~~ *(done — `amiga_list_assigns`, `amiga_assign` + ASSIGNS protocol + web UI Assign Manager)*.
+- **Preference editing**: ~~Read and write AmigaOS preference files from the host~~ *(done — Preferences Editor in web UI)*.
 - **Package manager**: Simple system for installing/removing Amiga software via the bridge.

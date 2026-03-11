@@ -566,6 +566,21 @@ class SerialConnection:
         elif msg_type == "PROTECT":
             self._event_bus.publish("protect", msg)
 
+        elif msg_type == "VERSION":
+            self._event_bus.publish("version", msg)
+
+        elif msg_type == "ENV":
+            self._event_bus.publish("env", msg)
+
+        elif msg_type == "PORTS":
+            self._event_bus.publish("ports", msg)
+
+        elif msg_type == "SYSINFO":
+            self._event_bus.publish("sysinfo", msg)
+
+        elif msg_type == "UPTIME":
+            self._event_bus.publish("uptime", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

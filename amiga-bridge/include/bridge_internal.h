@@ -109,6 +109,9 @@ void protocol_send_raw(const char *line);
 extern ULONG g_tx_count;
 extern ULONG g_rx_count;
 
+/* Shutdown flag - set by protocol handler, checked by main loop */
+extern BOOL g_shutdown_requested;
+
 /* ---- system_inspector.c ---- */
 int sys_list_tasks(char *buf, int bufSize);
 int sys_list_libs(char *buf, int bufSize);
@@ -125,6 +128,12 @@ void sys_handle_search(const char *args);
 void sys_handle_libinfo(const char *name);
 void sys_handle_devinfo(const char *name);
 void sys_handle_libfuncs(const char *args);
+void sys_handle_volumes_ext(void);
+void sys_handle_ports(void);
+void sys_handle_sysinfo(void);
+void sys_init_uptime(void);
+void sys_handle_uptime(void);
+int sys_signal_task_by_addr(ULONG addr, ULONG sigMask);
 
 /* ---- fs_access.c ---- */
 int fs_list_dir(const char *path, char *buf, int bufSize);
@@ -233,6 +242,9 @@ int fs_protect(const char *path, ULONG *bits, int setMode);
 int fs_set_comment(const char *path, const char *comment);
 int fs_checksum(const char *path, ULONG *crc32Out, ULONG *sizeOut);
 int fs_append(const char *path, const UBYTE *data, ULONG size);
+int fs_get_env(const char *name, int archive, char *buf, int bufSize);
+int fs_set_env(const char *name, const char *value, int archive);
+int fs_set_date(const char *path, LONG days, LONG mins, LONG ticks);
 
 /* ---- system_inspector.c (new) ---- */
 int sys_list_assigns(char *buf, int bufSize);

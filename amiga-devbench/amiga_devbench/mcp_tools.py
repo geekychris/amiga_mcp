@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -595,11 +596,11 @@ async def amiga_client_info(client: str) -> str:
 
 
 @mcp.tool()
-async def amiga_stop_client(name: str) -> str:
-    """Stop a running Amiga client process (sends CTRL-C, then SHUTDOWN if needed)."""
+async def amiga_stop_client(name: str, signal: str = "CTRLC") -> str:
+    """Stop a running Amiga client process. Signal can be CTRLC (default), CTRLD, CTRLE, or CTRLF."""
     conn, state, bus = _require_connected()
     async with bus.subscribe("ok", "err") as queue:
-        conn.send({"type": "STOP", "name": name})
+        conn.send({"type": "STOP", "name": name, "signal": signal})
         deadline = asyncio.get_event_loop().time() + 3.0
         while True:
             remaining = deadline - asyncio.get_event_loop().time()
@@ -1966,3 +1967,185 @@ async def amiga_append_file(path: str, hex_data: str) -> str:
     if err:
         return f"Error: {err.get('message', '?')}"
     return "No response (timeout)"
+
+
+# ─── System Commands ───
+
+AMIGA_EPOCH = datetime(1978, 1, 1)
+
+
+def date_to_amiga(dt: datetime) -> tuple[int, int, int]:
+    """Convert a Python datetime to AmigaOS DateStamp (days, mins, ticks)."""
+    delta = dt - AMIGA_EPOCH
+    days = delta.days
+    mins = dt.hour * 60 + dt.minute
+    ticks = dt.second * 50
+    return days, mins, ticks
+
+
+@mcp.tool()
+async def amiga_version() -> str:
+    """Get AmigaBridge daemon version."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "VERSION"})
+    msg = await bus.wait_for("version", timeout=5.0)
+    if msg:
+        return f"{msg.get('name', 'AmigaBridge')} v{msg.get('major', '?')}.{msg.get('minor', '?')} ({msg.get('date', '')})"
+    return "No response (bridge may not support VERSION)"
+
+
+@mcp.tool()
+async def amiga_get_env(name: str, archive: bool = False) -> str:
+    """Get an AmigaOS environment variable. Set archive=True to read from ENVARC: (persistent) instead of ENV: (volatile)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "GETENV", "name": name, "archive": archive})
+    async with bus.subscribe("env", "err") as queue:
+        try:
+            evt, data = await asyncio.wait_for(queue.get(), timeout=5.0)
+            if evt == "err":
+                return f"Error: {data.get('message', 'Unknown')}"
+            if evt == "env":
+                return f"{data.get('name', name)}={data.get('value', '')}"
+        except asyncio.TimeoutError:
+            pass
+    return "No response (timeout)"
+
+
+@mcp.tool()
+async def amiga_set_env(name: str, value: str, archive: bool = False) -> str:
+    """Set an AmigaOS environment variable. Set archive=True to also save to ENVARC: (persistent)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "SETENV", "name": name, "value": value, "archive": archive})
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "SETENV")
+    if ok:
+        return f"Set {name}={value}" + (" (archived)" if archive else "")
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "SETENV")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+@mcp.tool()
+async def amiga_set_date(path: str, date: str = "") -> str:
+    """Set file modification date. Date format: YYYY-MM-DD HH:MM:SS. Empty = current time."""
+    conn, state, bus = _require_connected()
+    if date:
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return "Error: date must be in YYYY-MM-DD HH:MM:SS format"
+    else:
+        dt = datetime.now()
+    days, mins, ticks = date_to_amiga(dt)
+    conn.send({"type": "SETDATE", "path": path, "days": days, "mins": mins, "ticks": ticks})
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "SETDATE")
+    if ok:
+        return f"Date set on {path}: {dt.strftime('%Y-%m-%d %H:%M:%S')}"
+    err = await bus.wait_for("err", timeout=0.5,
+                             predicate=lambda d: d.get("context") == "SETDATE")
+    if err:
+        return f"Error: {err.get('message', '?')}"
+    return "No response (timeout)"
+
+
+@mcp.tool()
+async def amiga_list_volumes() -> str:
+    """List mounted volumes/filesystems with usage statistics."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "VOLUMES"})
+    msg = await bus.wait_for("volumes", timeout=5.0)
+    if msg:
+        volumes = msg.get("volumes", [])
+        if not volumes:
+            return "No volumes found"
+        lines = [f"Volumes ({len(volumes)}):"]
+        for v in volumes:
+            name = v.get("name", "?")
+            handler = v.get("handler", "")
+            state_str = v.get("state", "")
+            used = v.get("usedKB", 0)
+            free = v.get("freeKB", 0)
+            total = used + free
+            lines.append(f"  {name:20s} {handler:12s} {state_str:8s} {used:>8d}KB / {total:>8d}KB ({free}KB free)")
+        return "\n".join(lines)
+    return "No response (bridge may not support VOLUMES)"
+
+
+@mcp.tool()
+async def amiga_list_ports() -> str:
+    """List all public message ports on the Amiga."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "PORTS"})
+    msg = await bus.wait_for("ports", timeout=5.0)
+    if msg:
+        ports = msg.get("ports", [])
+        if not ports:
+            return "No public ports found"
+        lines = [f"Public Message Ports ({len(ports)}):"]
+        for p in ports:
+            lines.append(f"  {p}")
+        return "\n".join(lines)
+    return "No response (bridge may not support PORTS)"
+
+
+@mcp.tool()
+async def amiga_sysinfo() -> str:
+    """Get aggregated system information: memory, CPU, exec version, PAL/NTSC."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "SYSINFO"})
+    msg = await bus.wait_for("sysinfo", timeout=5.0)
+    if msg:
+        chip_free = msg.get("chipFree", 0)
+        fast_free = msg.get("fastFree", 0)
+        chip_total = msg.get("chipTotal", 0)
+        fast_total = msg.get("fastTotal", 0)
+        vblank = msg.get("vblankHz", 0)
+        video = "PAL (50Hz)" if vblank == 50 else "NTSC (60Hz)" if vblank == 60 else f"{vblank}Hz"
+        lines = [
+            "System Information:",
+            f"  Exec:     v{msg.get('execVer', '?')}.{msg.get('execRev', '?')}",
+            f"  CPU:      {msg.get('cpuType', '?')}",
+            f"  Video:    {video}",
+            f"  Chip RAM: {chip_free:,} / {chip_total:,} bytes free",
+            f"  Fast RAM: {fast_free:,} / {fast_total:,} bytes free",
+            f"  Total:    {chip_free + fast_free:,} / {chip_total + fast_total:,} bytes free",
+        ]
+        return "\n".join(lines)
+    return "No response (bridge may not support SYSINFO)"
+
+
+@mcp.tool()
+async def amiga_uptime() -> str:
+    """Get AmigaBridge daemon uptime."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "UPTIME"})
+    msg = await bus.wait_for("uptime", timeout=5.0)
+    if msg:
+        secs = msg.get("seconds", 0)
+        hours, remainder = divmod(secs, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"Uptime: {hours}h {minutes}m {seconds}s ({secs} seconds)"
+    return "No response (bridge may not support UPTIME)"
+
+
+@mcp.tool()
+async def amiga_reboot() -> str:
+    """Reboot the Amiga (cold reboot). WARNING: All unsaved work will be lost."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "REBOOT"})
+    return "Reboot command sent"
+
+
+@mcp.tool()
+async def amiga_shutdown() -> str:
+    """Shut down the AmigaBridge daemon cleanly."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "SHUTDOWN"})
+    ok = await bus.wait_for("ok", timeout=5.0,
+                            predicate=lambda d: d.get("context") == "SHUTDOWN")
+    if ok:
+        return "AmigaBridge daemon shutting down"
+    return "Shutdown command sent (no confirmation)"

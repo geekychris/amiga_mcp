@@ -13,6 +13,7 @@
 #include <exec/devices.h>
 #include <dos/dos.h>
 #include <dos/dosextens.h>
+#include <dos/filehandler.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 
@@ -21,6 +22,11 @@
 #include <stdlib.h>
 
 #include "bridge_internal.h"
+
+/* MEMF_TOTAL may not be defined in older NDK headers */
+#ifndef MEMF_TOTAL
+#define MEMF_TOTAL (1UL << 17)
+#endif
 
 extern struct ExecBase *SysBase;
 
@@ -1207,8 +1213,335 @@ void sys_handle_capabilities(void)
         "LISTFONTS,FONTINFO,CHIPLOGSTART,CHIPLOGSTOP,CHIPLOGSNAPSHOT,"
         "POOLSTART,POOLSTOP,POOLS,CLIPGET,CLIPSET,AREXXPORTS,AREXXSEND,"
         "SHUTDOWN,CAPABILITIES,PROCLIST,PROCSTAT,SIGNAL,TAIL,STOPTAIL,"
-        "CHECKSUM,ASSIGNS,ASSIGN,PROTECT,RENAME,SETCOMMENT,COPY,APPEND",
+        "CHECKSUM,ASSIGNS,ASSIGN,PROTECT,RENAME,SETCOMMENT,COPY,APPEND,"
+        "VERSION,GETENV,SETENV,SETDATE,VOLUMES,PORTS,SYSINFO,UPTIME,REBOOT",
         (long)BRIDGE_MAX_LINE);
 
     protocol_send_raw(linebuf);
+}
+
+/*
+ * List volumes with extended info (disk usage).
+ * Format: VOLUMES|count|name:handler:state:usedK:freeK,...
+ * Two-pass approach: collect volume names first, then query Info() individually.
+ */
+void sys_handle_volumes_ext(void)
+{
+    struct DosList *dl;
+    static char linebuf[BRIDGE_MAX_LINE];
+    static char entry[160];
+    static char volnames[32][112]; /* Up to 32 volume names */
+    static int volstate[32];       /* 1=validated, 0=unvalidated */
+    int volcount = 0;
+    int pos = 0;
+    int count = 0;
+    char countStr[16];
+    int headerPos;
+    int vi;
+
+    /* Pass 1: collect volume names and states under DosList lock */
+    dl = LockDosList(LDF_VOLUMES | LDF_READ);
+    while ((dl = NextDosEntry(dl, LDF_VOLUMES)) != NULL) {
+        if (volcount >= 32) break;
+
+        if (dl->dol_Name) {
+            UBYTE *bstr = (UBYTE *)BADDR(dl->dol_Name);
+            int nlen = bstr[0];
+            if (nlen > 107) nlen = 107;
+            CopyMem(bstr + 1, volnames[volcount], nlen);
+            volnames[volcount][nlen] = ':';
+            volnames[volcount][nlen + 1] = '\0';
+        } else {
+            volnames[volcount][0] = '?';
+            volnames[volcount][1] = ':';
+            volnames[volcount][2] = '\0';
+        }
+
+        volstate[volcount] = dl->dol_Task ? 1 : 0;
+        volcount++;
+    }
+    UnLockDosList(LDF_VOLUMES | LDF_READ);
+
+    /* Pass 2: query Info() for each validated volume */
+    sprintf(linebuf, "VOLUMES|");
+    pos = strlen(linebuf);
+    headerPos = pos;
+    memset(linebuf + pos, ' ', 5);
+    pos += 5;
+    linebuf[pos] = '\0';
+
+    for (vi = 0; vi < volcount; vi++) {
+        ULONG usedK = 0;
+        ULONG freeK = 0;
+        const char *state;
+        const char *handler = "dos";
+
+        if (volstate[vi]) {
+            state = "validated";
+
+            /* Try to get disk usage via Info() */
+            {
+                BPTR lock;
+                struct Process *pr;
+                APTR oldWinPtr;
+
+                pr = (struct Process *)FindTask(NULL);
+                oldWinPtr = pr->pr_WindowPtr;
+                pr->pr_WindowPtr = (APTR)-1;
+
+                lock = Lock((CONST_STRPTR)volnames[vi], ACCESS_READ);
+                pr->pr_WindowPtr = oldWinPtr;
+
+                if (lock) {
+                    struct InfoData *id = (struct InfoData *)
+                        AllocMem(sizeof(struct InfoData), MEMF_PUBLIC | MEMF_CLEAR);
+                    if (id) {
+                        if (Info(lock, id)) {
+                            ULONG blockSize = (ULONG)id->id_BytesPerBlock;
+                            ULONG totalBlocks = (ULONG)id->id_NumBlocks;
+                            ULONG usedBlocks = (ULONG)id->id_NumBlocksUsed;
+                            ULONG freeBlocks = totalBlocks - usedBlocks;
+                            usedK = (usedBlocks * blockSize) / 1024;
+                            freeK = (freeBlocks * blockSize) / 1024;
+                        }
+                        FreeMem(id, sizeof(struct InfoData));
+                    }
+                    UnLock(lock);
+                }
+            }
+        } else {
+            state = "unvalidated";
+            handler = "unknown";
+        }
+
+        sprintf(entry, "%s~%s~%s~%lu~%lu",
+            volnames[vi], handler, state,
+            (unsigned long)usedK, (unsigned long)freeK);
+        entry[sizeof(entry) - 1] = '\0';
+
+        if (count > 0) {
+            if (!buf_append_char(linebuf, &pos, BRIDGE_MAX_LINE, ',')) break;
+        }
+        if (!buf_append(linebuf, &pos, BRIDGE_MAX_LINE, entry)) break;
+        count++;
+    }
+
+    sprintf(countStr, "%ld|", (long)count);
+    {
+        int clen = strlen(countStr);
+        int gap = 5 - clen;
+        if (gap > 0) {
+            int entryStart = headerPos + 5;
+            int entryLen = pos - entryStart;
+            memmove(linebuf + headerPos + clen, linebuf + entryStart, entryLen);
+            pos -= gap;
+        }
+        memcpy(linebuf + headerPos, countStr, clen);
+    }
+
+    linebuf[pos] = '\0';
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * List all public message ports.
+ * Format: PORTS|count|name1,name2,...
+ */
+void sys_handle_ports(void)
+{
+    struct Node *node;
+    static char linebuf[BRIDGE_MAX_LINE];
+    int pos = 0;
+    int count = 0;
+    char countStr[16];
+    int headerPos;
+
+    sprintf(linebuf, "PORTS|");
+    pos = strlen(linebuf);
+    headerPos = pos;
+    memset(linebuf + pos, ' ', 5);
+    pos += 5;
+    linebuf[pos] = '\0';
+
+    Forbid();
+
+    for (node = SysBase->PortList.lh_Head;
+         node->ln_Succ != NULL;
+         node = node->ln_Succ) {
+        struct MsgPort *port = (struct MsgPort *)node;
+        const char *name = port->mp_Node.ln_Name;
+
+        if (!name || (ULONG)name < 0x100 || (ULONG)name > 0x10000000) {
+            name = "?";
+        }
+
+        if (count > 0) {
+            if (!buf_append_char(linebuf, &pos, BRIDGE_MAX_LINE, ',')) break;
+        }
+        if (!buf_append(linebuf, &pos, BRIDGE_MAX_LINE, name)) break;
+        count++;
+    }
+
+    Permit();
+
+    sprintf(countStr, "%ld|", (long)count);
+    {
+        int clen = strlen(countStr);
+        int gap = 5 - clen;
+        if (gap > 0) {
+            int entryStart = headerPos + 5;
+            int entryLen = pos - entryStart;
+            memmove(linebuf + headerPos + clen, linebuf + entryStart, entryLen);
+            pos -= gap;
+        }
+        memcpy(linebuf + headerPos, countStr, clen);
+    }
+
+    linebuf[pos] = '\0';
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * System info: memory, CPU, exec version, VBlank frequency.
+ * Format: SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz
+ */
+void sys_handle_sysinfo(void)
+{
+    static char linebuf[256];
+    ULONG chipFree, fastFree, chipTotal, fastTotal;
+    UWORD execVer, execRev, vblankHz;
+    UWORD attnFlags;
+    const char *cpuType;
+
+    chipFree = AvailMem(MEMF_CHIP);
+    fastFree = AvailMem(MEMF_FAST);
+
+    /* MEMF_TOTAL is available on v36+ (Kickstart 2.0+) */
+    if (SysBase->LibNode.lib_Version >= 36) {
+        chipTotal = AvailMem(MEMF_CHIP | MEMF_TOTAL);
+        fastTotal = AvailMem(MEMF_FAST | MEMF_TOTAL);
+    } else {
+        chipTotal = 0;
+        fastTotal = 0;
+    }
+
+    execVer = SysBase->LibNode.lib_Version;
+    execRev = SysBase->LibNode.lib_Revision;
+    vblankHz = SysBase->VBlankFrequency;
+    attnFlags = SysBase->AttnFlags;
+
+    /* Determine CPU type from AttnFlags bits */
+    if (attnFlags & (1 << 4)) {
+        cpuType = "68060";
+    } else if (attnFlags & (1 << 3)) {
+        cpuType = "68040";
+    } else if (attnFlags & (1 << 2)) {
+        cpuType = "68030";
+    } else if (attnFlags & (1 << 1)) {
+        cpuType = "68020";
+    } else if (attnFlags & (1 << 0)) {
+        cpuType = "68010";
+    } else {
+        cpuType = "68000";
+    }
+
+    sprintf(linebuf, "SYSINFO|%lu|%lu|%lu|%lu|%ld|%ld|%s|%ld",
+        (unsigned long)chipFree,
+        (unsigned long)fastFree,
+        (unsigned long)chipTotal,
+        (unsigned long)fastTotal,
+        (long)execVer,
+        (long)execRev,
+        cpuType,
+        (long)vblankHz);
+
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Uptime tracking - stores daemon start time.
+ */
+static struct DateStamp g_start_datestamp;
+static BOOL g_uptime_initialized = FALSE;
+
+void sys_init_uptime(void)
+{
+    DateStamp(&g_start_datestamp);
+    g_uptime_initialized = TRUE;
+}
+
+/*
+ * Report seconds since daemon startup.
+ * Format: UPTIME|seconds
+ */
+void sys_handle_uptime(void)
+{
+    static char linebuf[64];
+    struct DateStamp now;
+    LONG seconds;
+
+    if (!g_uptime_initialized) {
+        sys_init_uptime();
+    }
+
+    DateStamp(&now);
+
+    seconds = (now.ds_Days - g_start_datestamp.ds_Days) * 86400L
+            + (now.ds_Minute - g_start_datestamp.ds_Minute) * 60L
+            + (now.ds_Tick - g_start_datestamp.ds_Tick) / TICKS_PER_SECOND;
+
+    sprintf(linebuf, "UPTIME|%ld", (long)seconds);
+    protocol_send_raw(linebuf);
+}
+
+/*
+ * Signal a task by raw address.
+ * Validates address is in TaskReady or TaskWait lists before signaling.
+ * Returns 0 on success, -1 if address not found in task lists.
+ */
+int sys_signal_task_by_addr(ULONG addr, ULONG sigMask)
+{
+    struct Node *node;
+    struct Task *target = NULL;
+
+    if (addr < 0x100) return -1;
+
+    Forbid();
+
+    /* Check current task */
+    if ((ULONG)SysBase->ThisTask == addr) {
+        target = SysBase->ThisTask;
+    }
+
+    /* Check ready list */
+    if (!target) {
+        for (node = SysBase->TaskReady.lh_Head;
+             node->ln_Succ != NULL;
+             node = node->ln_Succ) {
+            if ((ULONG)node == addr) {
+                target = (struct Task *)node;
+                break;
+            }
+        }
+    }
+
+    /* Check wait list */
+    if (!target) {
+        for (node = SysBase->TaskWait.lh_Head;
+             node->ln_Succ != NULL;
+             node = node->ln_Succ) {
+            if ((ULONG)node == addr) {
+                target = (struct Task *)node;
+                break;
+            }
+        }
+    }
+
+    if (target) {
+        Signal(target, sigMask);
+    }
+
+    Permit();
+
+    return target ? 0 : -1;
 }

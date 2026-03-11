@@ -67,7 +67,7 @@ async def api_events(request: Request) -> EventSourceResponse:
         async with _event_bus.subscribe("log", "heartbeat", "var", "connected",
                                         "disconnected", "clients", "tasks", "dir",
                                         "emulator_status", "crash", "snoop",
-                                        "test") as queue:
+                                        "test", "taildata") as queue:
             while True:
                 try:
                     evt, data = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -118,6 +118,11 @@ async def api_events(request: Request) -> EventSourceResponse:
                         yield {"event": "snoop", "data": json.dumps(data)}
                     elif evt == "test":
                         yield {"event": "test", "data": json.dumps(data)}
+                    elif evt == "taildata":
+                        yield {"event": "taildata", "data": json.dumps({
+                            "path": data.get("path"),
+                            "data": data.get("data"),
+                        })}
 
                 except asyncio.TimeoutError:
                     # Send keepalive comment
@@ -286,7 +291,7 @@ async def api_volumes(request: Request) -> JSONResponse:
 
     msg = await _event_bus.wait_for("volumes", timeout=5.0)
     if msg:
-        return JSONResponse({"volumes": msg.get("names", [])})
+        return JSONResponse({"volumes": msg.get("volumes", [])})
     return JSONResponse({"volumes": [], "message": "No response"})
 
 
@@ -625,7 +630,8 @@ async def api_stop(request: Request) -> JSONResponse:
         return JSONResponse({"error": "Missing name"}, status_code=400)
     async with _event_bus.subscribe("ok", "err") as queue:
         try:
-            _conn.send({"type": "STOP", "name": name})
+            signal = body.get("signal", "CTRLC")
+            _conn.send({"type": "STOP", "name": name, "signal": signal})
         except Exception as e:
             return JSONResponse({"error": str(e)})
         deadline = asyncio.get_event_loop().time() + 3.0
@@ -2880,6 +2886,296 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             except asyncio.TimeoutError:
                 return JSONResponse({"error": "Timeout"}, status_code=504)
 
+    # ---- Protocol-Native Tools ----
+    async def api_tool_capabilities(request: Request) -> JSONResponse:
+        """Query bridge capabilities."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CAPABILITIES"})
+        msg = await _event_bus.wait_for("capabilities", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_proclist(request: Request) -> JSONResponse:
+        """List running processes."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "PROCLIST"})
+        msg = await _event_bus.wait_for("proclist", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_signal(request: Request) -> JSONResponse:
+        """Send a signal to a task."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        task_id = body.get("id", "")
+        sig_type = body.get("sigType", "")
+        if not task_id or not sig_type:
+            return JSONResponse({"error": "Missing id or sigType"}, status_code=400)
+        _conn.send({"type": "SIGNAL", "id": task_id, "sigType": sig_type})
+        msg = await _event_bus.wait_for("ok", timeout=5.0, predicate=lambda m: m.get("context") == "SIGNAL")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_checksum(request: Request) -> JSONResponse:
+        """Compute checksum of a file."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        path = request.query_params.get("path", "")
+        if not path:
+            return JSONResponse({"error": "Missing path"}, status_code=400)
+        _conn.send({"type": "CHECKSUM", "path": path})
+        msg = await _event_bus.wait_for("checksum", timeout=10.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_protect(request: Request) -> JSONResponse:
+        """Get or set file protection bits."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        if request.method == "POST":
+            body = await request.json()
+            path = body.get("path", "")
+            bits = body.get("bits", "")
+            if not path or not bits:
+                return JSONResponse({"error": "Missing path or bits"}, status_code=400)
+            _conn.send({"type": "PROTECT", "path": path, "bits": bits})
+        else:
+            path = request.query_params.get("path", "")
+            if not path:
+                return JSONResponse({"error": "Missing path"}, status_code=400)
+            _conn.send({"type": "PROTECT", "path": path})
+        msg = await _event_bus.wait_for("protect", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_rename(request: Request) -> JSONResponse:
+        """Rename a file or directory."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        old_path = body.get("oldPath", "")
+        new_path = body.get("newPath", "")
+        if not old_path or not new_path:
+            return JSONResponse({"error": "Missing oldPath or newPath"}, status_code=400)
+        _conn.send({"type": "RENAME", "oldPath": old_path, "newPath": new_path})
+        msg = await _event_bus.wait_for("ok", timeout=5.0, predicate=lambda m: m.get("context") == "RENAME")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_copy(request: Request) -> JSONResponse:
+        """Copy a file."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        src = body.get("src", "")
+        dst = body.get("dst", "")
+        if not src or not dst:
+            return JSONResponse({"error": "Missing src or dst"}, status_code=400)
+        _conn.send({"type": "COPY", "src": src, "dst": dst})
+        msg = await _event_bus.wait_for("ok", timeout=10.0, predicate=lambda m: m.get("context") == "COPY")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_set_comment(request: Request) -> JSONResponse:
+        """Set a file comment."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        path = body.get("path", "")
+        comment = body.get("comment", "")
+        if not path:
+            return JSONResponse({"error": "Missing path"}, status_code=400)
+        _conn.send({"type": "SETCOMMENT", "path": path, "comment": comment})
+        msg = await _event_bus.wait_for("ok", timeout=5.0, predicate=lambda m: m.get("context") == "SETCOMMENT")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_append(request: Request) -> JSONResponse:
+        """Append hex data to a file."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        path = body.get("path", "")
+        hex_data = body.get("hexData", "")
+        if not path or not hex_data:
+            return JSONResponse({"error": "Missing path or hexData"}, status_code=400)
+        _conn.send({"type": "APPEND", "path": path, "hexData": hex_data})
+        msg = await _event_bus.wait_for("ok", timeout=5.0, predicate=lambda m: m.get("context") == "APPEND")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_tail_start(request: Request) -> JSONResponse:
+        """Start tailing a file."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        path = body.get("path", "")
+        if not path:
+            return JSONResponse({"error": "Missing path"}, status_code=400)
+        _conn.send({"type": "TAIL", "path": path})
+        msg = await _event_bus.wait_for("ok", timeout=5.0, predicate=lambda m: m.get("context") == "TAIL")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_tail_stop(request: Request) -> JSONResponse:
+        """Stop tailing a file."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "STOPTAIL"})
+        msg = await _event_bus.wait_for("ok", timeout=5.0, predicate=lambda m: m.get("context") == "STOPTAIL")
+        if msg:
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ─── New System API Routes ───
+
+    async def api_tool_version(request: Request) -> JSONResponse:
+        """Get AmigaBridge daemon version."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "VERSION"})
+        msg = await _event_bus.wait_for("version", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_get_env(request: Request) -> JSONResponse:
+        """Get an AmigaOS environment variable."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        name = request.query_params.get("name", "")
+        archive = request.query_params.get("archive", "false").lower() == "true"
+        if not name:
+            return JSONResponse({"error": "Missing name"}, status_code=400)
+        _conn.send({"type": "GETENV", "name": name, "archive": archive})
+        async with _event_bus.subscribe("env", "err") as queue:
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=5.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "Unknown")})
+                if evt == "env":
+                    return JSONResponse(data)
+            except asyncio.TimeoutError:
+                pass
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_set_env(request: Request) -> JSONResponse:
+        """Set an AmigaOS environment variable."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        name = body.get("name", "")
+        value = body.get("value", "")
+        archive = body.get("archive", False)
+        if not name:
+            return JSONResponse({"error": "Missing name"}, status_code=400)
+        _conn.send({"type": "SETENV", "name": name, "value": value, "archive": archive})
+        msg = await _event_bus.wait_for("ok", timeout=5.0,
+                                         predicate=lambda m: m.get("context") == "SETENV")
+        if msg:
+            return JSONResponse({"status": "ok", "name": name, "value": value})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_set_date(request: Request) -> JSONResponse:
+        """Set file modification date."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        path = body.get("path", "")
+        date_str = body.get("date", "")
+        if not path:
+            return JSONResponse({"error": "Missing path"}, status_code=400)
+        from datetime import datetime as _dt
+        AMIGA_EPOCH = _dt(1978, 1, 1)
+        if date_str:
+            try:
+                dt = _dt.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return JSONResponse({"error": "date must be YYYY-MM-DD HH:MM:SS"}, status_code=400)
+        else:
+            dt = _dt.now()
+        delta = dt - AMIGA_EPOCH
+        days = delta.days
+        mins = dt.hour * 60 + dt.minute
+        ticks = dt.second * 50
+        _conn.send({"type": "SETDATE", "path": path, "days": days, "mins": mins, "ticks": ticks})
+        msg = await _event_bus.wait_for("ok", timeout=5.0,
+                                         predicate=lambda m: m.get("context") == "SETDATE")
+        if msg:
+            return JSONResponse({"status": "ok", "path": path, "date": dt.strftime("%Y-%m-%d %H:%M:%S")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_list_volumes(request: Request) -> JSONResponse:
+        """List mounted volumes with usage stats."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"volumes": [], "error": "Not connected"})
+        _conn.send({"type": "VOLUMES"})
+        msg = await _event_bus.wait_for("volumes", timeout=5.0)
+        if msg:
+            return JSONResponse({"volumes": msg.get("volumes", [])})
+        return JSONResponse({"volumes": [], "message": "No response"})
+
+    async def api_tool_list_ports(request: Request) -> JSONResponse:
+        """List public message ports."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"ports": [], "error": "Not connected"})
+        _conn.send({"type": "PORTS"})
+        msg = await _event_bus.wait_for("ports", timeout=5.0)
+        if msg:
+            return JSONResponse({"ports": msg.get("ports", [])})
+        return JSONResponse({"ports": [], "message": "No response"})
+
+    async def api_tool_sysinfo_full(request: Request) -> JSONResponse:
+        """Get aggregated system information (memory, CPU, exec version, PAL/NTSC)."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "SYSINFO"})
+        msg = await _event_bus.wait_for("sysinfo", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_uptime(request: Request) -> JSONResponse:
+        """Get AmigaBridge daemon uptime."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "UPTIME"})
+        msg = await _event_bus.wait_for("uptime", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_reboot(request: Request) -> JSONResponse:
+        """Reboot the Amiga."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "REBOOT"})
+        return JSONResponse({"status": "ok", "message": "Reboot command sent"})
+
+    async def api_tool_shutdown_bridge(request: Request) -> JSONResponse:
+        """Shut down the AmigaBridge daemon."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "SHUTDOWN"})
+        msg = await _event_bus.wait_for("ok", timeout=5.0,
+                                         predicate=lambda m: m.get("context") == "SHUTDOWN")
+        if msg:
+            return JSONResponse({"status": "ok", "message": "Bridge shutting down"})
+        return JSONResponse({"status": "ok", "message": "Shutdown sent (no confirmation)"})
+
     # ─── Traffic Log API ───
 
     async def api_traffic_list(request: Request) -> JSONResponse:
@@ -3276,6 +3572,29 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         # Clipboard Bridge
         Route("/api/tools/clipboard/get", api_tool_clipboard_get, methods=["GET"]),
         Route("/api/tools/clipboard/set", api_tool_clipboard_set, methods=["POST"]),
+        # Protocol-native tools
+        Route("/api/tools/capabilities", api_tool_capabilities, methods=["GET"]),
+        Route("/api/tools/proclist", api_tool_proclist, methods=["GET"]),
+        Route("/api/tools/signal", api_tool_signal, methods=["POST"]),
+        Route("/api/tools/checksum", api_tool_checksum, methods=["GET"]),
+        Route("/api/tools/protect", api_tool_protect, methods=["GET", "POST"]),
+        Route("/api/tools/rename", api_tool_rename, methods=["POST"]),
+        Route("/api/tools/copy", api_tool_copy, methods=["POST"]),
+        Route("/api/tools/setcomment", api_tool_set_comment, methods=["POST"]),
+        Route("/api/tools/append", api_tool_append, methods=["POST"]),
+        Route("/api/tools/tail/start", api_tool_tail_start, methods=["POST"]),
+        Route("/api/tools/tail/stop", api_tool_tail_stop, methods=["POST"]),
+        # System tools
+        Route("/api/tools/version", api_tool_version, methods=["GET"]),
+        Route("/api/tools/env/get", api_tool_get_env, methods=["GET"]),
+        Route("/api/tools/env/set", api_tool_set_env, methods=["POST"]),
+        Route("/api/tools/setdate", api_tool_set_date, methods=["POST"]),
+        Route("/api/tools/volumes", api_tool_list_volumes, methods=["GET"]),
+        Route("/api/tools/ports", api_tool_list_ports, methods=["GET"]),
+        Route("/api/tools/sysinfo2", api_tool_sysinfo_full, methods=["GET"]),
+        Route("/api/tools/uptime", api_tool_uptime, methods=["GET"]),
+        Route("/api/tools/reboot", api_tool_reboot, methods=["POST"]),
+        Route("/api/tools/shutdown", api_tool_shutdown_bridge, methods=["POST"]),
         # Files tab endpoints
         Route("/api/file/execute", api_file_execute, methods=["POST"]),
         Route("/api/file/view", api_file_view, methods=["GET"]),

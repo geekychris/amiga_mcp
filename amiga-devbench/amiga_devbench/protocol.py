@@ -8,7 +8,8 @@ Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
                COPPER, SPRITE, CRASH, RESOURCES, PERF, MEMMAP,
                STACKINFO, CHIPREGS, REGS, SEARCH, LIBINFO, DEVINFO,
                SNOOP, SNOOPSTATE, LIBFUNCS, CAPABILITIES, PROCLIST,
-               PROCSTAT, TAILDATA, CHECKSUM, ASSIGNS, PROTECT
+               PROCSTAT, TAILDATA, CHECKSUM, ASSIGNS, PROTECT,
+               VERSION, ENV, PORTS, SYSINFO, UPTIME
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
@@ -20,7 +21,9 @@ Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                SEARCH, LIBINFO, DEVINFO, LIBFUNCS, SNOOPSTART,
                SNOOPSTOP, SNOOPSTATUS, CAPABILITIES, PROCLIST,
                PROCSTAT, SIGNAL, TAIL, STOPTAIL, CHECKSUM, ASSIGNS,
-               ASSIGN, PROTECT, RENAME, SETCOMMENT, COPY, APPEND
+               ASSIGN, PROTECT, RENAME, SETCOMMENT, COPY, APPEND,
+               GETENV, SETENV, SETDATE, VOLUMES, PORTS, SYSINFO,
+               UPTIME, VERSION, REBOOT
 """
 
 from __future__ import annotations
@@ -168,8 +171,9 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "type": "FILEINFO",
             "path": parts[1] if len(parts) > 1 else "",
             "size": _int(parts[2]) if len(parts) > 2 else 0,
-            "date": parts[3] if len(parts) > 3 else "",
-            "prot": parts[4] if len(parts) > 4 else "",
+            "fileType": parts[3] if len(parts) > 3 else "",
+            "protection": parts[4] if len(parts) > 4 else "",
+            "comment": parts[5] if len(parts) > 5 else "",
         }
 
     if msg_type == "PROC":
@@ -205,8 +209,22 @@ def parse_message(line: str) -> dict[str, Any] | None:
 
     if msg_type == "VOLUMES":
         count = _int(parts[1]) if len(parts) > 1 else 0
-        names = [s.strip() for s in parts[2].split(",") if s.strip()] if len(parts) > 2 and parts[2] else []
-        return {"type": "VOLUMES", "count": count, "names": names}
+        volumes_parsed: list[dict] = []
+        if len(parts) > 2 and parts[2]:
+            raw_vols = "|".join(parts[2:])
+            for entry in raw_vols.split(","):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                vp = entry.split("~")
+                volumes_parsed.append({
+                    "name": vp[0] if len(vp) > 0 else "",
+                    "handler": vp[1] if len(vp) > 1 else "",
+                    "state": vp[2] if len(vp) > 2 else "",
+                    "usedKB": _int(vp[3]) if len(vp) > 3 else 0,
+                    "freeKB": _int(vp[4]) if len(vp) > 4 else 0,
+                })
+        return {"type": "VOLUMES", "count": count, "volumes": volumes_parsed}
 
     if msg_type == "PONG":
         return {
@@ -862,6 +880,51 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "bits": parts[2] if len(parts) > 2 else "00000000",
         }
 
+    if msg_type == "VERSION":
+        # Format: VERSION|name|major|minor|date
+        return {
+            "type": "VERSION",
+            "name": parts[1] if len(parts) > 1 else "",
+            "major": _int(parts[2]) if len(parts) > 2 else 0,
+            "minor": _int(parts[3]) if len(parts) > 3 else 0,
+            "date": parts[4] if len(parts) > 4 else "",
+        }
+
+    if msg_type == "ENV":
+        # Format: ENV|name|value
+        return {
+            "type": "ENV",
+            "name": parts[1] if len(parts) > 1 else "",
+            "value": "|".join(parts[2:]) if len(parts) > 2 else "",
+        }
+
+    if msg_type == "PORTS":
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        ports_list: list[str] = []
+        if len(parts) > 2 and parts[2]:
+            ports_list = [p.strip() for p in parts[2].split(",") if p.strip()]
+        return {"type": "PORTS", "count": count, "ports": ports_list}
+
+    if msg_type == "SYSINFO":
+        # Format: SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz
+        return {
+            "type": "SYSINFO",
+            "chipFree": _int(parts[1]) if len(parts) > 1 else 0,
+            "fastFree": _int(parts[2]) if len(parts) > 2 else 0,
+            "chipTotal": _int(parts[3]) if len(parts) > 3 else 0,
+            "fastTotal": _int(parts[4]) if len(parts) > 4 else 0,
+            "execVer": _int(parts[5]) if len(parts) > 5 else 0,
+            "execRev": _int(parts[6]) if len(parts) > 6 else 0,
+            "cpuType": parts[7] if len(parts) > 7 else "",
+            "vblankHz": _int(parts[8]) if len(parts) > 8 else 0,
+        }
+
+    if msg_type == "UPTIME":
+        return {
+            "type": "UPTIME",
+            "seconds": _int(parts[1]) if len(parts) > 1 else 0,
+        }
+
     return None
 
 
@@ -919,6 +982,9 @@ def format_command(cmd: dict[str, Any]) -> str:
     if t == "CLIENTINFO":
         return f"CLIENTINFO|{cmd['client']}"
     if t == "STOP":
+        sig = cmd.get('signal', '')
+        if sig:
+            return f"STOP|{cmd['name']}|{sig}"
         return f"STOP|{cmd['name']}"
     if t == "SCRIPT":
         return f"SCRIPT|{cmd['id']}|{cmd['script']}"
@@ -1069,6 +1135,30 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"COPY|{cmd['src']}|{cmd['dst']}"
     if t == "APPEND":
         return f"APPEND|{cmd['path']}|{cmd['hexData']}"
+    if t == "GETENV":
+        archive = cmd.get('archive', False)
+        if archive:
+            return f"GETENV|{cmd['name']}|1"
+        return f"GETENV|{cmd['name']}"
+    if t == "SETENV":
+        archive = cmd.get('archive', False)
+        if archive:
+            return f"SETENV|{cmd['name']}|{cmd['value']}|1"
+        return f"SETENV|{cmd['name']}|{cmd['value']}"
+    if t == "SETDATE":
+        return f"SETDATE|{cmd['path']}|{cmd['days']}|{cmd['mins']}|{cmd['ticks']}"
+    if t == "VOLUMES":
+        return "VOLUMES"
+    if t == "PORTS":
+        return "PORTS"
+    if t == "SYSINFO":
+        return "SYSINFO"
+    if t == "UPTIME":
+        return "UPTIME"
+    if t == "VERSION":
+        return "VERSION"
+    if t == "REBOOT":
+        return "REBOOT"
     raise ValueError(f"Unknown command type: {t}")
 
 

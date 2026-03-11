@@ -688,6 +688,11 @@
           <div id="dashClients"><span class="empty-state" style="padding:10px;font-size:12px;">No clients</span></div>
         </div>
         <div class="card">
+          <h3>Bridge Capabilities <span class="tool-help" title="Shows the bridge daemon version, protocol level, max line length, and all supported commands. Queries the daemon via the CAPABILITIES protocol command.">?</span></h3>
+          <button class="btn small" onclick="refreshCapabilities()" style="margin-bottom:6px;">Query</button>
+          <div id="dashCaps" style="font-size:11px;color:var(--text-dim);">Click Query to fetch</div>
+        </div>
+        <div class="card">
           <h3>Quick Actions</h3>
           <div class="btn-group">
             <button class="btn" onclick="doPing()">Ping</button>
@@ -726,6 +731,9 @@
           <button class="btn cmd-btn" onclick="cmdQuick('MEMMAP')" data-tip="Show Amiga memory map. Walks ExecBase memory lists to show chip RAM, fast RAM, and ROM regions with free/used breakdown.">MemMap</button>
           <button class="btn cmd-btn" onclick="cmdQuick('CHIPREGS')" data-tip="Read custom chip registers (read-only safe ones). Shows DMACONR, INTENAR, INTREQR, VHPOSR, JOYxDAT, POTGOR, SERDATR with bitfield decoding.">ChipRegs</button>
           <button class="btn cmd-btn" onclick="cmdQuick('SNOOPSTATUS')" data-tip="Check if SnoopDos monitoring is active. Returns current state and event count. Start/stop from the Debug > SnoopDos panel.">SnoopStatus</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('CAPABILITIES')" data-tip="Query bridge daemon capabilities: version, protocol level, max line length, and full list of supported commands.">Caps</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('PROCLIST')" data-tip="List tracked async processes launched via RUN. Shows process ID, command, and running status.">ProcList</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('ASSIGNS')" data-tip="List all AmigaOS logical assigns (SYS:, LIBS:, etc.) with their target paths and types.">Assigns</button>
         </div>
         <div class="command-output" id="cmdOutput">Ready.</div>
       </div>
@@ -789,6 +797,16 @@
             <tr><td colspan="4" class="empty-state">Click Refresh to load tasks</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <h3 style="margin-bottom:8px;">Tracked Processes <span class="tool-help" title="Processes launched via RUN (async) are tracked by the bridge daemon with a unique ID. You can check their status and send signals (CTRL-C, CTRL-D, CTRL-E, CTRL-F) to control them remotely.">?</span></h3>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
+          <button class="btn" onclick="refreshProcList()">Refresh</button>
+          <span style="font-size:12px;color:var(--text-dim);" id="procCount"></span>
+        </div>
+        <div id="procList" style="font-family:var(--mono);font-size:11px;">
+          <span class="empty-state">Click Refresh to load tracked processes</span>
+        </div>
       </div>
     </div>
 
@@ -949,17 +967,11 @@
 
         <!-- IFF Image Viewer -->
         <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">IFF Image Viewer <span class="tool-help" title="Load and display IFF ILBM images from the Amiga filesystem. Browse directories to find .iff/.ilbm files. Decodes planar bitplane data and palette to render as PNG in the browser.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <input type="text" id="iffPath" placeholder="Amiga path (e.g. DH0:pic.iff)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
+          <h3 style="margin-bottom:6px;">IFF Image Viewer <span class="tool-help" title="Load and display IFF ILBM images from the Amiga filesystem. Browse directories to find .iff/.ilbm files. Decodes planar bitplane data and palette to render as PNG in the browser. Type a path directly or use the browser to pick a file.">?</span></h3>
+          <div id="iffPicker"></div>
+          <div style="margin-bottom:6px;">
             <button class="btn" onclick="toolIffView()">View</button>
           </div>
-          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
-            <input type="text" id="iffBrowseDir" value="SYS:" placeholder="Browse directory" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:11px;width:140px;">
-            <button class="btn" onclick="iffBrowse()" style="font-size:11px;padding:4px 8px;">Browse</button>
-            <button class="btn" onclick="iffBrowseUp()" style="font-size:11px;padding:4px 8px;">&#8593; Up</button>
-          </div>
-          <div id="iffBrowser" style="max-height:160px;overflow-y:auto;font-family:var(--mono);font-size:11px;margin-bottom:6px;background:var(--bg-input);border-radius:4px;display:none;"></div>
           <div id="iffResult" style="text-align:center;"></div>
         </div>
 
@@ -994,6 +1006,57 @@
           <h3 style="margin-bottom:6px;">System Info <span class="tool-help" title="Comprehensive system overview: memory status, running tasks, loaded libraries, mounted volumes. Aggregates multiple queries into one dashboard.">?</span></h3>
           <button class="btn" onclick="toolSysInfo()" style="margin-bottom:8px;">Refresh</button>
           <div id="sysinfoResult"></div>
+        </div>
+
+        <!-- Bridge Version & System Hardware -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Bridge Info <span class="tool-help" title="AmigaBridge daemon version, build date, and uptime. Also shows hardware info: CPU type, exec version, VBlank frequency (PAL/NTSC).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_version</code> / <code>amiga_uptime</code> / <code>amiga_sysinfo</code></div>
+          <button class="btn" onclick="toolBridgeInfo()" style="margin-bottom:8px;">Refresh</button>
+          <div id="bridgeInfoResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- Volumes (Extended) -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Volumes <span class="tool-help" title="Mounted volumes with disk usage statistics. Shows handler type, validation state, and used/free space.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_list_volumes</code></div>
+          <button class="btn" onclick="toolVolumesExt()" style="margin-bottom:8px;">Refresh</button>
+          <div id="volumesExtResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- Exec Ports -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Exec Ports <span class="tool-help" title="List all public Exec message ports. These are named IPC endpoints used by AmigaOS for inter-process communication (e.g. WORKBENCH, AMIGABRIDGE).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_list_ports</code></div>
+          <button class="btn" onclick="toolExecPorts()" style="margin-bottom:8px;">Refresh</button>
+          <div id="execPortsResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- Environment Variables -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Environment Variables <span class="tool-help" title="Read and write AmigaOS environment variables. Variables are stored in ENV: (volatile, RAM) and optionally persisted to ENVARC: (survives reboot). Check 'Persist' to write to both ENV: and ENVARC:.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_get_env</code> / <code>amiga_set_env</code></div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;">
+            <input id="envVarName" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;" placeholder="variable name">
+            <button class="btn" onclick="toolGetEnv()">Get</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;align-items:center;">
+            <input id="envVarValue" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;" placeholder="value">
+            <label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:3px;white-space:nowrap;"><input type="checkbox" id="envPersist"> Persist</label>
+            <button class="btn" onclick="toolSetEnv()">Set</button>
+          </div>
+          <div id="envResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
+        <!-- System Control -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">System Control <span class="tool-help" title="Shutdown the AmigaBridge daemon or reboot the entire Amiga. Shutdown exits the bridge cleanly; Reboot performs a ColdReboot(). Both are destructive actions requiring confirmation.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_shutdown</code> / <code>amiga_reboot</code></div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button class="btn" onclick="toolShutdownBridge()" style="background:var(--yellow);color:#000;">Shutdown Bridge</button>
+            <button class="btn-danger" onclick="toolReboot()">Reboot Amiga</button>
+          </div>
+          <div id="sysControlResult" style="font-family:var(--mono);font-size:11px;"></div>
         </div>
 
         <!-- Intuition Inspector -->
@@ -1199,6 +1262,44 @@
           <h3 style="margin-bottom:6px;">Boot Log <span class="tool-help" title="Shows all log messages from the current session, capturing the bridge startup sequence and early app initialization. Useful for diagnosing startup issues.">?</span></h3>
           <button class="btn" onclick="toolBootLog()" style="margin-bottom:8px;">Load Boot Log</button>
           <div id="bootlogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- File Tail -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">File Tail <span class="tool-help" title="Stream live file appends from the Amiga, similar to 'tail -f' on Unix. Monitors a file for new data being written. Useful for watching log files (T:mylog.txt) or build output in real-time. Data is polled every 200ms by the bridge daemon. Type a path directly or use the browser to pick a file.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_tail</code></div>
+          <div id="tailPicker"></div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+            <button class="btn" id="tailStartBtn" onclick="tailStart()">Start</button>
+            <button class="btn" id="tailStopBtn" onclick="tailStop()" style="display:none;">Stop</button>
+            <button class="btn small" onclick="tailClear()">Clear</button>
+            <span id="tailStatus" style="font-size:11px;color:var(--text-dim);"></span>
+          </div>
+          <div id="tailOutput" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:6px;font-family:var(--mono);font-size:11px;color:var(--green);min-height:60px;max-height:300px;overflow-y:auto;white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- File Checksum -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">File Checksum <span class="tool-help" title="Compute CRC32 checksum and file size for any file on the Amiga. Useful for verifying deployments — compare the Amiga-side checksum with your local build to ensure the binary was copied correctly. Type a path directly or use the browser to pick a file.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_checksum</code></div>
+          <div id="checksumPicker"></div>
+          <div style="margin-bottom:6px;">
+            <button class="btn" onclick="toolChecksum()">Checksum</button>
+          </div>
+          <div id="checksumResult" style="font-family:var(--mono);font-size:11px;color:var(--text-primary);"></div>
+        </div>
+
+        <!-- Protection Bits -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Protection Bits <span class="tool-help" title="Get or set AmigaOS file protection bits. Bits: h=hidden, s=script, p=pure, a=archive, r=read, w=write, e=execute, d=delete. The RWED bits are active-low (0=allowed). Enter hex value (e.g. 00000000 for full rwed). Type a path directly or use the browser to pick a file.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">MCP: <code>amiga_protect</code></div>
+          <div id="protectPicker"></div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <button class="btn" onclick="toolProtectGet()">Get</button>
+            <input id="protectBits" style="width:100px;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;" placeholder="00000000">
+            <button class="btn" onclick="toolProtectSet()">Set</button>
+          </div>
+          <div id="protectResult" style="font-family:var(--mono);font-size:11px;color:var(--text-primary);"></div>
         </div>
 
       </div>
@@ -1671,6 +1772,10 @@ function connectSSE() {
     const data = JSON.parse(e.data);
     handleTestEvent(data);
   });
+  eventSource.addEventListener('taildata', (e) => {
+    const data = JSON.parse(e.data);
+    handleTailData(data);
+  });
 
   eventSource.onerror = () => {
     console.log('SSE connection error, will retry...');
@@ -2010,10 +2115,11 @@ async function loadVolumes() {
   const tree = document.getElementById('fileTree');
   const data = await api('/volumes');
   if (data && data.volumes && data.volumes.length > 0) {
-    tree.innerHTML = data.volumes.map(v =>
-      '<div class="tree-item" data-path="' + escapeHtml(v) + '" onclick="navigateDir(\'' + escapeHtml(v) + '\')">' +
-      '<span class="icon">&#128193;</span>' + escapeHtml(v) + '</div>'
-    ).join('');
+    tree.innerHTML = data.volumes.map(v => {
+      const name = typeof v === 'object' ? v.name : v;
+      return '<div class="tree-item" data-path="' + escapeHtml(name) + '" onclick="navigateDir(\'' + escapeHtml(name) + '\')">' +
+      '<span class="icon">&#128193;</span>' + escapeHtml(name) + '</div>';
+    }).join('');
     // Also add common assigns
     tree.innerHTML += '<div style="border-top:1px solid var(--border);margin:6px 0;"></div>';
     ['SYS:', 'S:', 'C:', 'DEVS:', 'LIBS:', 'T:', 'RAM:'].forEach(a => {
@@ -3127,6 +3233,9 @@ function fileActions(path, name, prot) {
   if (isExecutable) {
     html += '<button class="btn small orange" onclick="fileExecute(\'' + escapeHtml(path) + '\')" title="Run">Run</button>';
   }
+  html += '<button class="btn small" onclick="fileChecksum(\'' + escapeHtml(path) + '\')" title="CRC32 checksum and file size">CRC</button>';
+  html += '<button class="btn small" onclick="fileRenamePrompt(\'' + escapeHtml(path) + '\',\'' + escapeHtml(name) + '\')" title="Rename or move file">Ren</button>';
+  html += '<button class="btn small" onclick="fileCopyPrompt(\'' + escapeHtml(path) + '\')" title="Copy file on Amiga (server-side)">Copy</button>';
   // Open With dropdown
   const openWithOptions = getOpenWithOptions(ext, isImage, isAudio, isText);
   if (openWithOptions.length > 0) {
@@ -3488,7 +3597,7 @@ async function toolChipRegs() {
 }
 
 async function toolIffView() {
-  const path = document.getElementById('iffPath').value;
+  const path = _fpGetPath('iffPicker');
   const el = document.getElementById('iffResult');
   if (!path) { el.textContent = 'Enter a path or browse for an IFF file'; return; }
   el.innerHTML = '<span style="color:var(--text-dim);">Loading and decoding...</span>';
@@ -3506,11 +3615,54 @@ async function toolIffView() {
   } catch(e) { el.textContent = 'Error: ' + e.message; }
 }
 
-async function iffBrowse(dir) {
-  const dirInput = document.getElementById('iffBrowseDir');
+// ─── Reusable Mini File Browser ───
+// Creates a file picker widget: path input + browse/up buttons + directory listing.
+// Clicking a file sets the path input. Options:
+//   containerId: DOM id for the container div
+//   inputId: DOM id for the path <input> (auto-generated)
+//   placeholder: placeholder text for the path input
+//   defaultDir: initial browse directory (default 'SYS:')
+//   defaultPath: initial path value (default '')
+//   highlight: regex to highlight matching files (e.g. /\.(iff|ilbm)$/i)
+//   onSelect: callback(path) when a file is clicked (default: just sets input)
+//   fileFilter: 'all' (default) or 'files' to hide dirs in selection
+const _filePickers = {};
+
+function createFilePicker(opts) {
+  const id = opts.containerId;
+  const inputId = opts.inputId || (id + 'Path');
+  const browserId = id + 'Browser';
+  const browseInputId = id + 'BrowseDir';
+  const placeholder = opts.placeholder || 'Amiga file path';
+  const defaultDir = opts.defaultDir || 'SYS:';
+  const defaultPath = opts.defaultPath || '';
+  const highlight = opts.highlight || null;
+  const onSelect = opts.onSelect || null;
+
+  const container = document.getElementById(id);
+  if (!container) return;
+
+  container.innerHTML =
+    '<div style="display:flex;gap:6px;margin-bottom:6px;">' +
+      '<input type="text" id="' + inputId + '" placeholder="' + escapeHtml(placeholder) + '" value="' + escapeHtml(defaultPath) + '" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;flex:1;">' +
+    '</div>' +
+    '<div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">' +
+      '<input type="text" id="' + browseInputId + '" value="' + escapeHtml(defaultDir) + '" placeholder="Browse directory" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:11px;width:140px;">' +
+      '<button class="btn" onclick="_fpBrowse(\'' + id + '\')" style="font-size:11px;padding:4px 8px;">Browse</button>' +
+      '<button class="btn" onclick="_fpUp(\'' + id + '\')" style="font-size:11px;padding:4px 8px;">&#8593; Up</button>' +
+    '</div>' +
+    '<div id="' + browserId + '" style="max-height:160px;overflow-y:auto;font-family:var(--mono);font-size:11px;margin-bottom:6px;background:var(--bg-input);border-radius:4px;display:none;"></div>';
+
+  _filePickers[id] = { inputId, browserId, browseInputId, highlight, onSelect };
+}
+
+async function _fpBrowse(pickerId, dir) {
+  const fp = _filePickers[pickerId];
+  if (!fp) return;
+  const dirInput = document.getElementById(fp.browseInputId);
   const path = dir || dirInput.value;
   dirInput.value = path;
-  const el = document.getElementById('iffBrowser');
+  const el = document.getElementById(fp.browserId);
   el.style.display = 'block';
   el.innerHTML = '<div style="padding:6px;color:var(--text-dim);">Loading...</div>';
   try {
@@ -3527,27 +3679,41 @@ async function iffBrowse(dir) {
     el.innerHTML = sorted.map(e => {
       const childPath = path + sep + e.name;
       const isDir = e.type === 'dir';
-      const isIff = !isDir && /\.(iff|ilbm|lbm|pic|brush)$/i.test(e.name);
+      const isHighlight = !isDir && fp.highlight && fp.highlight.test(e.name);
       if (isDir) {
-        return '<div style="padding:2px 6px;cursor:pointer;color:var(--accent-orange);" onclick="iffBrowse(\'' + escapeHtml(childPath) + '/\')">&#128193; ' + escapeHtml(e.name) + '/</div>';
-      } else if (isIff) {
-        return '<div style="padding:2px 6px;cursor:pointer;color:var(--green);font-weight:600;" onclick="document.getElementById(\'iffPath\').value=\'' + escapeHtml(childPath) + '\';toolIffView();">&#127912; ' + escapeHtml(e.name) + ' <span style="color:var(--text-dim);font-weight:normal;">(' + (e.size||'?') + ')</span></div>';
+        return '<div style="padding:2px 6px;cursor:pointer;color:var(--accent-orange);" onclick="_fpBrowse(\'' + pickerId + '\',\'' + escapeHtml(childPath) + '/\')">&#128193; ' + escapeHtml(e.name) + '/</div>';
       } else {
-        return '<div style="padding:2px 6px;color:var(--text-dim);">&#128196; ' + escapeHtml(e.name) + '</div>';
+        const color = isHighlight ? 'var(--green);font-weight:600' : 'var(--text-primary)';
+        return '<div style="padding:2px 6px;cursor:pointer;color:' + color + ';" onclick="_fpSelect(\'' + pickerId + '\',\'' + escapeHtml(childPath) + '\')">&#128196; ' + escapeHtml(e.name) + ' <span style="color:var(--text-dim);font-weight:normal;">(' + (e.size||'?') + ')</span></div>';
       }
     }).join('');
   } catch(e) { el.innerHTML = '<div style="padding:6px;">Error: ' + e.message + '</div>'; }
 }
 
-function iffBrowseUp() {
-  const dirInput = document.getElementById('iffBrowseDir');
+function _fpUp(pickerId) {
+  const fp = _filePickers[pickerId];
+  if (!fp) return;
+  const dirInput = document.getElementById(fp.browseInputId);
   let path = dirInput.value.replace(/\/+$/, '');
   const lastSep = Math.max(path.lastIndexOf('/'), path.lastIndexOf(':'));
   if (lastSep >= 0) {
     path = path.substring(0, lastSep + 1);
     dirInput.value = path;
-    iffBrowse(path);
+    _fpBrowse(pickerId, path);
   }
+}
+
+function _fpSelect(pickerId, path) {
+  const fp = _filePickers[pickerId];
+  if (!fp) return;
+  document.getElementById(fp.inputId).value = path;
+  if (fp.onSelect) fp.onSelect(path);
+}
+
+function _fpGetPath(pickerId) {
+  const fp = _filePickers[pickerId];
+  if (!fp) return '';
+  return (document.getElementById(fp.inputId)?.value || '').trim();
 }
 
 async function toolSnapshot(action) {
@@ -3661,12 +3827,153 @@ async function toolSysInfo() {
       html += '<div style="margin-bottom:12px;"><h4 style="font-size:12px;color:var(--accent-blue);margin-bottom:6px;text-transform:uppercase;">Volumes</h4>';
       html += '<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;font-family:var(--mono);">';
       for (const v of d.volumes) {
-        html += '<span style="background:var(--bg-input);padding:3px 8px;border-radius:4px;">' + escapeHtml(v) + '</span>';
+        const vn = typeof v === 'object' ? v.name : v;
+        html += '<span style="background:var(--bg-input);padding:3px 8px;border-radius:4px;">' + escapeHtml(vn) + '</span>';
       }
       html += '</div></div>';
     }
 
     el.innerHTML = html || '<span style="color:var(--text-dim);">Not connected — start bridge on the Amiga first</span>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ─── Bridge Info / System Hardware ───
+async function toolBridgeInfo() {
+  const el = document.getElementById('bridgeInfoResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  try {
+    const [vr, ur, sr] = await Promise.all([
+      fetch('/api/tools/version').then(r => r.json()),
+      fetch('/api/tools/uptime').then(r => r.json()),
+      fetch('/api/tools/sysinfo2').then(r => r.json()),
+    ]);
+    let html = '';
+    if (vr && vr.name) {
+      html += '<div style="margin-bottom:8px;">';
+      html += '<span style="color:var(--accent-orange);">' + escapeHtml(vr.name) + '</span> ';
+      html += '<span style="color:var(--green);">v' + vr.major + '.' + vr.minor + '</span>';
+      html += '<br><span style="color:var(--text-dim);">Built: ' + escapeHtml(vr.date || '') + '</span>';
+      html += '</div>';
+    }
+    if (ur && ur.seconds !== undefined) {
+      html += '<div style="margin-bottom:8px;"><span style="color:var(--text-dim);">Uptime:</span> <span style="color:var(--text-primary);">' + formatDuration(ur.seconds) + '</span></div>';
+    }
+    if (sr && sr.cpuType) {
+      html += '<div style="border-top:1px solid var(--border);padding-top:6px;">';
+      const rows = [
+        ['CPU', sr.cpuType],
+        ['Exec', 'v' + sr.execVer + '.' + sr.execRev],
+        ['VBlank', sr.vblankHz + ' Hz (' + (sr.vblankHz === 50 ? 'PAL' : 'NTSC') + ')'],
+        ['Chip RAM', (sr.chipFree/1024).toFixed(0) + ' KB free / ' + (sr.chipTotal/1024).toFixed(0) + ' KB total'],
+        ['Fast RAM', (sr.fastFree/1024).toFixed(0) + ' KB free / ' + (sr.fastTotal/1024).toFixed(0) + ' KB total'],
+      ];
+      for (const [k,v] of rows) {
+        html += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span style="color:var(--text-dim);">' + k + '</span><span style="color:var(--text-primary);">' + escapeHtml(v) + '</span></div>';
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html || '<span style="color:var(--text-dim);">No response</span>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ─── Volumes (Extended) ───
+async function toolVolumesExt() {
+  const el = document.getElementById('volumesExtResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  try {
+    const d = await fetch('/api/tools/volumes').then(r => r.json());
+    if (!d.volumes || d.volumes.length === 0) { el.innerHTML = '<span style="color:var(--text-dim);">No volumes</span>'; return; }
+    let html = '';
+    for (const v of d.volumes) {
+      const totalKB = v.usedKB + v.freeKB;
+      const pct = totalKB > 0 ? Math.round(v.usedKB * 100 / totalKB) : 0;
+      const barColor = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--yellow)' : 'var(--green)';
+      html += '<div style="margin-bottom:8px;padding:6px;background:var(--bg-input);border-radius:4px;">';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
+      html += '<span style="color:var(--accent-orange);">' + escapeHtml(v.name) + '</span>';
+      html += '<span style="color:var(--text-dim);font-size:10px;">' + escapeHtml(v.state || '') + '</span>';
+      html += '</div>';
+      if (totalKB > 0) {
+        html += '<div style="background:rgba(255,255,255,0.1);border-radius:2px;height:6px;margin-bottom:3px;">';
+        html += '<div style="background:' + barColor + ';height:100%;border-radius:2px;width:' + pct + '%;"></div></div>';
+        const usedStr = totalKB >= 1024 ? (v.usedKB/1024).toFixed(1) + ' MB' : v.usedKB + ' KB';
+        const freeStr = totalKB >= 1024 ? (v.freeKB/1024).toFixed(1) + ' MB' : v.freeKB + ' KB';
+        html += '<div style="font-size:10px;color:var(--text-dim);">Used: ' + usedStr + ' &middot; Free: ' + freeStr + ' &middot; ' + pct + '%</div>';
+      } else {
+        html += '<div style="font-size:10px;color:var(--text-dim);">RAM disk</div>';
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ─── Exec Ports ───
+async function toolExecPorts() {
+  const el = document.getElementById('execPortsResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  try {
+    const d = await fetch('/api/tools/ports').then(r => r.json());
+    const ports = d.ports || [];
+    if (ports.length === 0) { el.innerHTML = '<span style="color:var(--text-dim);">No ports</span>'; return; }
+    let html = '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+    for (const p of ports) {
+      html += '<span style="background:var(--bg-input);padding:2px 8px;border-radius:3px;font-size:11px;">' + escapeHtml(p) + '</span>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ─── Environment Variables ───
+async function toolGetEnv() {
+  const name = document.getElementById('envVarName').value.trim();
+  const el = document.getElementById('envResult');
+  if (!name) { el.innerHTML = '<span style="color:var(--yellow);">Enter a variable name</span>'; return; }
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  try {
+    const d = await fetch('/api/tools/env/get?name=' + encodeURIComponent(name)).then(r => r.json());
+    if (d.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(d.error) + '</span>'; return; }
+    document.getElementById('envVarValue').value = d.value || '';
+    el.innerHTML = '<span style="color:var(--green);">' + escapeHtml(name) + '</span> = <span style="color:var(--text-primary);">' + escapeHtml(d.value || '') + '</span>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolSetEnv() {
+  const name = document.getElementById('envVarName').value.trim();
+  const value = document.getElementById('envVarValue').value;
+  const persist = document.getElementById('envPersist').checked;
+  const el = document.getElementById('envResult');
+  if (!name) { el.innerHTML = '<span style="color:var(--yellow);">Enter a variable name</span>'; return; }
+  el.innerHTML = '<span style="color:var(--text-dim);">Setting...</span>';
+  try {
+    const d = await fetch('/api/tools/env/set', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, value, archive: persist})
+    }).then(r => r.json());
+    if (d.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(d.error) + '</span>'; return; }
+    el.innerHTML = '<span style="color:var(--green);">Set ' + escapeHtml(name) + ' = ' + escapeHtml(value) + (persist ? ' (persisted)' : '') + '</span>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// ─── System Control ───
+async function toolShutdownBridge() {
+  if (!confirm('Shutdown the AmigaBridge daemon? You will lose remote access until it is restarted.')) return;
+  const el = document.getElementById('sysControlResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Shutting down...</span>';
+  try {
+    const d = await fetch('/api/tools/shutdown', {method: 'POST'}).then(r => r.json());
+    el.innerHTML = '<span style="color:var(--yellow);">' + escapeHtml(d.message || d.status || 'Shutdown sent') + '</span>';
+  } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+async function toolReboot() {
+  if (!confirm('REBOOT the Amiga? This will perform a ColdReboot and all unsaved work will be lost!')) return;
+  const el = document.getElementById('sysControlResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Rebooting...</span>';
+  try {
+    const d = await fetch('/api/tools/reboot', {method: 'POST'}).then(r => r.json());
+    el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(d.message || d.status || 'Reboot sent') + '</span>';
   } catch(e) { el.textContent = 'Error: ' + e.message; }
 }
 
@@ -4603,6 +4910,30 @@ async function init() {
   }, 3000);
   // Load emulator status
   emuRefresh();
+  // Initialize reusable file pickers
+  createFilePicker({
+    containerId: 'iffPicker',
+    placeholder: 'Amiga path (e.g. DH0:pic.iff)',
+    defaultDir: 'SYS:',
+    highlight: /\.(iff|ilbm|lbm|pic|brush)$/i,
+    onSelect: (path) => toolIffView(),
+  });
+  createFilePicker({
+    containerId: 'tailPicker',
+    placeholder: 'File to tail (e.g. T:mylog.txt)',
+    defaultDir: 'T:',
+    defaultPath: 'T:mylog.txt',
+  });
+  createFilePicker({
+    containerId: 'checksumPicker',
+    placeholder: 'File to checksum (e.g. DH2:Dev/myprogram)',
+    defaultDir: 'DH2:Dev/',
+  });
+  createFilePicker({
+    containerId: 'protectPicker',
+    placeholder: 'File path (e.g. DH2:Dev/myfile)',
+    defaultDir: 'DH2:Dev/',
+  });
 }
 
 init();
@@ -4741,6 +5072,202 @@ async function trafficClear() {
   document.getElementById('trafficList').innerHTML = '';
   document.getElementById('trafficDetail').innerHTML = 'Log cleared';
   document.getElementById('trafficCount').textContent = '0 entries';
+}
+
+// ─── Bridge Capabilities ───
+async function refreshCapabilities() {
+  const el = document.getElementById('dashCaps');
+  el.innerHTML = '<span style="color:var(--text-dim);">Querying...</span>';
+  const data = await api('/tools/capabilities');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'No response') + '</span>'; return; }
+  el.innerHTML =
+    '<div><span style="color:var(--text-dim);">Version:</span> <span style="color:var(--accent-orange);">' + escapeHtml(data.version || '?') + '</span></div>' +
+    '<div><span style="color:var(--text-dim);">Protocol:</span> Level ' + (data.protocolLevel || '?') + '</div>' +
+    '<div><span style="color:var(--text-dim);">Max Line:</span> ' + (data.maxLine || '?') + '</div>' +
+    '<div style="margin-top:4px;"><span style="color:var(--text-dim);">Commands (' + (data.commands ? data.commands.length : 0) + '):</span></div>' +
+    '<div style="font-size:10px;color:var(--text-secondary);word-break:break-all;">' + escapeHtml((data.commands || []).join(', ')) + '</div>';
+}
+
+// ─── Tracked Processes ───
+async function refreshProcList() {
+  const el = document.getElementById('procList');
+  const countEl = document.getElementById('procCount');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  const data = await api('/tools/proclist');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'No response') + '</span>'; return; }
+  const procs = data.processes || [];
+  countEl.textContent = procs.length + ' tracked';
+  if (!procs.length) { el.innerHTML = '<span class="empty-state">No tracked processes</span>'; return; }
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    '<th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);">ID</th>' +
+    '<th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);">Command</th>' +
+    '<th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);">Status</th>' +
+    '<th style="text-align:right;padding:2px 6px;border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);">Signal</th>' +
+    '</tr></thead><tbody>' +
+    procs.map(p =>
+      '<tr>' +
+      '<td style="padding:2px 6px;color:var(--accent-blue);">' + p.id + '</td>' +
+      '<td style="padding:2px 6px;">' + escapeHtml(p.command || '?') + '</td>' +
+      '<td style="padding:2px 6px;color:' + (p.status === 'running' ? 'var(--green)' : 'var(--text-dim)') + ';">' + escapeHtml(p.status || '?') + '</td>' +
+      '<td style="padding:2px 6px;text-align:right;">' +
+      '<button class="btn small" onclick="signalProc(' + p.id + ',0)" title="CTRL-C (break)">C</button> ' +
+      '<button class="btn small" onclick="signalProc(' + p.id + ',1)" title="CTRL-D">D</button> ' +
+      '<button class="btn small" onclick="signalProc(' + p.id + ',2)" title="CTRL-E">E</button> ' +
+      '<button class="btn small" onclick="signalProc(' + p.id + ',3)" title="CTRL-F">F</button>' +
+      '</td></tr>'
+    ).join('') +
+    '</tbody></table>';
+}
+
+async function signalProc(id, sigType) {
+  const sigNames = ['CTRL-C', 'CTRL-D', 'CTRL-E', 'CTRL-F'];
+  const data = await fetch('/api/tools/signal', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id, sigType})}).then(r=>r.json());
+  if (data.error) { showToast('Signal error: ' + data.error, 'error'); return; }
+  showToast(data.message || ('Sent ' + (sigNames[sigType] || '?') + ' to process ' + id), 'success');
+  setTimeout(refreshProcList, 1000);
+}
+
+// ─── File Actions (new) ───
+async function fileChecksum(path) {
+  const data = await api('/tools/checksum?path=' + encodeURIComponent(path));
+  if (!data || data.error) {
+    showToast('CRC Error: ' + (data?.error || 'No response'), 'error');
+    return;
+  }
+  showToast('CRC32: ' + (data.crc32 || '?') + ' | Size: ' + (data.size || '?') + ' bytes', 'info', 8000);
+}
+
+function showToast(message, type, duration) {
+  duration = duration || 4000;
+  const toast = document.createElement('div');
+  const bg = type === 'error' ? 'var(--red)' : type === 'info' ? 'var(--accent-blue)' : 'var(--green)';
+  toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:' + bg + ';color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;font-family:var(--mono);z-index:9999;max-width:500px;box-shadow:0 4px 12px rgba(0,0,0,0.4);cursor:pointer;';
+  toast.textContent = message;
+  toast.onclick = () => toast.remove();
+  document.body.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, duration);
+}
+
+function fileRenamePrompt(path, name) {
+  const newName = prompt('Rename to (full path or just new name):', path);
+  if (!newName || newName === path) return;
+  fetch('/api/tools/rename', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({oldPath: path, newPath: newName})})
+    .then(r=>r.json()).then(d => {
+      if (d.error) showToast('Rename error: ' + d.error, 'error');
+      else { showToast('Renamed to ' + newName, 'success'); navigateDir(state.currentDir); }
+    });
+}
+
+function fileCopyPrompt(path) {
+  const dst = prompt('Copy to (full Amiga path):', path.replace(/([^:/]+)$/, 'copy_$1'));
+  if (!dst) return;
+  fetch('/api/tools/copy', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src: path, dst: dst})})
+    .then(r=>r.json()).then(d => {
+      if (d.error) showToast('Copy error: ' + d.error, 'error');
+      else { showToast('Copied to ' + dst, 'success'); navigateDir(state.currentDir); }
+    });
+}
+
+// ─── File Tail ───
+let tailActive = false;
+let tailEventSource = null;
+
+async function tailStart() {
+  const path = _fpGetPath('tailPicker');
+  if (!path) return;
+  const statusEl = document.getElementById('tailStatus');
+  statusEl.textContent = 'Starting...';
+  const data = await fetch('/api/tools/tail/start', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path})}).then(r=>r.json());
+  if (data.error) { statusEl.textContent = 'Error: ' + data.error; statusEl.style.color = 'var(--red)'; return; }
+  tailActive = true;
+  document.getElementById('tailStartBtn').style.display = 'none';
+  document.getElementById('tailStopBtn').style.display = '';
+  statusEl.textContent = 'Tailing ' + path;
+  statusEl.style.color = 'var(--green)';
+}
+
+async function tailStop() {
+  const statusEl = document.getElementById('tailStatus');
+  await fetch('/api/tools/tail/stop', {method:'POST'}).then(r=>r.json());
+  tailActive = false;
+  document.getElementById('tailStartBtn').style.display = '';
+  document.getElementById('tailStopBtn').style.display = 'none';
+  statusEl.textContent = 'Stopped';
+  statusEl.style.color = 'var(--text-dim)';
+}
+
+function tailClear() {
+  document.getElementById('tailOutput').textContent = '';
+}
+
+// Handle TAILDATA events from SSE
+function handleTailData(data) {
+  if (!tailActive) return;
+  const el = document.getElementById('tailOutput');
+  if (data.data === 'TRUNCATED') {
+    el.textContent += '[file truncated]\n';
+  } else if (data.data) {
+    // Convert hex to ASCII
+    try {
+      const hex = data.data;
+      let text = '';
+      for (let i = 0; i < hex.length; i += 2) {
+        text += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+      }
+      el.textContent += text;
+    } catch(e) {
+      el.textContent += '[hex: ' + data.data + ']\n';
+    }
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+// ─── Checksum Tool ───
+async function toolChecksum() {
+  const path = _fpGetPath('checksumPicker');
+  if (!path) return;
+  const el = document.getElementById('checksumResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Computing...</span>';
+  const data = await api('/tools/checksum?path=' + encodeURIComponent(path));
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'No response') + '</span>'; return; }
+  el.innerHTML =
+    '<div><span style="color:var(--text-dim);">Path:</span> ' + escapeHtml(data.path || path) + '</div>' +
+    '<div><span style="color:var(--text-dim);">CRC32:</span> <span style="color:var(--accent-orange);">' + escapeHtml(data.crc32 || '?') + '</span></div>' +
+    '<div><span style="color:var(--text-dim);">Size:</span> ' + (data.size != null ? data.size + ' bytes' : '?') + '</div>';
+}
+
+// ─── Protection Bits Tool ───
+async function toolProtectGet() {
+  const path = _fpGetPath('protectPicker');
+  if (!path) return;
+  const el = document.getElementById('protectResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Reading...</span>';
+  const data = await api('/tools/protect?path=' + encodeURIComponent(path));
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'No response') + '</span>'; return; }
+  const raw = parseInt(data.bits || '0', 16);
+  let flags = [];
+  if (!(raw & 0x08)) flags.push('r');
+  if (!(raw & 0x04)) flags.push('w');
+  if (!(raw & 0x02)) flags.push('e');
+  if (!(raw & 0x01)) flags.push('d');
+  if (raw & 0x80) flags.push('h');
+  if (raw & 0x40) flags.push('s');
+  if (raw & 0x20) flags.push('p');
+  if (raw & 0x10) flags.push('a');
+  document.getElementById('protectBits').value = data.bits || '';
+  el.innerHTML = '<span style="color:var(--text-dim);">Bits:</span> <span style="color:var(--accent-orange);">' + escapeHtml(data.bits || '?') + '</span> (' + flags.join('') + ')';
+}
+
+async function toolProtectSet() {
+  const path = _fpGetPath('protectPicker');
+  const bits = document.getElementById('protectBits').value.trim();
+  if (!path || !bits) return;
+  const el = document.getElementById('protectResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Setting...</span>';
+  const data = await fetch('/api/tools/protect', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path, bits})}).then(r=>r.json());
+  if (data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data.error) + '</span>'; return; }
+  el.innerHTML = '<span style="color:var(--green);">Protection bits updated</span>';
+  setTimeout(() => toolProtectGet(), 500);
 }
 </script>
 </body>
