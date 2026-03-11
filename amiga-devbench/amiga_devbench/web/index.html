@@ -891,8 +891,21 @@
             <span style="padding:6px 8px;color:var(--accent-orange);font-family:var(--mono);font-size:13px;">1.&gt;</span>
             <input type="text" id="shellInput" placeholder="Type AmigaDOS command..."
               style="flex:1;background:var(--bg-input);border:none;color:var(--text-primary);font-family:var(--mono);font-size:13px;padding:6px;outline:none;"
-              onkeydown="if(event.key==='Enter')shellExec()">
+              onkeydown="shellInputKey(event)">
           </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:start;">
+          <div style="flex:1;">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Aliases (name=command, saved locally)</div>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <input type="text" id="aliasName" placeholder="name" style="width:80px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:3px 6px;font-size:11px;">
+              <span style="color:var(--text-dim);">=</span>
+              <input type="text" id="aliasCmd" placeholder="command" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:3px 6px;font-size:11px;">
+              <button class="btn" onclick="aliasAdd()" style="font-size:11px;padding:3px 8px;">Add</button>
+            </div>
+            <div id="aliasList" style="font-family:var(--mono);font-size:11px;margin-top:4px;color:var(--text-secondary);"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-dim);">↑↓ history | Tab=complete</div>
         </div>
       </div>
     </div>
@@ -993,6 +1006,25 @@
           <canvas id="audioWaveform" width="280" height="80" style="background:#1a1a2e;border-radius:4px;display:none;width:100%;"></canvas>
         </div>
 
+        <!-- Visual Diff -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Visual Diff <span class="tool-help" title="Compare two Amiga screenshots to find pixel differences. Take a baseline screenshot, make changes, take another, then diff them. Highlights changed regions for visual regression testing.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;flex-wrap:wrap;">
+            <button class="btn" onclick="vdiffCapture('A')">Capture A</button>
+            <button class="btn" onclick="vdiffCapture('B')">Capture B</button>
+            <button class="btn" onclick="vdiffCompare()" style="background:var(--yellow);color:#000;">Compare</button>
+            <label style="font-size:11px;color:var(--text-secondary);">Threshold:</label>
+            <input type="number" id="vdiffThreshold" value="10" min="0" max="255" style="width:50px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px;font-size:12px;">
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;font-size:11px;">
+            <span id="vdiffStatusA" style="color:var(--text-dim);">A: not captured</span>
+            <span style="color:var(--text-dim);">|</span>
+            <span id="vdiffStatusB" style="color:var(--text-dim);">B: not captured</span>
+          </div>
+          <div id="vdiffResult" style="font-size:11px;"></div>
+          <div id="vdiffImages" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"></div>
+        </div>
+
       </div></div>
 
       <!-- System tools -->
@@ -1067,6 +1099,46 @@
           <h3 style="margin-bottom:6px;">System Info <span class="tool-help" title="Comprehensive system overview: memory status, running tasks, loaded libraries, mounted volumes. Aggregates multiple queries into one dashboard.">?</span></h3>
           <button class="btn" onclick="toolSysInfo()" style="margin-bottom:8px;">Refresh</button>
           <div id="sysinfoResult"></div>
+        </div>
+
+        <!-- Assign Manager -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Assign Manager <span class="tool-help" title="View, create, and modify AmigaOS logical assigns (SYS:, LIBS:, FONTS:, etc.). Uses the assign command via SCRIPT protocol.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button class="btn" onclick="assignRefresh()">Refresh</button>
+            <span id="assignCount" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+          </div>
+          <div id="assignList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="text" id="assignName" placeholder="NAME:" style="width:80px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <input type="text" id="assignPath" placeholder="DH0:Path" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <label style="font-size:11px;color:var(--text-secondary);"><input type="checkbox" id="assignAdd"> ADD</label>
+            <button class="btn" onclick="assignSet()">Set</button>
+          </div>
+        </div>
+
+        <!-- Startup-Sequence Editor -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Startup-Sequence Editor <span class="tool-help" title="Edit S:Startup-Sequence, S:User-Startup, or S:Shell-Startup remotely. Changes take effect on next boot. Uses READFILE/WRITEFILE protocol.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="startupFile" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 8px;font-size:12px;">
+              <option value="S:Startup-Sequence">S:Startup-Sequence</option>
+              <option value="S:User-Startup">S:User-Startup</option>
+              <option value="S:Shell-Startup">S:Shell-Startup</option>
+            </select>
+            <button class="btn" onclick="startupLoad()">Load</button>
+            <button class="btn" onclick="startupSave()" style="background:var(--yellow);color:#000;">Save</button>
+          </div>
+          <textarea id="startupContent" style="width:100%;height:200px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--mono);font-size:11px;padding:6px;resize:vertical;" placeholder="Load a startup file to edit..."></textarea>
+          <div id="startupStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
+        </div>
+
+        <!-- Preferences Editor -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Preferences Editor <span class="tool-help" title="Read Workbench preferences files from ENV:sys/. Shows available .prefs files and their sizes. Prefs are IFF binary format.">?</span></h3>
+          <button class="btn" onclick="prefsRefresh()" style="margin-bottom:6px;">List Prefs</button>
+          <div id="prefsList" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="prefsDetail" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
         </div>
 
       </div></div>
@@ -1189,6 +1261,29 @@
           <div id="toolPerfResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
         </div>
 
+        <!-- Custom Chip Write Logger -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Custom Chip Logger <span class="tool-help" title="Monitor readable custom chip registers ($DFF000 range) for changes. Periodically reads DMACONR, INTENAR, INTREQR, JOY/POT data, and video position. Reports register changes in real-time.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+            <button class="btn" onclick="chiplogStart()" id="btnChiplogStart">Start</button>
+            <button class="btn" onclick="chiplogStop()" id="btnChiplogStop">Stop</button>
+            <button class="btn" onclick="chiplogSnapshot()">Snapshot</button>
+            <span id="chiplogStatus" style="font-size:11px;color:var(--text-dim);margin-left:8px;">Inactive</span>
+          </div>
+          <div id="chiplogResult" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
+        </div>
+
+        <!-- Memory Pool Tracker -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Memory Pool Tracker <span class="tool-help" title="Track CreatePool/DeletePool/AllocPooled/FreePooled calls. Patches exec.library pool functions to monitor pool-based memory allocation. Shows active pools with allocation counts and sizes.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+            <button class="btn" onclick="poolStart()">Start</button>
+            <button class="btn" onclick="poolStop()">Stop</button>
+            <button class="btn" onclick="poolRefresh()">Refresh</button>
+          </div>
+          <div id="poolResult" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
+        </div>
+
       </div></div>
 
       <!-- Develop tools -->
@@ -1275,6 +1370,22 @@
           </div>
         </div>
 
+        <!-- Font Browser -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Font Browser <span class="tool-help" title="List installed Amiga fonts with available sizes. Uses diskfont.library AvailFonts() to enumerate disk and memory fonts. Click a font to see metrics (baseline, style, flags).">?</span></h3>
+          <button class="btn" onclick="fontRefresh()" style="margin-bottom:6px;">List Fonts</button>
+          <div id="fontList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="fontDetail" style="font-family:var(--mono);font-size:11px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;"></div>
+        </div>
+
+        <!-- Locale/Catalog Inspector -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Locale/Catalog Inspector <span class="tool-help" title="Browse installed locale catalogs for multi-language apps. Lists catalog directories under LOCALE:Catalogs/ and their contents. Uses SCRIPT-based directory listing.">?</span></h3>
+          <button class="btn" onclick="localeRefresh()" style="margin-bottom:6px;">List Catalogs</button>
+          <div id="localeList" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;"></div>
+          <div id="localeDetail" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+
       </div></div>
 
       <!-- Control tools -->
@@ -1339,6 +1450,18 @@
             </div>
           </div>
           <div id="inputResult" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:6px;"></div>
+        </div>
+
+        <!-- Clipboard Bridge -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Clipboard Bridge <span class="tool-help" title="Share clipboard between host and Amiga. Uses clipboard.device with iffparse.library to read/write FTXT clipboard data. Get copies Amiga clipboard to the text area, Set writes text to Amiga clipboard.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button class="btn" onclick="clipGet()">Get from Amiga</button>
+            <button class="btn" onclick="clipSet()">Set on Amiga</button>
+            <button class="btn" onclick="clipCopyHost()" title="Copy to host clipboard">Copy to Host</button>
+          </div>
+          <textarea id="clipText" style="width:100%;height:80px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);font-family:var(--mono);font-size:11px;padding:6px;resize:vertical;" placeholder="Clipboard content..."></textarea>
+          <div id="clipStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
         </div>
 
       </div></div>
@@ -3792,7 +3915,7 @@ function switchToolSubTab(name) {
 async function audioRefresh() {
   const el = document.getElementById('audioChannels');
   el.textContent = 'Reading...';
-  const data = await api('/tool/audio/channels');
+  const data = await api('/tools/audio/channels');
   if (!data || data.error) {
     el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</span>';
     return;
@@ -3823,7 +3946,7 @@ async function audioReadSample() {
   const size = parseInt(document.getElementById('audioSampleSize').value) || 256;
   if (!addr) return;
   const canvas = document.getElementById('audioWaveform');
-  const data = await api('/tool/audio/sample?address=' + encodeURIComponent(addr) + '&size=' + size);
+  const data = await api('/tools/audio/sample?address=' + encodeURIComponent(addr) + '&size=' + size);
   if (!data || data.error) {
     canvas.style.display = 'none';
     document.getElementById('audioChannels').innerHTML += '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
@@ -3870,7 +3993,7 @@ async function intuiRefreshScreens() {
   document.getElementById('intuiWindows').innerHTML = '';
   document.getElementById('intuiGadgets').innerHTML = '';
   statusEl.textContent = '';
-  const data = await api('/tool/screens');
+  const data = await api('/tools/screens');
   if (!data || data.error) {
     el.innerHTML = '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
     return;
@@ -3896,7 +4019,7 @@ async function intuiLoadWindows(screenAddr) {
   const el = document.getElementById('intuiWindows');
   el.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
   document.getElementById('intuiGadgets').innerHTML = '';
-  const data = await api('/tool/screen/windows?screen=' + encodeURIComponent(screenAddr));
+  const data = await api('/tools/screen/windows?screen=' + encodeURIComponent(screenAddr));
   if (!data || data.error) {
     el.innerHTML = '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
     return;
@@ -3921,7 +4044,7 @@ async function intuiLoadWindows(screenAddr) {
 async function intuiLoadGadgets(windowAddr) {
   const el = document.getElementById('intuiGadgets');
   el.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
-  const data = await api('/tool/gadgets?window=' + encodeURIComponent(windowAddr));
+  const data = await api('/tools/gadgets?window=' + encodeURIComponent(windowAddr));
   if (!data || data.error) {
     el.innerHTML = '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
     return;
@@ -3993,10 +4116,10 @@ async function inputKey(rawkey) {
   if (!rawkey) return;
   const resultEl = document.getElementById('inputResult');
   // Send key down then key up
-  const down = await api('/tool/input/key', {
+  const down = await api('/tools/input/key', {
     method: 'POST', body: JSON.stringify({rawkey: rawkey, direction: 'down'})
   });
-  await api('/tool/input/key', {
+  await api('/tools/input/key', {
     method: 'POST', body: JSON.stringify({rawkey: rawkey, direction: 'up'})
   });
   resultEl.textContent = 'Key 0x' + rawkey + ' sent';
@@ -4005,7 +4128,7 @@ async function inputKey(rawkey) {
 
 async function inputMove(dx, dy) {
   const resultEl = document.getElementById('inputResult');
-  await api('/tool/input/move', {
+  await api('/tools/input/move', {
     method: 'POST', body: JSON.stringify({dx: dx, dy: dy})
   });
   resultEl.textContent = 'Move ' + dx + ',' + dy;
@@ -4013,7 +4136,7 @@ async function inputMove(dx, dy) {
 }
 
 async function inputClick(button, direction) {
-  await api('/tool/input/click', {
+  await api('/tools/input/click', {
     method: 'POST', body: JSON.stringify({button: button, direction: direction})
   });
   const resultEl = document.getElementById('inputResult');
@@ -4048,6 +4171,353 @@ function handleTestEvent(data) {
   }
 }
 
+// ─── Assign Manager ───
+async function assignRefresh() {
+  const el = document.getElementById('assignList');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  const data = await api('/tools/assigns');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const assigns = data.assigns || [];
+  document.getElementById('assignCount').textContent = assigns.length + ' assigns';
+  if (!assigns.length) { el.innerHTML = '<span style="color:var(--text-dim);">No assigns found</span>'; return; }
+  el.innerHTML = assigns.map(a =>
+    '<div style="display:flex;justify-content:space-between;padding:1px 4px;border-bottom:1px solid var(--border);">' +
+    '<span style="color:var(--accent-orange);min-width:100px;">' + escapeHtml(a.name) + '</span>' +
+    '<span style="color:var(--text-secondary);flex:1;">' + escapeHtml(a.path) + '</span>' +
+    '<span style="cursor:pointer;color:var(--red);padding:0 4px;" onclick="assignRemove(\'' + escapeHtml(a.name) + '\')" title="Remove">x</span>' +
+    '</div>'
+  ).join('');
+}
+
+async function assignSet() {
+  const name = document.getElementById('assignName').value.trim();
+  const path = document.getElementById('assignPath').value.trim();
+  const add = document.getElementById('assignAdd').checked;
+  if (!name || !path) return;
+  const data = await fetch('/api/tools/assign/set', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, path, add})}).then(r=>r.json());
+  if (data.error) { alert(data.error); return; }
+  document.getElementById('assignName').value = '';
+  document.getElementById('assignPath').value = '';
+  assignRefresh();
+}
+
+async function assignRemove(name) {
+  if (!confirm('Remove assign ' + name + '?')) return;
+  await fetch('/api/tools/assign/remove', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name})}).then(r=>r.json());
+  assignRefresh();
+}
+
+// ─── Font Browser ───
+async function fontRefresh() {
+  const el = document.getElementById('fontList');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading fonts...</span>';
+  const data = await api('/tools/fonts');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const fonts = data.fonts || [];
+  if (!fonts.length) { el.innerHTML = '<span style="color:var(--text-dim);">No fonts found</span>'; return; }
+  el.innerHTML = fonts.map(f =>
+    '<div style="cursor:pointer;padding:2px 4px;border-bottom:1px solid var(--border);" onclick="fontInfo(\'' + escapeHtml(f.name || f) + '\',' + (f.size || 8) + ')">' +
+    '<span style="color:var(--accent-blue);">' + escapeHtml(f.name || f) + '</span>' +
+    (f.size ? ' <span style="color:var(--text-dim);">' + f.size + 'px</span>' : '') +
+    (f.type ? ' <span style="color:var(--text-dim);">[' + escapeHtml(f.type) + ']</span>' : '') +
+    '</div>'
+  ).join('');
+}
+
+async function fontInfo(name, size) {
+  const el = document.getElementById('fontDetail');
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading ' + escapeHtml(name) + '...</span>';
+  const data = await api('/tools/fontinfo?name=' + encodeURIComponent(name) + '&size=' + size);
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  el.innerHTML = '<div style="color:var(--accent-orange);font-weight:bold;">' + escapeHtml(name) + ' @ ' + size + '</div>' +
+    Object.entries(data).filter(([k])=>k!=='error').map(([k,v]) =>
+      '<div><span style="color:var(--text-dim);">' + escapeHtml(k) + ':</span> ' + escapeHtml(String(v)) + '</div>'
+    ).join('');
+}
+
+// ─── Locale/Catalog Inspector ───
+async function localeRefresh() {
+  const el = document.getElementById('localeList');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading catalogs...</span>';
+  const data = await api('/tools/locale/catalogs');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const cats = data.catalogs || [];
+  if (!cats.length) { el.innerHTML = '<span style="color:var(--text-dim);">No catalogs found</span>'; return; }
+  el.innerHTML = cats.map(c =>
+    '<div style="cursor:pointer;padding:2px 4px;border-bottom:1px solid var(--border);" onclick="localeStrings(\'' + escapeHtml(c) + '\')">' +
+    '<span style="color:var(--accent-blue);">' + escapeHtml(c) + '</span></div>'
+  ).join('');
+}
+
+async function localeStrings(path) {
+  const el = document.getElementById('localeDetail');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  const data = await api('/tools/locale/strings?path=' + encodeURIComponent(path));
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const entries = data.entries || [];
+  if (!entries.length) { el.innerHTML = '<span style="color:var(--text-dim);">Empty</span>'; return; }
+  el.innerHTML = '<div style="color:var(--accent-orange);margin-bottom:4px;">' + escapeHtml(path) + '</div>' +
+    entries.map(e =>
+      '<div><span style="color:var(--text-secondary);">' + escapeHtml(e.path) + '</span> <span style="color:var(--text-dim);">' + escapeHtml(e.size) + '</span></div>'
+    ).join('');
+}
+
+// ─── Custom Chip Write Logger ───
+async function chiplogStart() {
+  const data = await fetch('/api/tools/chiplog/start', {method:'POST'}).then(r=>r.json());
+  document.getElementById('chiplogStatus').textContent = data.error ? data.error : 'Active';
+  document.getElementById('chiplogStatus').style.color = data.error ? 'var(--red)' : 'var(--green)';
+}
+
+async function chiplogStop() {
+  await fetch('/api/tools/chiplog/stop', {method:'POST'}).then(r=>r.json());
+  document.getElementById('chiplogStatus').textContent = 'Inactive';
+  document.getElementById('chiplogStatus').style.color = 'var(--text-dim)';
+}
+
+async function chiplogSnapshot() {
+  const el = document.getElementById('chiplogResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Reading...</span>';
+  const data = await api('/tools/chiplog/snapshot');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const regs = data.registers || {};
+  const names = Object.keys(regs);
+  if (!names.length) { el.innerHTML = '<span style="color:var(--text-dim);">No register data</span>'; return; }
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' +
+    '<tr style="color:var(--accent-orange);border-bottom:1px solid var(--border);"><th style="text-align:left;">Register</th><th>Address</th><th>Value</th></tr>' +
+    names.map(n => {
+      const r = regs[n];
+      const val = typeof r === 'object' ? (r.value || r.hex || JSON.stringify(r)) : r;
+      const addr = typeof r === 'object' ? (r.addr || '') : '';
+      return '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="color:var(--accent-blue);">' + escapeHtml(n) + '</td>' +
+        '<td style="color:var(--text-dim);">' + escapeHtml(String(addr)) + '</td>' +
+        '<td style="color:var(--green);">' + escapeHtml(String(val)) + '</td></tr>';
+    }).join('') + '</table>';
+}
+
+// ─── Memory Pool Tracker ───
+async function poolStart() {
+  const data = await fetch('/api/tools/pool/start', {method:'POST'}).then(r=>r.json());
+  if (data.error) alert(data.error);
+}
+
+async function poolStop() {
+  await fetch('/api/tools/pool/stop', {method:'POST'}).then(r=>r.json());
+}
+
+async function poolRefresh() {
+  const el = document.getElementById('poolResult');
+  el.innerHTML = '<span style="color:var(--text-dim);">Reading...</span>';
+  const data = await api('/tools/pools');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const pools = data.pools || [];
+  if (!pools.length) { el.innerHTML = '<span style="color:var(--text-dim);">No pools tracked</span>'; return; }
+  el.innerHTML = pools.map(p =>
+    '<div style="margin-bottom:6px;padding:4px;border:1px solid var(--border);border-radius:4px;">' +
+    '<div style="color:var(--accent-orange);">Pool $' + escapeHtml(p.addr || p.address || '?') + '</div>' +
+    '<div style="color:var(--text-secondary);">Allocs: ' + (p.allocs || 0) + ' | Frees: ' + (p.frees || 0) + ' | Size: ' + (p.total_size || p.size || '?') + '</div>' +
+    (p.flags ? '<div style="color:var(--text-dim);">Flags: ' + escapeHtml(p.flags) + '</div>' : '') +
+    '</div>'
+  ).join('');
+}
+
+// ─── Startup-Sequence Editor ───
+async function startupLoad() {
+  const file = document.getElementById('startupFile').value;
+  const el = document.getElementById('startupContent');
+  const status = document.getElementById('startupStatus');
+  status.textContent = 'Loading...';
+  const data = await api('/tools/startup/read?file=' + encodeURIComponent(file));
+  if (!data || data.error) { status.textContent = data?.error || 'Error'; status.style.color = 'var(--red)'; return; }
+  el.value = data.content || '';
+  status.textContent = 'Loaded ' + file + ' (' + (data.size || 0) + ' bytes)';
+  status.style.color = 'var(--green)';
+}
+
+async function startupSave() {
+  const file = document.getElementById('startupFile').value;
+  const content = document.getElementById('startupContent').value;
+  const status = document.getElementById('startupStatus');
+  if (!confirm('Save changes to ' + file + '?')) return;
+  status.textContent = 'Saving...';
+  const data = await fetch('/api/tools/startup/write', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({file, content})}).then(r=>r.json());
+  if (data.error) { status.textContent = data.error; status.style.color = 'var(--red)'; return; }
+  status.textContent = 'Saved ' + file;
+  status.style.color = 'var(--green)';
+}
+
+// ─── Preferences Editor ───
+async function prefsRefresh() {
+  const el = document.getElementById('prefsList');
+  el.innerHTML = '<span style="color:var(--text-dim);">Loading...</span>';
+  const data = await api('/tools/prefs/list');
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  const prefs = data.prefs || [];
+  if (!prefs.length) { el.innerHTML = '<span style="color:var(--text-dim);">No prefs files found</span>'; return; }
+  el.innerHTML = prefs.map(p =>
+    '<div style="cursor:pointer;padding:2px 4px;border-bottom:1px solid var(--border);" onclick="prefsRead(\'' + escapeHtml(p.name) + '\')">' +
+    '<span style="color:var(--accent-blue);">' + escapeHtml(p.name) + '</span>' +
+    ' <span style="color:var(--text-dim);">' + p.size + ' bytes</span></div>'
+  ).join('');
+}
+
+async function prefsRead(name) {
+  const el = document.getElementById('prefsDetail');
+  el.innerHTML = '<span style="color:var(--text-dim);">Reading ' + escapeHtml(name) + '...</span>';
+  const data = await api('/tools/prefs/read?name=' + encodeURIComponent(name));
+  if (!data || data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Error') + '</span>'; return; }
+  // Show content as hex dump or text
+  const content = data.content || '';
+  el.innerHTML = '<div style="color:var(--accent-orange);margin-bottom:4px;">' + escapeHtml(data.path || name) + ' (' + (data.size || 0) + ' bytes)</div>' +
+    '<pre style="white-space:pre-wrap;word-break:break-all;color:var(--text-secondary);max-height:150px;overflow-y:auto;">' + escapeHtml(content) + '</pre>';
+}
+
+// ─── Visual Diff for Screenshots ───
+let vdiffPaths = {A: null, B: null};
+
+async function vdiffCapture(which) {
+  const statusEl = document.getElementById('vdiffStatus' + which);
+  statusEl.textContent = which + ': capturing...';
+  statusEl.style.color = 'var(--yellow)';
+  try {
+    const resp = await fetch('/api/screenshot');
+    const data = await resp.json();
+    if (data.error) { statusEl.textContent = which + ': ' + data.error; statusEl.style.color = 'var(--red)'; return; }
+    vdiffPaths[which] = data.path || data.file;
+    statusEl.textContent = which + ': captured';
+    statusEl.style.color = 'var(--green)';
+  } catch(e) {
+    statusEl.textContent = which + ': ' + e;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+async function vdiffCompare() {
+  if (!vdiffPaths.A || !vdiffPaths.B) { alert('Capture both A and B first'); return; }
+  const resultEl = document.getElementById('vdiffResult');
+  const imagesEl = document.getElementById('vdiffImages');
+  const threshold = parseInt(document.getElementById('vdiffThreshold').value) || 10;
+  resultEl.innerHTML = '<span style="color:var(--text-dim);">Comparing...</span>';
+  imagesEl.innerHTML = '';
+  try {
+    const resp = await fetch('/api/tools/screenshot/diff', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({path_a: vdiffPaths.A, path_b: vdiffPaths.B, threshold})
+    });
+    const data = await resp.json();
+    if (data.error) { resultEl.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data.error) + '</span>'; return; }
+    const pct = data.diff_percent != null ? data.diff_percent.toFixed(2) : '?';
+    const color = parseFloat(pct) > 1 ? 'var(--red)' : 'var(--green)';
+    resultEl.innerHTML = '<span style="color:' + color + ';font-weight:bold;">' + pct + '% different</span>' +
+      ' (' + (data.changed_pixels || 0) + ' pixels, threshold=' + threshold + ')' +
+      (data.regions ? ', ' + data.regions.length + ' changed regions' : '');
+    if (data.diff_path) {
+      imagesEl.innerHTML = '<div><div style="color:var(--text-dim);margin-bottom:2px;">Diff image:</div>' +
+        '<img src="/api/tools/screenshot/diffview?path=' + encodeURIComponent(data.diff_path) + '" style="max-width:100%;border:1px solid var(--border);border-radius:4px;"></div>';
+    }
+  } catch(e) {
+    resultEl.innerHTML = '<span style="color:var(--red);">' + e + '</span>';
+  }
+}
+
+// ─── CLI History & Input ───
+function shellInputKey(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    shellExec();
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (shellHistoryIdx > 0) {
+      shellHistoryIdx--;
+      event.target.value = shellHistory[shellHistoryIdx];
+    }
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    if (shellHistoryIdx < shellHistory.length - 1) {
+      shellHistoryIdx++;
+      event.target.value = shellHistory[shellHistoryIdx];
+    } else {
+      shellHistoryIdx = shellHistory.length;
+      event.target.value = '';
+    }
+  }
+}
+
+// ─── Aliases ───
+let aliases = {};
+
+async function aliasLoad() {
+  const data = await api('/cli/aliases');
+  if (data && data.aliases) {
+    aliases = data.aliases;
+    renderAliases();
+  }
+}
+
+function renderAliases() {
+  const el = document.getElementById('aliasList');
+  const entries = Object.entries(aliases);
+  if (!entries.length) { el.innerHTML = '<span style="color:var(--text-dim);">No aliases</span>'; return; }
+  el.innerHTML = entries.map(([k,v]) =>
+    '<div><span style="color:var(--accent-orange);">' + escapeHtml(k) + '</span>=' +
+    '<span style="color:var(--text-secondary);">' + escapeHtml(v) + '</span>' +
+    ' <span style="cursor:pointer;color:var(--red);" onclick="aliasRemove(\'' + escapeHtml(k) + '\')">x</span></div>'
+  ).join('');
+}
+
+async function aliasAdd() {
+  const name = document.getElementById('aliasName').value.trim();
+  const cmd = document.getElementById('aliasCmd').value.trim();
+  if (!name || !cmd) return;
+  await fetch('/api/cli/aliases', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({set:{name, value:cmd}})}).then(r=>r.json());
+  document.getElementById('aliasName').value = '';
+  document.getElementById('aliasCmd').value = '';
+  aliases[name] = cmd;
+  renderAliases();
+}
+
+async function aliasRemove(name) {
+  await fetch('/api/cli/aliases', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({remove:name})}).then(r=>r.json());
+  delete aliases[name];
+  renderAliases();
+}
+
+// ─── Clipboard Bridge ───
+async function clipGet() {
+  const el = document.getElementById('clipText');
+  const status = document.getElementById('clipStatus');
+  status.textContent = 'Reading...';
+  const data = await api('/tools/clipboard/get');
+  if (!data || data.error) { status.textContent = data?.error || 'Error'; status.style.color = 'var(--red)'; return; }
+  el.value = data.text || '';
+  status.textContent = 'Got ' + (data.length || 0) + ' bytes';
+  status.style.color = 'var(--green)';
+}
+
+async function clipSet() {
+  const text = document.getElementById('clipText').value;
+  const status = document.getElementById('clipStatus');
+  status.textContent = 'Writing...';
+  const data = await fetch('/api/tools/clipboard/set', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text})}).then(r=>r.json());
+  if (data.error) { status.textContent = data.error; status.style.color = 'var(--red)'; return; }
+  status.textContent = 'Set on Amiga clipboard';
+  status.style.color = 'var(--green)';
+}
+
+async function clipCopyHost() {
+  const text = document.getElementById('clipText').value;
+  try {
+    await navigator.clipboard.writeText(text);
+    document.getElementById('clipStatus').textContent = 'Copied to host clipboard';
+    document.getElementById('clipStatus').style.color = 'var(--green)';
+  } catch(e) {
+    document.getElementById('clipStatus').textContent = 'Failed: ' + e;
+    document.getElementById('clipStatus').style.color = 'var(--red)';
+  }
+}
+
 // ─── Init ───
 async function init() {
   connectSSE();
@@ -4065,6 +4535,7 @@ async function init() {
   const cdata = await api('/clients');
   if (cdata && cdata.clients) updateClients(cdata.clients);
   shellUpdateUI();
+  aliasLoad();
   // Load initial vars
   refreshVars();
   // Load volumes for file browser

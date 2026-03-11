@@ -274,6 +274,26 @@ void protocol_parse_line(const char *line)
         /* Trigger a non-fatal Alert to test the crash handler */
         send_ok("CRASHTEST", "Triggering test alert...");
         Alert(0x00010000); /* AG_NoMemory, recoverable */
+    } else if (strcmp(cmd, "LISTFONTS") == 0) {
+        font_handle_list();
+    } else if (strcmp(cmd, "FONTINFO") == 0) {
+        font_handle_info(args);
+    } else if (strcmp(cmd, "CHIPLOGSTART") == 0) {
+        chiplog_handle_start();
+    } else if (strcmp(cmd, "CHIPLOGSTOP") == 0) {
+        chiplog_handle_stop();
+    } else if (strcmp(cmd, "CHIPLOGSNAPSHOT") == 0) {
+        chiplog_handle_snapshot();
+    } else if (strcmp(cmd, "POOLSTART") == 0) {
+        pool_handle_start();
+    } else if (strcmp(cmd, "POOLSTOP") == 0) {
+        pool_handle_stop();
+    } else if (strcmp(cmd, "POOLS") == 0) {
+        pool_handle_list();
+    } else if (strcmp(cmd, "CLIPGET") == 0) {
+        clip_handle_get();
+    } else if (strcmp(cmd, "CLIPSET") == 0) {
+        clip_handle_set(args);
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
         /* The main loop will exit via CTRL-C or window close */

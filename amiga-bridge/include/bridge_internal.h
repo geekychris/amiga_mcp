@@ -183,6 +183,33 @@ void input_handle_mouse_move(const char *args);
 void input_handle_mouse_button(const char *args);
 void input_cleanup(void);
 
+/* ---- font_browser.c ---- */
+void font_init(void);
+void font_cleanup(void);
+void font_handle_list(void);
+void font_handle_info(const char *args);
+
+/* ---- chipwrite_logger.c ---- */
+void chiplog_init(void);
+void chiplog_cleanup(void);
+void chiplog_handle_start(void);
+void chiplog_handle_stop(void);
+void chiplog_handle_snapshot(void);
+void chiplog_poll(void);
+
+/* ---- pool_tracker.c ---- */
+void pool_init(void);
+void pool_cleanup(void);
+void pool_handle_start(void);
+void pool_handle_stop(void);
+void pool_handle_list(void);
+
+/* ---- clipboard_bridge.c ---- */
+void clip_init(void);
+void clip_cleanup(void);
+void clip_handle_get(void);
+void clip_handle_set(const char *args);
+
 /* ---- UI state (main.c) ---- */
 #define UI_MAX_LOG_LINES 5
 #define UI_MAX_LOG_LEN   50

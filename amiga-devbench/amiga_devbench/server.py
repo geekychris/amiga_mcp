@@ -2548,6 +2548,310 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         path = save_config(_config)
         return JSONResponse({"status": "saved", "path": path})
 
+    # ---- Helper: run SCRIPT command and get output ----
+    async def _run_script(script: str, timeout: float = 10.0) -> tuple[str | None, str | None]:
+        """Run a SCRIPT command and return (output, error). One will be None."""
+        if not _conn or not _conn.connected:
+            return None, "Not connected"
+        import time as _time
+        cmd_id = int(_time.time() * 1000) % 100000
+        async with _event_bus.subscribe("cmd", "err") as q:
+            _conn.send({"type": "SCRIPT", "id": cmd_id, "script": script})
+            try:
+                deadline = asyncio.get_event_loop().time() + timeout
+                while True:
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        return None, "Timeout"
+                    evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                    if evt == "err":
+                        return None, data.get("message", "Error")
+                    if evt == "cmd" and data.get("id") == cmd_id:
+                        output = data.get("data", "")
+                        output = output.replace(";", "\n")
+                        return output, None
+            except asyncio.TimeoutError:
+                return None, "Timeout"
+
+    # ---- Assign Manager ----
+    async def api_tool_assigns(request: Request) -> JSONResponse:
+        """List AmigaOS assigns using SCRIPT command."""
+        output, err = await _run_script("assign LIST")
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        assigns = []
+        for line in (output or "").splitlines():
+            line = line.strip()
+            if not line or line.startswith("Volumes:") or line.startswith("Directories:"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) >= 2:
+                assigns.append({"name": parts[0], "path": parts[1]})
+            elif len(parts) == 1:
+                assigns.append({"name": parts[0], "path": ""})
+        return JSONResponse({"assigns": assigns})
+
+    async def api_tool_assign_set(request: Request) -> JSONResponse:
+        """Create or modify an assign."""
+        body = await request.json()
+        name = body.get("name", "")
+        path = body.get("path", "")
+        add = body.get("add", False)
+        if not name or not path:
+            return JSONResponse({"error": "Missing name or path"}, status_code=400)
+        cmd = f"assign {name} {path}" + (" ADD" if add else "")
+        output, err = await _run_script(cmd, timeout=5.0)
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        return JSONResponse({"status": "ok", "output": output or ""})
+
+    async def api_tool_assign_remove(request: Request) -> JSONResponse:
+        """Remove an assign."""
+        body = await request.json()
+        name = body.get("name", "")
+        if not name:
+            return JSONResponse({"error": "Missing name"}, status_code=400)
+        output, err = await _run_script(f"assign {name} REMOVE", timeout=5.0)
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        return JSONResponse({"status": "ok"})
+
+    # ---- Font Browser ----
+    async def api_tool_fonts(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "LISTFONTS"})
+        msg = await _event_bus.wait_for("fonts", timeout=10.0)
+        if msg:
+            return JSONResponse({"fonts": msg.get("fonts", [])})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_fontinfo(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        name = request.query_params.get("name", "")
+        size = request.query_params.get("size", "8")
+        _conn.send({"type": "FONTINFO", "name": name, "size": size})
+        msg = await _event_bus.wait_for("fontinfo", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ---- Locale/Catalog Inspector ----
+    async def api_tool_locale(request: Request) -> JSONResponse:
+        """List locale catalogs."""
+        output, err = await _run_script('list LOCALE:Catalogs/ DIRS ALL LFORMAT "%p%n"')
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        catalogs = [l.strip() for l in (output or "").splitlines() if l.strip()]
+        return JSONResponse({"catalogs": catalogs})
+
+    async def api_tool_locale_strings(request: Request) -> JSONResponse:
+        """List catalog files for a specific language/app."""
+        path = request.query_params.get("path", "LOCALE:Catalogs/")
+        output, err = await _run_script(f'list {path} LFORMAT "%p%n %l"')
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        entries = []
+        for line in (output or "").splitlines():
+            line = line.strip()
+            if line:
+                parts = line.rsplit(" ", 1)
+                entries.append({"path": parts[0], "size": parts[1] if len(parts) > 1 else ""})
+        return JSONResponse({"entries": entries})
+
+    # ---- Custom Chip Write Logger ----
+    async def api_tool_chiplog_start(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CHIPLOGSTART"})
+        msg = await _event_bus.wait_for("ok", timeout=3.0, predicate=lambda m: m.get("context") == "CHIPLOG")
+        return JSONResponse({"status": "started"})
+
+    async def api_tool_chiplog_stop(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CHIPLOGSTOP"})
+        return JSONResponse({"status": "stopped"})
+
+    async def api_tool_chiplog_snapshot(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CHIPLOGSNAPSHOT"})
+        msg = await _event_bus.wait_for("chiplog", timeout=5.0)
+        if msg:
+            return JSONResponse({"registers": msg.get("registers", {})})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ---- Memory Pool Tracker ----
+    async def api_tool_pool_start(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "POOLSTART"})
+        return JSONResponse({"status": "started"})
+
+    async def api_tool_pool_stop(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "POOLSTOP"})
+        return JSONResponse({"status": "stopped"})
+
+    async def api_tool_pools(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "POOLS"})
+        msg = await _event_bus.wait_for("pools", timeout=5.0)
+        if msg:
+            return JSONResponse({"pools": msg.get("pools", [])})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ---- Startup-Sequence Editor ----
+    async def api_tool_startup_read(request: Request) -> JSONResponse:
+        """Read S:Startup-Sequence or S:User-Startup."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        file_path = request.query_params.get("file", "S:Startup-Sequence")
+        # Sanitize path
+        allowed = ["S:Startup-Sequence", "S:User-Startup", "S:Shell-Startup"]
+        if file_path not in allowed:
+            return JSONResponse({"error": f"Not allowed: {file_path}"}, status_code=403)
+        _conn.send({"type": "READFILE", "path": file_path})
+        msg = await _event_bus.wait_for("file", timeout=10.0)
+        if msg:
+            return JSONResponse({"path": file_path, "content": msg.get("content", ""), "size": msg.get("size", 0)})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_startup_write(request: Request) -> JSONResponse:
+        """Write to S:Startup-Sequence or S:User-Startup."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        file_path = body.get("file", "")
+        content = body.get("content", "")
+        allowed = ["S:Startup-Sequence", "S:User-Startup", "S:Shell-Startup"]
+        if file_path not in allowed:
+            return JSONResponse({"error": f"Not allowed: {file_path}"}, status_code=403)
+        _conn.send({"type": "WRITEFILE", "path": file_path, "content": content})
+        async with _event_bus.subscribe("ok", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=10.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "Write failed")})
+                return JSONResponse({"status": "ok", "path": file_path})
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ---- Preferences Editor ----
+    async def api_tool_prefs_list(request: Request) -> JSONResponse:
+        """List available Workbench preferences files."""
+        output, err = await _run_script('list ENV:sys/ LFORMAT "%n %l"')
+        if err:
+            return JSONResponse({"error": err}, status_code=504 if err == "Timeout" else 500)
+        prefs = []
+        for line in (output or "").splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[0].endswith(".prefs"):
+                prefs.append({"name": parts[0], "size": int(parts[1]) if parts[1].isdigit() else 0})
+        return JSONResponse({"prefs": prefs})
+
+    async def api_tool_prefs_read(request: Request) -> JSONResponse:
+        """Read a prefs file content (hex dump for IFF binary)."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        name = request.query_params.get("name", "")
+        if not name.endswith(".prefs"):
+            return JSONResponse({"error": "Invalid prefs file"}, status_code=400)
+        path = f"ENV:sys/{name}"
+        _conn.send({"type": "READFILE", "path": path})
+        msg = await _event_bus.wait_for("file", timeout=10.0)
+        if msg:
+            return JSONResponse({"path": path, "content": msg.get("content", ""), "size": msg.get("size", 0)})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ---- Visual Diff for Screenshots ----
+    async def api_tool_screenshot_diff(request: Request) -> JSONResponse:
+        """Compare two screenshots and return diff analysis."""
+        body = await request.json()
+        path_a = body.get("path_a", "")
+        path_b = body.get("path_b", "")
+        threshold = int(body.get("threshold", 10))
+        if not path_a or not path_b:
+            return JSONResponse({"error": "Need path_a and path_b"}, status_code=400)
+        try:
+            from .screenshot_diff import compare_screenshots
+            result = compare_screenshots(path_a, path_b, threshold)
+            return JSONResponse(result)
+        except ImportError:
+            return JSONResponse({"error": "screenshot_diff module not available"}, status_code=500)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    async def api_tool_screenshot_diff_view(request: Request) -> JSONResponse:
+        """View a diff image."""
+        path = request.query_params.get("path", "")
+        if not path or not os.path.exists(path):
+            return JSONResponse({"error": "File not found"}, status_code=404)
+        from starlette.responses import FileResponse
+        return FileResponse(path, media_type="image/png")
+
+    # ---- CLI History ----
+    _cli_history: list[str] = []
+    _cli_aliases: dict[str, str] = {}
+
+    # Load saved history/aliases
+    _history_file = Path(PROJECT_ROOT) / ".devbench_history" if "PROJECT_ROOT" in dir() else None
+
+    async def api_cli_history(request: Request) -> JSONResponse:
+        """Get CLI command history."""
+        return JSONResponse({"history": _cli_history[-200:]})
+
+    async def api_cli_history_add(request: Request) -> JSONResponse:
+        """Add a command to CLI history."""
+        body = await request.json()
+        cmd = body.get("command", "").strip()
+        if cmd and (not _cli_history or _cli_history[-1] != cmd):
+            _cli_history.append(cmd)
+            # Keep max 500 entries
+            if len(_cli_history) > 500:
+                _cli_history[:] = _cli_history[-500:]
+        return JSONResponse({"status": "ok"})
+
+    async def api_cli_aliases(request: Request) -> JSONResponse:
+        """Get/set CLI aliases."""
+        if request.method == "GET":
+            return JSONResponse({"aliases": _cli_aliases})
+        body = await request.json()
+        if "set" in body:
+            _cli_aliases[body["set"]["name"]] = body["set"]["value"]
+        if "remove" in body:
+            _cli_aliases.pop(body["remove"], None)
+        return JSONResponse({"aliases": _cli_aliases})
+
+    # ---- Clipboard Bridge ----
+    async def api_tool_clipboard_get(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "CLIPGET"})
+        msg = await _event_bus.wait_for("clipboard", timeout=5.0)
+        if msg:
+            return JSONResponse({"text": msg.get("text", ""), "length": msg.get("length", 0)})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_clipboard_set(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        text = body.get("text", "")
+        _conn.send({"type": "CLIPSET", "text": text})
+        async with _event_bus.subscribe("ok", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "Error")})
+                return JSONResponse({"status": "ok"})
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
     # Define routes
     routes = [
         # Web API
@@ -2639,6 +2943,40 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/tool/win/size", api_tool_win_size, methods=["POST"]),
         Route("/api/tool/scr/tofront", api_tool_scr_tofront, methods=["POST"]),
         Route("/api/tool/scr/toback", api_tool_scr_toback, methods=["POST"]),
+        # Assign Manager
+        Route("/api/tools/assigns", api_tool_assigns, methods=["GET"]),
+        Route("/api/tools/assign/set", api_tool_assign_set, methods=["POST"]),
+        Route("/api/tools/assign/remove", api_tool_assign_remove, methods=["POST"]),
+        # Font Browser
+        Route("/api/tools/fonts", api_tool_fonts, methods=["GET"]),
+        Route("/api/tools/fontinfo", api_tool_fontinfo, methods=["GET"]),
+        # Locale/Catalog Inspector
+        Route("/api/tools/locale/catalogs", api_tool_locale, methods=["GET"]),
+        Route("/api/tools/locale/strings", api_tool_locale_strings, methods=["GET"]),
+        # Custom Chip Write Logger
+        Route("/api/tools/chiplog/start", api_tool_chiplog_start, methods=["POST"]),
+        Route("/api/tools/chiplog/stop", api_tool_chiplog_stop, methods=["POST"]),
+        Route("/api/tools/chiplog/snapshot", api_tool_chiplog_snapshot, methods=["GET"]),
+        # Memory Pool Tracker
+        Route("/api/tools/pool/start", api_tool_pool_start, methods=["POST"]),
+        Route("/api/tools/pool/stop", api_tool_pool_stop, methods=["POST"]),
+        Route("/api/tools/pools", api_tool_pools, methods=["GET"]),
+        # Startup-Sequence Editor
+        Route("/api/tools/startup/read", api_tool_startup_read, methods=["GET"]),
+        Route("/api/tools/startup/write", api_tool_startup_write, methods=["POST"]),
+        # Preferences Editor
+        Route("/api/tools/prefs/list", api_tool_prefs_list, methods=["GET"]),
+        Route("/api/tools/prefs/read", api_tool_prefs_read, methods=["GET"]),
+        # Visual Diff
+        Route("/api/tools/screenshot/diff", api_tool_screenshot_diff, methods=["POST"]),
+        Route("/api/tools/screenshot/diffview", api_tool_screenshot_diff_view, methods=["GET"]),
+        # CLI History
+        Route("/api/cli/history", api_cli_history, methods=["GET"]),
+        Route("/api/cli/history/add", api_cli_history_add, methods=["POST"]),
+        Route("/api/cli/aliases", api_cli_aliases, methods=["GET", "POST"]),
+        # Clipboard Bridge
+        Route("/api/tools/clipboard/get", api_tool_clipboard_get, methods=["GET"]),
+        Route("/api/tools/clipboard/set", api_tool_clipboard_set, methods=["POST"]),
         # Files tab endpoints
         Route("/api/file/execute", api_file_execute, methods=["POST"]),
         Route("/api/file/view", api_file_view, methods=["GET"]),

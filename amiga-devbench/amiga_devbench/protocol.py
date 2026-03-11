@@ -708,6 +708,73 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "total": _int(parts[4]) if len(parts) > 4 else 0,
         }
 
+    # Font browser
+    if msg_type == "FONTS":
+        fonts = []
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        for i in range(2, len(parts)):
+            entry = parts[i]
+            if ":" in entry:
+                name, sizes_str = entry.split(":", 1)
+                sizes = [int(s) for s in sizes_str.split(",") if s.isdigit()]
+                fonts.append({"name": name, "sizes": sizes})
+            else:
+                fonts.append({"name": entry, "sizes": []})
+        return {"type": "FONTS", "count": count, "fonts": fonts}
+
+    if msg_type == "FONTINFO":
+        return {
+            "type": "FONTINFO",
+            "name": parts[1] if len(parts) > 1 else "",
+            "size": _int(parts[2]) if len(parts) > 2 else 0,
+            "ysize": _int(parts[3]) if len(parts) > 3 else 0,
+            "xsize": _int(parts[4]) if len(parts) > 4 else 0,
+            "style": _int(parts[5]) if len(parts) > 5 else 0,
+            "flags": _int(parts[6]) if len(parts) > 6 else 0,
+            "baseline": _int(parts[7]) if len(parts) > 7 else 0,
+        }
+
+    # Custom chip write logger
+    if msg_type == "CHIPLOG":
+        regs = {}
+        for i in range(1, len(parts)):
+            if ":" in parts[i]:
+                kv = parts[i].split(":")
+                if len(kv) >= 2:
+                    regs[kv[0]] = kv[1]
+        return {"type": "CHIPLOG", "registers": regs}
+
+    if msg_type == "CHIPLOGCHANGE":
+        tick = _int(parts[1]) if len(parts) > 1 else 0
+        changes = []
+        for i in range(2, len(parts)):
+            ch = parts[i].split(":")
+            if len(ch) >= 3:
+                changes.append({"reg": ch[0], "old": ch[1], "new": ch[2]})
+        return {"type": "CHIPLOGCHANGE", "tick": tick, "changes": changes}
+
+    # Memory pool tracker
+    if msg_type == "POOLS":
+        pools = []
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        for i in range(2, len(parts)):
+            fields = parts[i].split(":")
+            if len(fields) >= 5:
+                pools.append({
+                    "address": fields[0],
+                    "puddleSize": _int(fields[1]),
+                    "threshSize": _int(fields[2]),
+                    "allocCount": _int(fields[3]),
+                    "totalAlloc": _int(fields[4]),
+                })
+        return {"type": "POOLS", "count": count, "pools": pools}
+
+    # Clipboard bridge
+    if msg_type == "CLIPBOARD":
+        length = _int(parts[1]) if len(parts) > 1 else 0
+        text = parts[2] if len(parts) > 2 else ""
+        return {"type": "CLIPBOARD", "length": length, "text": text}
+
     return None
 
 
@@ -852,6 +919,30 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"SCRTOFRONT|{cmd['screen']}"
     if t == "SCRTOBACK":
         return f"SCRTOBACK|{cmd['screen']}"
+    # Font browser
+    if t == "LISTFONTS":
+        return "LISTFONTS"
+    if t == "FONTINFO":
+        return f"FONTINFO|{cmd['name']}|{cmd['size']}"
+    # Custom chip write logger
+    if t == "CHIPLOGSTART":
+        return "CHIPLOGSTART"
+    if t == "CHIPLOGSTOP":
+        return "CHIPLOGSTOP"
+    if t == "CHIPLOGSNAPSHOT":
+        return "CHIPLOGSNAPSHOT"
+    # Memory pool tracker
+    if t == "POOLSTART":
+        return "POOLSTART"
+    if t == "POOLSTOP":
+        return "POOLSTOP"
+    if t == "POOLS":
+        return "POOLS"
+    # Clipboard bridge
+    if t == "CLIPGET":
+        return "CLIPGET"
+    if t == "CLIPSET":
+        return f"CLIPSET|{cmd['text']}"
     raise ValueError(f"Unknown command type: {t}")
 
 

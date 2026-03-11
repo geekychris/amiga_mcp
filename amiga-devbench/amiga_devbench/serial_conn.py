@@ -521,6 +521,24 @@ class SerialConnection:
         elif msg_type == "GADGETS":
             self._event_bus.publish("gadgets", msg)
 
+        elif msg_type == "FONTS":
+            self._event_bus.publish("fonts", msg)
+
+        elif msg_type == "FONTINFO":
+            self._event_bus.publish("fontinfo", msg)
+
+        elif msg_type == "CHIPLOG":
+            self._event_bus.publish("chiplog", msg)
+
+        elif msg_type == "CHIPLOGCHANGE":
+            self._event_bus.publish("chiplogchange", msg)
+
+        elif msg_type == "POOLS":
+            self._event_bus.publish("pools", msg)
+
+        elif msg_type == "CLIPBOARD":
+            self._event_bus.publish("clipboard", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

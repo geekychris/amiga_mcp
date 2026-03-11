@@ -277,6 +277,12 @@ int main(int argc, char **argv)
 
     /* Crash handler NOT installed at startup - enable via CRASHINIT command */
 
+    /* Init optional modules */
+    font_init();
+    chiplog_init();
+    pool_init();
+    clip_init();
+
     /* Set up periodic timer (200ms) for snoop drain and heartbeat */
     timerPort = CreateMsgPort();
     if (timerPort) {
@@ -365,6 +371,11 @@ int main(int argc, char **argv)
                 snoop_drain();
             }
 
+            /* Poll chip logger for changes */
+            if (g_serial_connected) {
+                chiplog_poll();
+            }
+
             /* Heartbeat (every ~5 seconds = 25 timer ticks) */
             hb_counter++;
             if (hb_counter >= 25 && g_serial_connected) {
@@ -402,6 +413,10 @@ int main(int argc, char **argv)
     }
 
     /* Clean up in reverse order */
+    clip_cleanup();
+    pool_cleanup();
+    chiplog_cleanup();
+    font_cleanup();
     input_cleanup();
     snoop_stop();
     crash_cleanup();

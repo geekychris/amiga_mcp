@@ -10,7 +10,9 @@ DAEMON_SRCS = src/main.c src/serial_io.c src/ipc_manager.c \
               src/process_launcher.c src/gfx_inspector.c \
               src/crash_handler.c src/snoop.c \
               src/audio_inspector.c src/intuition_inspector.c \
-              src/input_inject.c
+              src/input_inject.c src/font_browser.c \
+              src/chipwrite_logger.c src/pool_tracker.c \
+              src/clipboard_bridge.c
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 DAEMON_BIN = amiga-bridge
 

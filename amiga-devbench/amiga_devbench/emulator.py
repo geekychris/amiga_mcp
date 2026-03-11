@@ -77,7 +77,7 @@ class EmulatorManager:
     async def start(self) -> bool:
         """Start FS-UAE. Returns True on success."""
         if self.is_running:
-            logger.warning("Emulator already running (pid %d)", self._process.pid)
+            logger.warning("Emulator already running (pid %s)", self.pid)
             return True
 
         # Validate binary exists
