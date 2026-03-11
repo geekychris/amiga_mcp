@@ -21,6 +21,8 @@ examples: lib
 	$(DOCKER_RUN) make -C examples/foo
 	$(DOCKER_RUN) make -C examples/symbol_demo
 	$(DOCKER_RUN) make -C examples/arexx_test
+	$(DOCKER_RUN) make -C examples/test_example
+	$(DOCKER_RUN) make -C examples/test_new_features
 
 bridge:
 	$(DOCKER_RUN) make -C amiga-bridge
@@ -39,6 +41,8 @@ clean:
 	$(DOCKER_RUN) make -C examples/foo clean
 	$(DOCKER_RUN) make -C examples/symbol_demo clean
 	$(DOCKER_RUN) make -C examples/arexx_test clean
+	$(DOCKER_RUN) make -C examples/test_example clean
+	$(DOCKER_RUN) make -C examples/test_new_features clean
 	$(DOCKER_RUN) make -C amiga-bridge clean
 
 mcp-server:
