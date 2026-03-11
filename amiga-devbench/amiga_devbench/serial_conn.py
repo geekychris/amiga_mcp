@@ -539,6 +539,12 @@ class SerialConnection:
         elif msg_type == "CLIPBOARD":
             self._event_bus.publish("clipboard", msg)
 
+        elif msg_type == "AREXXPORTS":
+            self._event_bus.publish("arexxports", msg)
+
+        elif msg_type == "AREXXRESULT":
+            self._event_bus.publish("arexxresult", msg)
+
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
             return

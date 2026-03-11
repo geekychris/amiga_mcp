@@ -1452,6 +1452,26 @@
           <div id="inputResult" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:6px;"></div>
         </div>
 
+        <!-- ARexx Bridge -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">ARexx Bridge <span class="tool-help" title="Send ARexx commands to any application with a public message port. List ports to discover available targets, then send commands and see results. Many Amiga apps support ARexx scripting.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button class="btn" onclick="arexxListPorts()">List Ports</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <label style="font-size:11px;color:var(--text-dim);white-space:nowrap;">Port:</label>
+            <select id="arexxPort" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;flex:1;">
+              <option value="">-- list ports first --</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input id="arexxCmd" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-family:var(--mono);font-size:12px;" placeholder="ARexx command..." onkeydown="if(event.key==='Enter')arexxSend()">
+            <button class="btn" onclick="arexxSend()">Send</button>
+          </div>
+          <div id="arexxResult" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;padding:6px;font-family:var(--mono);font-size:11px;color:var(--text-primary);min-height:40px;max-height:150px;overflow-y:auto;white-space:pre-wrap;"></div>
+          <div id="arexxStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
+        </div>
+
         <!-- Clipboard Bridge -->
         <div class="card" style="padding:14px;">
           <h3 style="margin-bottom:6px;">Clipboard Bridge <span class="tool-help" title="Share clipboard between host and Amiga. Uses clipboard.device with iffparse.library to read/write FTXT clipboard data. Get copies Amiga clipboard to the text area, Set writes text to Amiga clipboard.">?</span></h3>
@@ -4482,6 +4502,58 @@ async function aliasRemove(name) {
   await fetch('/api/cli/aliases', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({remove:name})}).then(r=>r.json());
   delete aliases[name];
   renderAliases();
+}
+
+// ─── ARexx Bridge ───
+async function arexxListPorts() {
+  const sel = document.getElementById('arexxPort');
+  const status = document.getElementById('arexxStatus');
+  status.textContent = 'Scanning ports...';
+  status.style.color = 'var(--text-dim)';
+  const data = await api('/tools/arexx/ports');
+  if (!data || data.error) { status.textContent = data?.error || 'Error'; status.style.color = 'var(--red)'; return; }
+  sel.innerHTML = '';
+  const ports = data.ports || [];
+  if (ports.length === 0) {
+    sel.innerHTML = '<option value="">-- no ports found --</option>';
+    status.textContent = 'No public ports found';
+    return;
+  }
+  for (const p of ports) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    sel.appendChild(opt);
+  }
+  status.textContent = ports.length + ' ports found';
+  status.style.color = 'var(--green)';
+}
+
+async function arexxSend() {
+  const port = document.getElementById('arexxPort').value;
+  const cmd = document.getElementById('arexxCmd').value.trim();
+  const result = document.getElementById('arexxResult');
+  const status = document.getElementById('arexxStatus');
+  if (!port) { status.textContent = 'Select a port first'; status.style.color = 'var(--red)'; return; }
+  if (!cmd) { status.textContent = 'Enter a command'; status.style.color = 'var(--red)'; return; }
+  status.textContent = 'Sending...';
+  status.style.color = 'var(--text-dim)';
+  result.textContent = '';
+  const data = await fetch('/api/tools/arexx/send', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({port, command: cmd})
+  }).then(r => r.json());
+  if (data.error) {
+    status.textContent = data.error;
+    status.style.color = 'var(--red)';
+    result.textContent = data.error;
+    return;
+  }
+  const rc = data.rc;
+  status.textContent = 'RC=' + rc + (rc === 0 ? ' (OK)' : ' (Error)');
+  status.style.color = rc === 0 ? 'var(--green)' : 'var(--red)';
+  result.textContent = data.result || '(no result)';
 }
 
 // ─── Clipboard Bridge ───

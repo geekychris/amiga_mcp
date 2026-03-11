@@ -20,6 +20,7 @@ examples: lib
 	$(DOCKER_RUN) make -C examples/shell_proxy
 	$(DOCKER_RUN) make -C examples/foo
 	$(DOCKER_RUN) make -C examples/symbol_demo
+	$(DOCKER_RUN) make -C examples/arexx_test
 
 bridge:
 	$(DOCKER_RUN) make -C amiga-bridge
@@ -37,6 +38,7 @@ clean:
 	$(DOCKER_RUN) make -C examples/shell_proxy clean
 	$(DOCKER_RUN) make -C examples/foo clean
 	$(DOCKER_RUN) make -C examples/symbol_demo clean
+	$(DOCKER_RUN) make -C examples/arexx_test clean
 	$(DOCKER_RUN) make -C amiga-bridge clean
 
 mcp-server:

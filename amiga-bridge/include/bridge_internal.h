@@ -210,6 +210,14 @@ void clip_cleanup(void);
 void clip_handle_get(void);
 void clip_handle_set(const char *args);
 
+/* ---- arexx_bridge.c ---- */
+void arexx_init(void);
+void arexx_cleanup(void);
+void arexx_handle_ports(void);
+void arexx_handle_send(const char *args);
+ULONG arexx_get_signal(void);
+void arexx_poll(void);
+
 /* ---- UI state (main.c) ---- */
 #define UI_MAX_LOG_LINES 5
 #define UI_MAX_LOG_LEN   50

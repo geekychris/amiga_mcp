@@ -1602,3 +1602,40 @@ async def amiga_run_tests(project: str, command: str | None = None) -> str:
                 lines.append("SOME TESTS FAILED")
 
     return "\n".join(lines)
+
+
+# ─── ARexx Bridge ───
+
+@mcp.tool()
+async def amiga_arexx_ports() -> str:
+    """List all public message ports on the Amiga that can receive ARexx commands.
+    Returns port names that can be used with amiga_arexx_send."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "AREXXPORTS"})
+    msg = await bus.wait_for("arexxports", timeout=5.0)
+    if not msg:
+        return "Timeout waiting for port list"
+    ports = msg.get("ports", [])
+    if not ports:
+        return "No public ports found"
+    lines = [f"Public message ports ({msg.get('count', len(ports))}):", ""]
+    for p in ports:
+        lines.append(f"  {p}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def amiga_arexx_send(port: str, command: str) -> str:
+    """Send an ARexx command to a named port on the Amiga and return the result.
+    Many Amiga applications have ARexx ports for scripting (e.g. 'REXX', app-specific ports).
+    Use amiga_arexx_ports to discover available ports first."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "AREXXSEND", "port": port, "command": command})
+    msg = await bus.wait_for("arexxresult", timeout=15.0)
+    if not msg:
+        return "Timeout waiting for ARexx result"
+    rc = msg.get("rc", -1)
+    result = msg.get("result", "")
+    if rc == 0:
+        return f"[OK] {result}" if result else "[OK]"
+    return f"[RC={rc}] {result}" if result else f"[RC={rc}] Command failed"

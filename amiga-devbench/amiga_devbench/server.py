@@ -2826,6 +2826,32 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             _cli_aliases.pop(body["remove"], None)
         return JSONResponse({"aliases": _cli_aliases})
 
+    # ---- ARexx Bridge ----
+    async def api_tool_arexx_ports(request: Request) -> JSONResponse:
+        """List all public message ports (potential ARexx targets)."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "AREXXPORTS"})
+        msg = await _event_bus.wait_for("arexxports", timeout=5.0)
+        if msg:
+            return JSONResponse({"count": msg.get("count", 0), "ports": msg.get("ports", [])})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_arexx_send(request: Request) -> JSONResponse:
+        """Send an ARexx command to a named port."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        port = body.get("port", "")
+        command = body.get("command", "")
+        if not port or not command:
+            return JSONResponse({"error": "Missing port or command"}, status_code=400)
+        _conn.send({"type": "AREXXSEND", "port": port, "command": command})
+        msg = await _event_bus.wait_for("arexxresult", timeout=15.0)
+        if msg:
+            return JSONResponse({"rc": msg.get("rc", -1), "result": msg.get("result", "")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
     # ---- Clipboard Bridge ----
     async def api_tool_clipboard_get(request: Request) -> JSONResponse:
         if not _conn or not _conn.connected:
@@ -2973,6 +2999,9 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/cli/history", api_cli_history, methods=["GET"]),
         Route("/api/cli/history/add", api_cli_history_add, methods=["POST"]),
         Route("/api/cli/aliases", api_cli_aliases, methods=["GET", "POST"]),
+        # ARexx Bridge
+        Route("/api/tools/arexx/ports", api_tool_arexx_ports, methods=["GET"]),
+        Route("/api/tools/arexx/send", api_tool_arexx_send, methods=["POST"]),
         # Clipboard Bridge
         Route("/api/tools/clipboard/get", api_tool_clipboard_get, methods=["GET"]),
         Route("/api/tools/clipboard/set", api_tool_clipboard_set, methods=["POST"]),

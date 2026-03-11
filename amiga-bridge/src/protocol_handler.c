@@ -294,6 +294,10 @@ void protocol_parse_line(const char *line)
         clip_handle_get();
     } else if (strcmp(cmd, "CLIPSET") == 0) {
         clip_handle_set(args);
+    } else if (strcmp(cmd, "AREXXPORTS") == 0) {
+        arexx_handle_ports();
+    } else if (strcmp(cmd, "AREXXSEND") == 0) {
+        arexx_handle_send(args);
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
         /* The main loop will exit via CTRL-C or window close */

@@ -282,6 +282,7 @@ int main(int argc, char **argv)
     chiplog_init();
     pool_init();
     clip_init();
+    arexx_init();
 
     /* Set up periodic timer (200ms) for snoop drain and heartbeat */
     timerPort = CreateMsgPort();
@@ -317,7 +318,8 @@ int main(int argc, char **argv)
 
     /* Main loop */
     while (running) {
-        signals = serialSig | ipcSig | winSig | timerSig | SIGBREAKF_CTRL_C;
+        ULONG arexxSig = arexx_get_signal();
+        signals = serialSig | ipcSig | winSig | timerSig | arexxSig | SIGBREAKF_CTRL_C;
 
         received = Wait(signals);
 
@@ -361,6 +363,11 @@ int main(int argc, char **argv)
             ipc_process();
         }
 
+        /* Check ARexx reply */
+        if (arexxSig && (received & arexxSig)) {
+            arexx_poll();
+        }
+
         /* Timer tick — periodic 200ms wake-up */
         if (timerOpen && (received & timerSig)) {
             /* Collect the timer message */
@@ -375,6 +382,9 @@ int main(int argc, char **argv)
             if (g_serial_connected) {
                 chiplog_poll();
             }
+
+            /* Poll ARexx for timeout */
+            arexx_poll();
 
             /* Heartbeat (every ~5 seconds = 25 timer ticks) */
             hb_counter++;
@@ -413,6 +423,7 @@ int main(int argc, char **argv)
     }
 
     /* Clean up in reverse order */
+    arexx_cleanup();
     clip_cleanup();
     pool_cleanup();
     chiplog_cleanup();

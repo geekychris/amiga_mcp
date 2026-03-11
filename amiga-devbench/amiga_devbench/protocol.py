@@ -769,6 +769,19 @@ def parse_message(line: str) -> dict[str, Any] | None:
                 })
         return {"type": "POOLS", "count": count, "pools": pools}
 
+    # ARexx bridge
+    if msg_type == "AREXXPORTS":
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        ports = []
+        if len(parts) > 2 and parts[2]:
+            ports = [p.strip() for p in parts[2].split(",") if p.strip()]
+        return {"type": "AREXXPORTS", "count": count, "ports": ports}
+
+    if msg_type == "AREXXRESULT":
+        rc = _int(parts[1]) if len(parts) > 1 else -1
+        result = "|".join(parts[2:]) if len(parts) > 2 else ""
+        return {"type": "AREXXRESULT", "rc": rc, "result": result}
+
     # Clipboard bridge
     if msg_type == "CLIPBOARD":
         length = _int(parts[1]) if len(parts) > 1 else 0
@@ -943,6 +956,11 @@ def format_command(cmd: dict[str, Any]) -> str:
         return "CLIPGET"
     if t == "CLIPSET":
         return f"CLIPSET|{cmd['text']}"
+    # ARexx bridge
+    if t == "AREXXPORTS":
+        return "AREXXPORTS"
+    if t == "AREXXSEND":
+        return f"AREXXSEND|{cmd['port']}|{cmd['command']}"
     raise ValueError(f"Unknown command type: {t}")
 
 
