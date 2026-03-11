@@ -600,6 +600,114 @@ def parse_message(line: str) -> dict[str, Any] | None:
                     funcs.append({"lvo": _int(lvo), "addr": addr})
         return {"type": "LIBFUNCS", "name": name, "totalFuncs": total, "startIdx": start, "count": count, "funcs": funcs}
 
+    if msg_type == "AUDIOCHANNELS":
+        # Format: AUDIOCHANNELS|dmaEnabled|intReq|intEna
+        return {
+            "type": "AUDIOCHANNELS",
+            "dmaEnabled": parts[1] if len(parts) > 1 else "0",
+            "intReq": parts[2] if len(parts) > 2 else "0",
+            "intEna": parts[3] if len(parts) > 3 else "0",
+        }
+
+    if msg_type == "AUDIOSAMPLE":
+        # Format: AUDIOSAMPLE|addr|size|hexdata
+        return {
+            "type": "AUDIOSAMPLE",
+            "address": parts[1] if len(parts) > 1 else "0",
+            "size": _int(parts[2]) if len(parts) > 2 else 0,
+            "hexData": parts[3] if len(parts) > 3 else "",
+        }
+
+    if msg_type == "SCREENS":
+        # Format: SCREENS|count|title:w:h:depth:viewmodes:flags:addr,...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        screens = []
+        if len(parts) > 2 and parts[2]:
+            for entry in parts[2].split(","):
+                fields = entry.split(":")
+                if len(fields) >= 7:
+                    screens.append({
+                        "title": fields[0],
+                        "width": _int(fields[1]),
+                        "height": _int(fields[2]),
+                        "depth": _int(fields[3]),
+                        "viewModes": fields[4],
+                        "flags": fields[5],
+                        "addr": fields[6],
+                    })
+        return {"type": "SCREENS", "count": count, "screens": screens}
+
+    if msg_type == "WINDOWS":
+        # Format: WINDOWS|screenAddr|count|title:l:t:w:h:flags:idcmp:addr,...
+        scrAddr = parts[1] if len(parts) > 1 else "0"
+        count = _int(parts[2]) if len(parts) > 2 else 0
+        windows = []
+        if len(parts) > 3 and parts[3]:
+            for entry in parts[3].split(","):
+                fields = entry.split(":")
+                if len(fields) >= 8:
+                    windows.append({
+                        "title": fields[0],
+                        "left": _int(fields[1]),
+                        "top": _int(fields[2]),
+                        "width": _int(fields[3]),
+                        "height": _int(fields[4]),
+                        "flags": fields[5],
+                        "idcmp": fields[6],
+                        "addr": fields[7],
+                    })
+        return {"type": "WINDOWS", "screenAddr": scrAddr, "count": count, "windows": windows}
+
+    if msg_type == "GADGETS":
+        # Format: GADGETS|windowAddr|count|id:l:t:w:h:type:flags:text:addr,...
+        winAddr = parts[1] if len(parts) > 1 else "0"
+        count = _int(parts[2]) if len(parts) > 2 else 0
+        gadgets = []
+        if len(parts) > 3 and parts[3]:
+            for entry in parts[3].split(","):
+                fields = entry.split(":")
+                if len(fields) >= 9:
+                    gadgets.append({
+                        "id": _int(fields[0]),
+                        "left": _int(fields[1]),
+                        "top": _int(fields[2]),
+                        "width": _int(fields[3]),
+                        "height": _int(fields[4]),
+                        "gadgetType": _int(fields[5]),
+                        "flags": _int(fields[6]),
+                        "text": fields[7],
+                        "addr": fields[8],
+                    })
+        return {"type": "GADGETS", "windowAddr": winAddr, "count": count, "gadgets": gadgets}
+
+    if msg_type == "TEST_BEGIN":
+        return {"type": "TEST_BEGIN", "suite": parts[1] if len(parts) > 1 else "unknown"}
+
+    if msg_type == "TEST_PASS":
+        return {
+            "type": "TEST_PASS",
+            "testName": parts[1] if len(parts) > 1 else "?",
+            "file": parts[2] if len(parts) > 2 else "?",
+            "line": _int(parts[3]) if len(parts) > 3 else 0,
+        }
+
+    if msg_type == "TEST_FAIL":
+        return {
+            "type": "TEST_FAIL",
+            "testName": parts[1] if len(parts) > 1 else "?",
+            "file": parts[2] if len(parts) > 2 else "?",
+            "line": _int(parts[3]) if len(parts) > 3 else 0,
+        }
+
+    if msg_type == "TEST_END":
+        return {
+            "type": "TEST_END",
+            "suite": parts[1] if len(parts) > 1 else "unknown",
+            "passed": _int(parts[2]) if len(parts) > 2 else 0,
+            "failed": _int(parts[3]) if len(parts) > 3 else 0,
+            "total": _int(parts[4]) if len(parts) > 4 else 0,
+        }
+
     return None
 
 
@@ -712,6 +820,38 @@ def format_command(cmd: dict[str, Any]) -> str:
         return "SNOOPSTOP"
     if t == "SNOOPSTATUS":
         return "SNOOPSTATUS"
+    if t == "AUDIOCHANNELS":
+        return "AUDIOCHANNELS"
+    if t == "AUDIOSAMPLE":
+        return f"AUDIOSAMPLE|{cmd['address']}|{cmd['size']}"
+    if t == "LISTSCREENS":
+        return "LISTSCREENS"
+    if t == "LISTWINDOWS2":
+        return f"LISTWINDOWS2|{cmd.get('screen', '')}"
+    if t == "LISTGADGETS":
+        return f"LISTGADGETS|{cmd['window']}"
+    if t == "INPUTKEY":
+        return f"INPUTKEY|{cmd['rawkey']}|{cmd['direction']}"
+    if t == "INPUTMOVE":
+        return f"INPUTMOVE|{cmd['dx']}|{cmd['dy']}"
+    if t == "INPUTCLICK":
+        return f"INPUTCLICK|{cmd['button']}|{cmd['direction']}"
+    if t == "WINACTIVATE":
+        return f"WINACTIVATE|{cmd['window']}"
+    if t == "WINTOFRONT":
+        return f"WINTOFRONT|{cmd['window']}"
+    if t == "WINTOBACK":
+        return f"WINTOBACK|{cmd['window']}"
+    if t == "WINZIP":
+        return f"WINZIP|{cmd['window']}"
+    if t == "WINMOVE":
+        return f"WINMOVE|{cmd['window']}|{cmd['x']}|{cmd['y']}"
+    if t == "WINSIZE":
+        return f"WINSIZE|{cmd['window']}|{cmd['width']}|{cmd['height']}"
+    if t == "SCRTOFRONT":
+        return f"SCRTOFRONT|{cmd['screen']}"
+    if t == "SCRTOBACK":
+        return f"SCRTOBACK|{cmd['screen']}"
     raise ValueError(f"Unknown command type: {t}")
 
 

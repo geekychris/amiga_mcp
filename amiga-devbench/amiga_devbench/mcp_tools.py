@@ -1272,3 +1272,281 @@ def _format_perf(perf: dict) -> str:
         lines.append("No named sections profiled")
 
     return "\n".join(lines)
+
+
+# ---- Symbol Table ----
+
+@mcp.tool()
+async def amiga_load_symbols(project: str) -> str:
+    """Load debug symbols from a compiled Amiga binary. Enables symbolic disassembly and crash analysis."""
+    from . import symbols
+    table = await symbols.load_symbols(project)
+    if not table.symbols:
+        return f"No symbols found for project '{project}'"
+    funcs = [s for s in table.symbols if s.sym_type in ("T", "t")]
+    data = [s for s in table.symbols if s.sym_type in ("D", "d", "B", "b")]
+    return f"Loaded {len(table.symbols)} symbols ({len(funcs)} functions, {len(data)} data) from {table.binary_path}"
+
+
+@mcp.tool()
+async def amiga_lookup_symbol(address: str, project: str = "") -> str:
+    """Look up a symbol by hex address. Searches all loaded symbol tables."""
+    from . import symbols
+    addr = int(address, 16)
+    result = symbols.annotate_address(addr, project or None)
+    if result:
+        return f"0x{addr:08x} = {result}"
+    return f"0x{addr:08x}: no symbol found (load symbols first with amiga_load_symbols)"
+
+
+@mcp.tool()
+async def amiga_list_functions(project: str) -> str:
+    """List all function symbols loaded for a project."""
+    from . import symbols
+    funcs = symbols.list_functions(project)
+    if not funcs:
+        return f"No functions found for '{project}' (load symbols first)"
+    lines = [f"Functions in {project} ({len(funcs)}):", ""]
+    for f in funcs:
+        lines.append(f"  {f['address']}  {f['name']}")
+    return "\n".join(lines)
+
+
+# ---- Audio Inspector ----
+
+@mcp.tool()
+async def amiga_audio_channels() -> str:
+    """Read Paula audio channel status (DMA enable, interrupt request/enable)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "AUDIOCHANNELS"})
+    msg = await bus.wait_for("audiochannels", timeout=5.0)
+    if not msg:
+        return "Timeout waiting for audio channel data"
+    dma = int(msg.get("dmaEnabled", "0"), 16)
+    ireq = int(msg.get("intReq", "0"), 16)
+    iena = int(msg.get("intEna", "0"), 16)
+    lines = ["Paula Audio Channels:", ""]
+    for ch in range(4):
+        dma_on = bool(dma & (1 << ch))
+        int_req = bool(ireq & (1 << ch))
+        int_ena = bool(iena & (1 << ch))
+        lines.append(f"  Channel {ch}: DMA={'ON' if dma_on else 'off'}  IntReq={'YES' if int_req else 'no'}  IntEna={'YES' if int_ena else 'no'}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def amiga_audio_sample(address: str, size: int = 256) -> str:
+    """Read audio sample data from chip RAM. Returns hex dump."""
+    conn, state, bus = _require_connected()
+    if size > 512:
+        size = 512
+    conn.send({"type": "AUDIOSAMPLE", "address": address, "size": size})
+    async with bus.subscribe("audiosample", "err") as q:
+        import asyncio
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return "Timeout"
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                if evt == "err":
+                    return f"Error: {data.get('message', '?')}"
+                if evt == "audiosample":
+                    hex_data = data.get("hexData", "")
+                    from . import protocol
+                    return protocol.format_hex_dump(data.get("address", "0"), hex_data)
+            except asyncio.TimeoutError:
+                return "Timeout"
+
+
+# ---- Intuition Inspector ----
+
+@mcp.tool()
+async def amiga_list_screens() -> str:
+    """List all Intuition screens with details (title, dimensions, depth, modes)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "LISTSCREENS"})
+    msg = await bus.wait_for("screens", timeout=5.0)
+    if not msg:
+        return "Timeout waiting for screen list"
+    screens = msg.get("screens", [])
+    if not screens:
+        return "No screens found"
+    lines = [f"Screens ({len(screens)}):", ""]
+    for s in screens:
+        modes = []
+        vm = int(s.get("viewModes", "0"), 16)
+        if vm & 0x8000:
+            modes.append("HIRES")
+        if vm & 0x0004:
+            modes.append("LACE")
+        if vm & 0x0800:
+            modes.append("HAM")
+        mode_str = "+".join(modes) if modes else "LORES"
+        lines.append(f"  {s['title']}  {s['width']}x{s['height']}  {s['depth']}bpp  {mode_str}  @{s['addr']}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def amiga_list_screen_windows(screen: str = "") -> str:
+    """List windows on a screen. Pass screen hex address or empty for first screen."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "LISTWINDOWS2", "screen": screen})
+    async with bus.subscribe("windows", "err") as q:
+        import asyncio
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return "Timeout"
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                if evt == "err":
+                    return f"Error: {data.get('message', '?')}"
+                if evt == "windows":
+                    windows = data.get("windows", [])
+                    if not windows:
+                        return "No windows found on this screen"
+                    lines = [f"Windows on screen @{data.get('screenAddr', '?')} ({len(windows)}):", ""]
+                    for w in windows:
+                        lines.append(f"  {w['title']}  pos=({w['left']},{w['top']})  size={w['width']}x{w['height']}  @{w['addr']}")
+                    return "\n".join(lines)
+            except asyncio.TimeoutError:
+                return "Timeout"
+
+
+@mcp.tool()
+async def amiga_list_gadgets(window: str) -> str:
+    """List gadgets for a window. Pass window hex address."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "LISTGADGETS", "window": window})
+    async with bus.subscribe("gadgets", "err") as q:
+        import asyncio
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return "Timeout"
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                if evt == "err":
+                    return f"Error: {data.get('message', '?')}"
+                if evt == "gadgets":
+                    gadgets = data.get("gadgets", [])
+                    if not gadgets:
+                        return "No gadgets found"
+                    lines = [f"Gadgets ({len(gadgets)}):", ""]
+                    for g in gadgets:
+                        lines.append(f"  ID={g['id']}  pos=({g['left']},{g['top']})  size={g['width']}x{g['height']}  type={g['gadgetType']}  text={g['text']}  @{g['addr']}")
+                    return "\n".join(lines)
+            except asyncio.TimeoutError:
+                return "Timeout"
+
+
+# ---- Input Injection ----
+
+@mcp.tool()
+async def amiga_input_key(rawkey: str, direction: str = "down") -> str:
+    """Inject a keyboard event. rawkey is hex Amiga raw key code (e.g. 45=Esc, 44=Return). direction: down/up."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "INPUTKEY", "rawkey": rawkey, "direction": direction})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Key injected")
+    return "Timeout"
+
+
+@mcp.tool()
+async def amiga_input_mouse_move(dx: int, dy: int) -> str:
+    """Inject a relative mouse movement (dx, dy pixels)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "INPUTMOVE", "dx": dx, "dy": dy})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Mouse moved")
+    return "Timeout"
+
+
+@mcp.tool()
+async def amiga_input_click(button: str = "left", direction: str = "down") -> str:
+    """Inject a mouse button event. button: left/right/middle. direction: down/up."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "INPUTCLICK", "button": button, "direction": direction})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Click injected")
+    return "Timeout"
+
+
+# ---- Test Harness ----
+
+@mcp.tool()
+async def amiga_run_tests(project: str, command: str | None = None) -> str:
+    """Build, deploy, and run an Amiga test program. Collects test results (pass/fail/total).
+
+    The test program should use ab_test_begin/AB_ASSERT/ab_test_end from the bridge client library.
+    Returns structured test results after the program completes."""
+    import asyncio
+    conn, state, bus = _require_connected()
+
+    # Build and deploy
+    from . import builder
+    build_result = await builder.build_project(project)
+    if "error" in build_result.get("status", "").lower():
+        return f"Build failed: {build_result.get('output', '?')}"
+
+    await builder.deploy_project(project)
+
+    # Stop any previous instance
+    cmd_name = command or project
+    conn.send({"type": "STOP", "name": cmd_name})
+    await asyncio.sleep(0.5)
+
+    # Launch the test program
+    import time
+    cmd_id = int(time.time()) & 0xFFFFFF
+    conn.send({"type": "LAUNCH", "id": cmd_id, "command": f"DH2:Dev/{cmd_name}"})
+
+    # Collect test events for up to 30 seconds
+    results: list[dict] = []
+    suite_name = ""
+    async with bus.subscribe("test") as q:
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                _, data = await asyncio.wait_for(q.get(), timeout=remaining)
+                results.append(data)
+                if data.get("type") == "TEST_BEGIN":
+                    suite_name = data.get("suite", "")
+                if data.get("type") == "TEST_END":
+                    break
+            except asyncio.TimeoutError:
+                break
+
+    # Format results
+    if not results:
+        return "No test results received (timeout after 30s)"
+
+    lines = [f"Test Suite: {suite_name}", ""]
+    passed = failed = 0
+    for r in results:
+        if r["type"] == "TEST_PASS":
+            passed += 1
+            lines.append(f"  PASS: {r.get('testName', '?')}")
+        elif r["type"] == "TEST_FAIL":
+            failed += 1
+            lines.append(f"  FAIL: {r.get('testName', '?')} ({r.get('file', '?')}:{r.get('line', 0)})")
+        elif r["type"] == "TEST_END":
+            lines.append("")
+            total = r.get("total", passed + failed)
+            lines.append(f"Results: {passed} passed, {failed} failed, {total} total")
+            if failed == 0:
+                lines.append("ALL TESTS PASSED")
+            else:
+                lines.append("SOME TESTS FAILED")
+
+    return "\n".join(lines)

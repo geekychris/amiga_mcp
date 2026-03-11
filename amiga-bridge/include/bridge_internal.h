@@ -160,6 +160,29 @@ void snoop_drain(void);         /* called from main loop to send buffered events
 BOOL snoop_is_active(void);
 void snoop_handle_status(void); /* sends SNOOPSTATE response */
 
+/* ---- audio_inspector.c ---- */
+void audio_handle_channels(void);
+void audio_handle_sample(const char *args);
+
+/* ---- intuition_inspector.c ---- */
+void intui_handle_screens(void);
+void intui_handle_windows(const char *args);
+void intui_handle_gadgets(const char *args);
+void intui_handle_activate(const char *args);
+void intui_handle_tofront(const char *args);
+void intui_handle_toback(const char *args);
+void intui_handle_zip(const char *args);
+void intui_handle_move(const char *args);
+void intui_handle_size(const char *args);
+void intui_handle_scrtofront(const char *args);
+void intui_handle_scrtoback(const char *args);
+
+/* ---- input_inject.c ---- */
+void input_handle_key(const char *args);
+void input_handle_mouse_move(const char *args);
+void input_handle_mouse_button(const char *args);
+void input_cleanup(void);
+
 /* ---- UI state (main.c) ---- */
 #define UI_MAX_LOG_LINES 5
 #define UI_MAX_LOG_LEN   50

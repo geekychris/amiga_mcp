@@ -1073,3 +1073,70 @@ void ab_perf_section_end(const char *label)
         }
     }
 }
+
+/* ---- Test Harness ---- */
+
+static char test_suite_name[64];
+static int test_pass_count = 0;
+static int test_fail_count = 0;
+static int test_total_count = 0;
+
+void ab_test_begin(const char *suiteName)
+{
+    char data[AB_MAX_DATA];
+
+    test_pass_count = 0;
+    test_fail_count = 0;
+    test_total_count = 0;
+
+    strncpy(test_suite_name, suiteName ? suiteName : "unnamed", 63);
+    test_suite_name[63] = '\0';
+
+    /* Send TEST_BEGIN to daemon as a log with special prefix */
+    sprintf(data, "TEST_BEGIN|%s", test_suite_name);
+    if (connected) {
+        send_simple(ABMSG_LOG, 0, data, strlen(data) + 1);
+    }
+}
+
+int ab_test_assert(int condition, const char *testName,
+                   const char *file, int line)
+{
+    char data[AB_MAX_DATA];
+
+    test_total_count++;
+    if (condition) {
+        test_pass_count++;
+        sprintf(data, "TEST_PASS|%s|%s|%ld",
+                testName ? testName : "?",
+                file ? file : "?",
+                (long)line);
+    } else {
+        test_fail_count++;
+        sprintf(data, "TEST_FAIL|%s|%s|%ld",
+                testName ? testName : "?",
+                file ? file : "?",
+                (long)line);
+    }
+
+    if (connected) {
+        send_simple(ABMSG_LOG, 0, data, strlen(data) + 1);
+    }
+
+    return condition ? 1 : 0;
+}
+
+void ab_test_end(void)
+{
+    char data[AB_MAX_DATA];
+
+    sprintf(data, "TEST_END|%s|%ld|%ld|%ld",
+            test_suite_name,
+            (long)test_pass_count,
+            (long)test_fail_count,
+            (long)test_total_count);
+
+    if (connected) {
+        send_simple(ABMSG_LOG, 0, data, strlen(data) + 1);
+    }
+}

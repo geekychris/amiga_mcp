@@ -33,14 +33,30 @@ class EmulatorManager:
 
     @property
     def is_running(self) -> bool:
-        if self._process is None:
-            return False
-        return self._process.returncode is None
+        if self._process is not None and self._process.returncode is None:
+            return True
+        # Check if emulator is running externally (started outside devbench)
+        return self._find_external_pid() is not None
 
     @property
     def pid(self) -> int | None:
         if self._process and self._process.returncode is None:
             return self._process.pid
+        return self._find_external_pid()
+
+    def _find_external_pid(self) -> int | None:
+        """Check if the emulator binary is running as an external process."""
+        binary_name = Path(self._binary).name
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["pgrep", "-x", binary_name],
+                capture_output=True, text=True, timeout=2
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return int(result.stdout.strip().split()[0])
+        except Exception:
+            pass
         return None
 
     @property

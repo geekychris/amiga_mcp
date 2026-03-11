@@ -64,7 +64,8 @@ async def api_events(request: Request) -> EventSourceResponse:
 
         async with _event_bus.subscribe("log", "heartbeat", "var", "connected",
                                         "disconnected", "clients", "tasks", "dir",
-                                        "emulator_status", "crash", "snoop") as queue:
+                                        "emulator_status", "crash", "snoop",
+                                        "test") as queue:
             while True:
                 try:
                     evt, data = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -113,6 +114,8 @@ async def api_events(request: Request) -> EventSourceResponse:
                         })}
                     elif evt == "snoop":
                         yield {"event": "snoop", "data": json.dumps(data)}
+                    elif evt == "test":
+                        yield {"event": "test", "data": json.dumps(data)}
 
                 except asyncio.TimeoutError:
                     # Send keepalive comment
@@ -328,6 +331,51 @@ async def api_command(request: Request) -> JSONResponse:
                 break
 
     return JSONResponse({"message": "Command sent (no response received)"})
+
+
+async def api_command_raw(request: Request) -> JSONResponse:
+    """Send a raw protocol line to the bridge and return the first response."""
+    assert _conn is not None and _event_bus is not None
+    if not _conn.connected:
+        return JSONResponse({"error": "Not connected"})
+
+    body = await request.json()
+    line = body.get("line", "").strip()
+    if not line:
+        return JSONResponse({"error": "Missing 'line' field"}, status_code=400)
+
+    # Subscribe to all events before sending so we catch the response
+    async with _event_bus.subscribe("*") as queue:
+        _conn.send_raw(line)
+
+        # Collect responses for up to 3 seconds (some commands return multiple lines)
+        responses = []
+        try:
+            deadline = asyncio.get_event_loop().time() + 3.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                # Skip heartbeat/status noise
+                if evt in ("heartbeat", "status", "connected", "disconnected"):
+                    continue
+                if isinstance(data, dict):
+                    # Compact representation
+                    dtype = data.get("type", evt)
+                    responses.append(f"[{dtype}] {json.dumps(data, default=str)}")
+                else:
+                    responses.append(f"[{evt}] {data}")
+                # Most commands send a single response
+                if len(responses) >= 1:
+                    # Wait a tiny bit more for multi-line responses
+                    deadline = min(deadline, asyncio.get_event_loop().time() + 0.3)
+        except asyncio.TimeoutError:
+            pass
+
+    if responses:
+        return JSONResponse({"response": "\n".join(responses)})
+    return JSONResponse({"response": f"Sent: {line} (no response)"})
 
 
 async def api_launch(request: Request) -> JSONResponse:
@@ -1510,6 +1558,150 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             except asyncio.TimeoutError:
                 return JSONResponse({"error": "Timeout"}, status_code=504)
 
+    # ─── Audio Inspector ───
+
+    async def api_tool_audio_channels(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "AUDIOCHANNELS"})
+        msg = await _event_bus.wait_for("audiochannels", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_audio_sample(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        address = request.query_params.get("address", "0")
+        size = request.query_params.get("size", "256")
+        _conn.send({"type": "AUDIOSAMPLE", "address": address, "size": int(size)})
+        async with _event_bus.subscribe("audiosample", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "?")}, status_code=500)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ─── Intuition Inspector ───
+
+    async def api_tool_screens(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        _conn.send({"type": "LISTSCREENS"})
+        msg = await _event_bus.wait_for("screens", timeout=5.0)
+        if msg:
+            return JSONResponse(msg)
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_screen_windows(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        screen = request.query_params.get("screen", "")
+        _conn.send({"type": "LISTWINDOWS2", "screen": screen})
+        async with _event_bus.subscribe("windows", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "?")}, status_code=500)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_gadgets(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        window = request.query_params.get("window", "")
+        if not window:
+            return JSONResponse({"error": "Missing window address"}, status_code=400)
+        _conn.send({"type": "LISTGADGETS", "window": window})
+        async with _event_bus.subscribe("gadgets", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=5.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "?")}, status_code=500)
+                return JSONResponse(data)
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ─── Input Injection ───
+
+    async def api_tool_input_key(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        rawkey = body.get("rawkey", "0")
+        direction = body.get("direction", "down")
+        _conn.send({"type": "INPUTKEY", "rawkey": rawkey, "direction": direction})
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        if msg:
+            return JSONResponse({"status": "ok", "message": msg.get("message", "")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_input_move(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        dx = body.get("dx", 0)
+        dy = body.get("dy", 0)
+        _conn.send({"type": "INPUTMOVE", "dx": dx, "dy": dy})
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        if msg:
+            return JSONResponse({"status": "ok", "message": msg.get("message", "")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_input_click(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        button = body.get("button", "left")
+        direction = body.get("direction", "down")
+        _conn.send({"type": "INPUTCLICK", "button": button, "direction": direction})
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        if msg:
+            return JSONResponse({"status": "ok", "message": msg.get("message", "")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    # ─── Window/Screen Management ───
+
+    async def _win_action(request: Request, cmd_type: str, key: str = "window") -> JSONResponse:
+        """Generic handler for window/screen management commands that return OK."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        cmd = {"type": cmd_type}
+        cmd.update(body)
+        _conn.send(cmd)
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        if msg:
+            return JSONResponse({"status": "ok", "message": msg.get("message", "")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
+    async def api_tool_win_activate(request: Request) -> JSONResponse:
+        return await _win_action(request, "WINACTIVATE")
+
+    async def api_tool_win_tofront(request: Request) -> JSONResponse:
+        return await _win_action(request, "WINTOFRONT")
+
+    async def api_tool_win_toback(request: Request) -> JSONResponse:
+        return await _win_action(request, "WINTOBACK")
+
+    async def api_tool_win_zip(request: Request) -> JSONResponse:
+        return await _win_action(request, "WINZIP")
+
+    async def api_tool_win_move(request: Request) -> JSONResponse:
+        return await _win_action(request, "WINMOVE")
+
+    async def api_tool_win_size(request: Request) -> JSONResponse:
+        return await _win_action(request, "WINSIZE")
+
+    async def api_tool_scr_tofront(request: Request) -> JSONResponse:
+        return await _win_action(request, "SCRTOFRONT")
+
+    async def api_tool_scr_toback(request: Request) -> JSONResponse:
+        return await _win_action(request, "SCRTOBACK")
+
     # ─── New Tool Endpoints ───
 
     async def api_tool_memory_search(request: Request) -> JSONResponse:
@@ -1525,10 +1717,14 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             pattern = pattern.encode("latin-1").hex()
 
         _conn.send({"type": "SEARCH", "address": address, "size": size, "pattern": pattern})
-        msg = await _event_bus.wait_for("search", timeout=10.0)
-        if msg:
-            return JSONResponse({"count": msg["count"], "addresses": msg["addresses"]})
-        return JSONResponse({"error": "No response"})
+        async with _event_bus.subscribe("search", "err") as q:
+            try:
+                evt, data = await asyncio.wait_for(q.get(), timeout=10.0)
+                if evt == "err":
+                    return JSONResponse({"error": data.get("message", "Unknown error")}, status_code=500)
+                return JSONResponse({"count": data["count"], "addresses": data["addresses"]})
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout"}, status_code=504)
 
     async def api_tool_bitmap(request: Request) -> JSONResponse:
         if not _conn or not _conn.connected:
@@ -2265,6 +2461,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/vars", api_vars, methods=["GET"]),
         Route("/api/volumes", api_volumes, methods=["GET"]),
         Route("/api/command", api_command, methods=["POST"]),
+        Route("/api/command/raw", api_command_raw, methods=["POST"]),
         Route("/api/launch", api_launch, methods=["POST"]),
         Route("/api/run", api_run, methods=["POST"]),
         Route("/api/ping", api_ping, methods=["POST"]),
@@ -2317,6 +2514,25 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/tool/snoop/start", api_tool_snoop_start, methods=["POST"]),
         Route("/api/tool/snoop/stop", api_tool_snoop_stop, methods=["POST"]),
         Route("/api/tool/snoop/status", api_tool_snoop_status, methods=["GET"]),
+        # Audio inspector
+        Route("/api/tool/audio/channels", api_tool_audio_channels, methods=["GET"]),
+        Route("/api/tool/audio/sample", api_tool_audio_sample, methods=["GET"]),
+        # Intuition inspector
+        Route("/api/tool/screens", api_tool_screens, methods=["GET"]),
+        Route("/api/tool/screen/windows", api_tool_screen_windows, methods=["GET"]),
+        Route("/api/tool/gadgets", api_tool_gadgets, methods=["GET"]),
+        # Input injection
+        Route("/api/tool/input/key", api_tool_input_key, methods=["POST"]),
+        Route("/api/tool/input/move", api_tool_input_move, methods=["POST"]),
+        Route("/api/tool/input/click", api_tool_input_click, methods=["POST"]),
+        Route("/api/tool/win/activate", api_tool_win_activate, methods=["POST"]),
+        Route("/api/tool/win/tofront", api_tool_win_tofront, methods=["POST"]),
+        Route("/api/tool/win/toback", api_tool_win_toback, methods=["POST"]),
+        Route("/api/tool/win/zip", api_tool_win_zip, methods=["POST"]),
+        Route("/api/tool/win/move", api_tool_win_move, methods=["POST"]),
+        Route("/api/tool/win/size", api_tool_win_size, methods=["POST"]),
+        Route("/api/tool/scr/tofront", api_tool_scr_tofront, methods=["POST"]),
+        Route("/api/tool/scr/toback", api_tool_scr_toback, methods=["POST"]),
         # Files tab endpoints
         Route("/api/file/execute", api_file_execute, methods=["POST"]),
         Route("/api/file/view", api_file_view, methods=["GET"]),

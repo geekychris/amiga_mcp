@@ -127,6 +127,26 @@
   }
   .tab-panel.active { display: block; }
 
+  /* Tool sub-tabs */
+  .tool-subtab {
+    padding: 5px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .tool-subtab:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+  .tool-subtab.active {
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+    background: rgba(74,144,217,0.1);
+  }
+  .tool-subpanel { display: none; }
+  .tool-subpanel.active { display: block; }
+
   /* Cards */
   .card {
     background: var(--bg-card);
@@ -219,6 +239,33 @@
     line-height: 1.4;
   }
   .tool-help:hover { color: var(--text-primary); background: var(--accent-blue); }
+
+  /* Command button tooltips */
+  .cmd-btn {
+    font-size: 10px;
+    padding: 2px 6px;
+    position: relative;
+  }
+  .cmd-btn:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--accent-blue);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-primary);
+    white-space: normal;
+    width: 240px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    line-height: 1.4;
+    pointer-events: none;
+  }
   .libdev-row:hover td { background: rgba(255,255,255,0.05); }
 
   /* Log viewer */
@@ -595,6 +642,8 @@
     margin-top: 8px;
     color: var(--text-secondary);
     min-height: 40px;
+    max-height: 300px;
+    overflow-y: auto;
     white-space: pre-wrap;
   }
 </style>
@@ -678,10 +727,21 @@
         </div>
       </div>
       <div class="card" style="margin-top:12px;">
-        <h3>Send Command</h3>
+        <h3>Send Command <span class="tool-help" title="Send raw bridge protocol commands. Examples: PING, LISTTASKS, LISTLIBS, LISTDEVS, LISTCLIENTS, LISTDIR|path, LISTSCREENS, SNOOPSTATUS, AUDIOCHANNELS, MEMMAP, CHIPREGS. Commands are pipe-delimited (e.g. INSPECT|address|size).">?</span></h3>
         <div class="command-bar">
-          <input class="command-input" id="cmdInput" placeholder="Enter command (e.g. status, reset)" onkeydown="if(event.key==='Enter')doExec()">
+          <input class="command-input" id="cmdInput" placeholder="Protocol command (e.g. PING, LISTTASKS, LISTSCREENS)" onkeydown="if(event.key==='Enter')doExec()">
           <button class="btn orange" onclick="doExec()">Send</button>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;">
+          <button class="btn cmd-btn" onclick="cmdQuick('PING')" data-tip="Send PING to bridge daemon. Returns PONG with free chip/fast RAM. Verifies the serial link and bridge are alive.">PING</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('LISTTASKS')" data-tip="List all AmigaOS tasks and processes. Shows task name, priority, state (ready/waiting/running), and stack info.">Tasks</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('LISTLIBS')" data-tip="List all loaded Exec libraries. Shows name, version, revision, open count, and base address for each library.">Libs</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('LISTDEVS')" data-tip="List all loaded Exec devices (serial.device, timer.device, etc). Shows name, version, and open count.">Devs</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('LISTCLIENTS')" data-tip="List bridge client apps. Shows apps registered via ab_init() — their name, message count, and registered vars/hooks.">Clients</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('LISTSCREENS')" data-tip="List all Intuition screens. Shows title, dimensions, depth, view modes, and memory address. Click results in Inspect tab for full browsing.">Screens</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('MEMMAP')" data-tip="Show Amiga memory map. Walks ExecBase memory lists to show chip RAM, fast RAM, and ROM regions with free/used breakdown.">MemMap</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('CHIPREGS')" data-tip="Read custom chip registers (read-only safe ones). Shows DMACONR, INTENAR, INTREQR, VHPOSR, JOYxDAT, POTGOR, SERDATR with bitfield decoding.">ChipRegs</button>
+          <button class="btn cmd-btn" onclick="cmdQuick('SNOOPSTATUS')" data-tip="Check if SnoopDos monitoring is active. Returns current state and event count. Start/stop from the Debug > SnoopDos panel.">SnoopStatus</button>
         </div>
         <div class="command-output" id="cmdOutput">Ready.</div>
       </div>
@@ -839,7 +899,19 @@
 
     <!-- Tools -->
     <div class="tab-panel" id="panel-tools">
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+      <!-- Sub-tabs for tool categories -->
+      <div style="display:flex;gap:2px;margin-bottom:12px;flex-wrap:wrap;" id="toolSubTabs">
+        <div class="tool-subtab active" data-subtab="graphics" onclick="switchToolSubTab('graphics')">Graphics</div>
+        <div class="tool-subtab" data-subtab="system" onclick="switchToolSubTab('system')">System</div>
+        <div class="tool-subtab" data-subtab="debug" onclick="switchToolSubTab('debug')">Debug</div>
+        <div class="tool-subtab" data-subtab="develop" onclick="switchToolSubTab('develop')">Develop</div>
+        <div class="tool-subtab" data-subtab="inspect" onclick="switchToolSubTab('inspect')">Inspect</div>
+        <div class="tool-subtab" data-subtab="control" onclick="switchToolSubTab('control')">Control</div>
+      </div>
+
+      <!-- Graphics tools -->
+      <div class="tool-subpanel active" id="toolpanel-graphics">
+      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <div class="card" style="padding:14px;">
           <h3 style="margin-bottom:6px;">Screenshot <span class="tool-help" title="Captures the Amiga display as PNG by reading planar bitplane data and converting to chunky pixels. Choose 'Whole Screen' for the frontmost screen, or pick a window. Images saved to /tmp/amiga-screenshots/.">?</span></h3>
@@ -877,82 +949,61 @@
           <div id="toolSprResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
         </div>
 
+        <!-- Bitmap Viewer -->
         <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Disassembler <span class="tool-help" title="Reads memory from the Amiga via INSPECT and disassembles 68000 machine code. Supports all 68k addressing modes and annotates known exec/dos/intuition/graphics library calls (LVOs). Try $FC0000 for Kickstart ROM.">?</span></h3>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <label style="font-size:11px;color:var(--text-secondary);">Addr:</label>
-            <input type="text" id="toolDisasmAddr" placeholder="hex address" value="FC0000" style="width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-            <label style="font-size:11px;color:var(--text-secondary);">Count:</label>
-            <input type="number" id="toolDisasmCount" value="20" min="1" max="200" style="width:55px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-            <button class="btn" onclick="toolDisasm()">Disasm</button>
+          <h3 style="margin-bottom:6px;">Bitmap Viewer <span class="tool-help" title="Render a planar bitmap from Amiga memory as an image. Enter the base address of bitplane data, dimensions, and bit depth. Useful for debugging custom graphics, bobs, and tileset loading.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="bmpAddr" placeholder="Address (hex)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
+            <input type="number" id="bmpWidth" placeholder="Width" value="320" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:70px;">
+            <input type="number" id="bmpHeight" placeholder="Height" value="256" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:70px;">
+            <input type="number" id="bmpDepth" placeholder="Depth" value="5" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:60px;">
+            <button class="btn" onclick="toolBitmapView()">Render</button>
           </div>
-          <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">MCP: <code>amiga_disassemble</code></div>
-          <div id="toolDisasmResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre;max-height:400px;overflow:auto;color:var(--green);"></div>
+          <div id="bitmapResult" style="text-align:center;"></div>
         </div>
 
+        <!-- IFF Image Viewer -->
         <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Crash Report <span class="tool-help" title="Patches exec.library Alert() via SetFunction() to intercept guru meditations. Captures alert code, all 16 registers (D0-D7, A0-A7), SP, and 64 bytes of stack. Auto-enabled when bridge starts (configurable in Config tab).">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_last_crash</code> | Auto-enabled on bridge start if configured</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-            <button class="btn" onclick="toolCrashEnable()" id="btnCrashEnable">Enable</button>
-            <button class="btn" onclick="toolCrashDisable()" id="btnCrashDisable" style="display:none;">Disable</button>
-            <button class="btn" onclick="toolCrash()">Check</button>
-            <button class="btn" onclick="toolCrashTest()" style="background:var(--red);color:#fff;" title="Enables handler + triggers recoverable Alert()">Test</button>
-            <span id="toolCrashStatus" style="font-size:10px;color:var(--text-dim);"></span>
+          <h3 style="margin-bottom:6px;">IFF Image Viewer <span class="tool-help" title="Load and display IFF ILBM images from the Amiga filesystem. Browse directories to find .iff/.ilbm files. Decodes planar bitplane data and palette to render as PNG in the browser.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <input type="text" id="iffPath" placeholder="Amiga path (e.g. DH0:pic.iff)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
+            <button class="btn" onclick="toolIffView()">View</button>
           </div>
-          <div id="toolCrashResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);"></div>
+          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
+            <input type="text" id="iffBrowseDir" value="SYS:" placeholder="Browse directory" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:11px;width:140px;">
+            <button class="btn" onclick="iffBrowse()" style="font-size:11px;padding:4px 8px;">Browse</button>
+            <button class="btn" onclick="iffBrowseUp()" style="font-size:11px;padding:4px 8px;">&#8593; Up</button>
+          </div>
+          <div id="iffBrowser" style="max-height:160px;overflow-y:auto;font-family:var(--mono);font-size:11px;margin-bottom:6px;background:var(--bg-input);border-radius:4px;display:none;"></div>
+          <div id="iffResult" style="text-align:center;"></div>
         </div>
 
+        <!-- Audio Inspector -->
         <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Resource Tracker <span class="tool-help" title="Queries a bridge client for tracked resources. Apps using ab_track_alloc/free and ab_track_open/close report allocations and open handles. Shows leaked resources (allocated but never freed).">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_list_resources</code></div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="toolResClient" class="client-dropdown" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-              <option value="">Select client...</option>
-            </select>
-            <button class="btn" onclick="toolResources()">Check</button>
+          <h3 style="margin-bottom:6px;">Audio Inspector <span class="tool-help" title="Inspect Paula audio chip status. Shows which DMA channels are active, interrupt request/enable state. Read sample data from chip RAM for waveform visualization.">?</span></h3>
+          <button class="btn" onclick="audioRefresh()" style="margin-bottom:8px;">Read Channels</button>
+          <div id="audioChannels" style="font-family:var(--mono);font-size:12px;margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+            <label style="font-size:11px;">Sample addr:</label>
+            <input id="audioSampleAddr" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:100px;font-family:var(--mono);" placeholder="chip RAM hex">
+            <label style="font-size:11px;">Size:</label>
+            <input id="audioSampleSize" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:60px;" value="256" type="number">
+            <button class="btn" onclick="audioReadSample()">Read Sample</button>
           </div>
-          <div id="toolResResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+          <canvas id="audioWaveform" width="280" height="80" style="background:#1a1a2e;border-radius:4px;display:none;width:100%;"></canvas>
         </div>
 
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Performance Profiler <span class="tool-help" title="Queries a bridge client for perf data. ab_perf_frame_start/end tracks frame timing (avg/min/max). ab_perf_section_start/end measures named code sections. Uses VHPOSR ($DFF006) for ~64us precision.">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_perf_report</code></div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="toolPerfClient" class="client-dropdown" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-              <option value="">Select client...</option>
-            </select>
-            <button class="btn" onclick="toolPerf()">Report</button>
-          </div>
-          <div id="toolPerfResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
-        </div>
+      </div></div>
 
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">Build &amp; Run <span class="tool-help" title="Full dev cycle: cross-compile via Docker, deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), launch new binary. One click from code change to running on the Amiga.">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_run</code></div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <select id="toolRunProject" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-              <option value="">Select project...</option>
-            </select>
-            <button class="btn" onclick="toolRefreshProjects()" title="Refresh project list" style="padding:4px 8px;">&#x21bb;</button>
-            <button class="btn" onclick="toolRun()">Run</button>
-          </div>
-          <div id="toolRunResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
-        </div>
+      <!-- System tools -->
+      <div class="tool-subpanel" id="toolpanel-system">
+      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
-        <div class="card" style="padding:14px;">
-          <h3 style="margin-bottom:6px;">New Project <span class="tool-help" title="Creates examples/&lt;name&gt;/ with Makefile + main.c. Window: Intuition window on Workbench. Screen: custom screen (320x256x5). Headless: CLI-only with bridge hooks. All include bridge client integration.">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_create_project</code></div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <input type="text" id="toolNewName" placeholder="Project name" style="flex:1;min-width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-            <select id="toolNewTemplate" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
-              <option value="window">Window</option>
-              <option value="screen">Screen</option>
-              <option value="headless">Headless</option>
-            </select>
-            <button class="btn" onclick="toolNewProject()">Create</button>
-          </div>
-          <div id="toolNewResult" style="margin-top:8px;font-size:11px;color:var(--text-dim);"></div>
+        <!-- Memory Map -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Memory Map <span class="tool-help" title="Visual map of Amiga memory regions showing chip RAM, fast RAM, and ROM with free/used breakdown and fragmentation info. Walks ExecBase memory lists.">?</span></h3>
+          <button class="btn" onclick="toolMemMap()" style="margin-bottom:8px;">Read Memory Map</button>
+          <div id="memmapResult"></div>
         </div>
 
         <!-- Memory Search -->
@@ -973,26 +1024,6 @@
           <div id="searchResult" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;"></div>
         </div>
 
-        <!-- Bitmap Viewer -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Bitmap Viewer <span class="tool-help" title="Render a planar bitmap from Amiga memory as an image. Enter the base address of bitplane data, dimensions, and bit depth. Useful for debugging custom graphics, bobs, and tileset loading.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;">
-            <input type="text" id="bmpAddr" placeholder="Address (hex)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:110px;">
-            <input type="number" id="bmpWidth" placeholder="Width" value="320" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:70px;">
-            <input type="number" id="bmpHeight" placeholder="Height" value="256" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:70px;">
-            <input type="number" id="bmpDepth" placeholder="Depth" value="5" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:60px;">
-            <button class="btn" onclick="toolBitmapView()">Render</button>
-          </div>
-          <div id="bitmapResult" style="text-align:center;"></div>
-        </div>
-
-        <!-- Memory Map -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Memory Map <span class="tool-help" title="Visual map of Amiga memory regions showing chip RAM, fast RAM, and ROM with free/used breakdown and fragmentation info. Walks ExecBase memory lists.">?</span></h3>
-          <button class="btn" onclick="toolMemMap()" style="margin-bottom:8px;">Read Memory Map</button>
-          <div id="memmapResult"></div>
-        </div>
-
         <!-- Stack Monitor -->
         <div class="card" style="padding:14px;overflow:hidden;">
           <h3 style="margin-bottom:6px;">Stack Monitor <span class="tool-help" title="Shows stack usage for a task. Amiga's default 4KB stack is a common source of crashes. Monitors SP position relative to stack bounds to detect potential overflows.">?</span></h3>
@@ -1002,36 +1033,6 @@
             <button class="btn" onclick="toolStackInfo()" style="padding:4px 8px;font-size:11px;white-space:nowrap;flex-shrink:0;">Check</button>
           </div>
           <div id="stackResult" style="font-family:var(--mono);font-size:11px;"></div>
-        </div>
-
-        <!-- Register Viewer -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Register Viewer <span class="tool-help" title="Captures CPU registers (D0-D7, A0-A6, SP, SR) of the bridge daemon at the moment of the call. Shows data and address register contents for debugging.">?</span></h3>
-          <button class="btn" onclick="toolReadRegs()" style="margin-bottom:8px;">Capture Registers</button>
-          <div id="regsResult" style="font-family:var(--mono);font-size:12px;"></div>
-        </div>
-
-        <!-- Chip Registers -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">Chip Registers <span class="tool-help" title="Reads safe custom chip read-only registers. Shows DMA channels, interrupts, video position, joystick data, and serial status with bitfield decoding.">?</span></h3>
-          <button class="btn" onclick="toolChipRegs()" style="margin-bottom:8px;">Read Registers</button>
-          <div id="chipRegsResult" style="font-family:var(--mono);font-size:11px;"></div>
-        </div>
-
-        <!-- IFF Image Viewer -->
-        <div class="card" style="padding:14px;grid-column:span 2;">
-          <h3 style="margin-bottom:6px;">IFF Image Viewer <span class="tool-help" title="Load and display IFF ILBM images from the Amiga filesystem. Browse directories to find .iff/.ilbm files. Decodes planar bitplane data and palette to render as PNG in the browser.">?</span></h3>
-          <div style="display:flex;gap:6px;margin-bottom:6px;">
-            <input type="text" id="iffPath" placeholder="Amiga path (e.g. DH0:pic.iff)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;flex:1;">
-            <button class="btn" onclick="toolIffView()">View</button>
-          </div>
-          <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
-            <input type="text" id="iffBrowseDir" value="SYS:" placeholder="Browse directory" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:11px;width:140px;">
-            <button class="btn" onclick="iffBrowse()" style="font-size:11px;padding:4px 8px;">Browse</button>
-            <button class="btn" onclick="iffBrowseUp()" style="font-size:11px;padding:4px 8px;">&#8593; Up</button>
-          </div>
-          <div id="iffBrowser" style="max-height:160px;overflow-y:auto;font-family:var(--mono);font-size:11px;margin-bottom:6px;background:var(--bg-input);border-radius:4px;display:none;"></div>
-          <div id="iffResult" style="text-align:center;"></div>
         </div>
 
         <!-- Memory Diff -->
@@ -1068,6 +1069,52 @@
           <div id="sysinfoResult"></div>
         </div>
 
+      </div></div>
+
+      <!-- Debug tools -->
+      <div class="tool-subpanel" id="toolpanel-debug">
+      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Disassembler <span class="tool-help" title="Reads memory from the Amiga via INSPECT and disassembles 68000 machine code. Supports all 68k addressing modes and annotates known exec/dos/intuition/graphics library calls (LVOs). Try $FC0000 for Kickstart ROM.">?</span></h3>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label style="font-size:11px;color:var(--text-secondary);">Addr:</label>
+            <input type="text" id="toolDisasmAddr" placeholder="hex address" value="FC0000" style="width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <label style="font-size:11px;color:var(--text-secondary);">Count:</label>
+            <input type="number" id="toolDisasmCount" value="20" min="1" max="200" style="width:55px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <button class="btn" onclick="toolDisasm()">Disasm</button>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">MCP: <code>amiga_disassemble</code></div>
+          <div id="toolDisasmResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre;max-height:400px;overflow:auto;color:var(--green);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Crash Report <span class="tool-help" title="Patches exec.library Alert() via SetFunction() to intercept guru meditations. Captures alert code, all 16 registers (D0-D7, A0-A7), SP, and 64 bytes of stack. Auto-enabled when bridge starts (configurable in Config tab).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_last_crash</code> | Auto-enabled on bridge start if configured</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <button class="btn" onclick="toolCrashEnable()" id="btnCrashEnable">Enable</button>
+            <button class="btn" onclick="toolCrashDisable()" id="btnCrashDisable" style="display:none;">Disable</button>
+            <button class="btn" onclick="toolCrash()">Check</button>
+            <button class="btn" onclick="toolCrashTest()" style="background:var(--red);color:#fff;" title="Enables handler + triggers recoverable Alert()">Test</button>
+            <span id="toolCrashStatus" style="font-size:10px;color:var(--text-dim);"></span>
+          </div>
+          <div id="toolCrashResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);"></div>
+        </div>
+
+        <!-- Register Viewer -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Register Viewer <span class="tool-help" title="Captures CPU registers (D0-D7, A0-A6, SP, SR) of the bridge daemon at the moment of the call. Shows data and address register contents for debugging.">?</span></h3>
+          <button class="btn" onclick="toolReadRegs()" style="margin-bottom:8px;">Capture Registers</button>
+          <div id="regsResult" style="font-family:var(--mono);font-size:12px;"></div>
+        </div>
+
+        <!-- Chip Registers -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Chip Registers <span class="tool-help" title="Reads safe custom chip read-only registers. Shows DMA channels, interrupts, video position, joystick data, and serial status with bitfield decoding.">?</span></h3>
+          <button class="btn" onclick="toolChipRegs()" style="margin-bottom:8px;">Read Registers</button>
+          <div id="chipRegsResult" style="font-family:var(--mono);font-size:11px;"></div>
+        </div>
+
         <!-- Library / Device Inspector -->
         <div class="card" style="padding:14px;">
           <h3 style="margin-bottom:6px;">Library / Device Inspector <span class="tool-help" title="Lists all loaded Amiga libraries and devices. Click any entry to see detailed info (version, open count, flags, base address, ID string).">?</span></h3>
@@ -1096,7 +1143,184 @@
           <div id="snoopLog" style="font-family:var(--mono);font-size:11px;max-height:350px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;"></div>
         </div>
 
-      </div>
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Resource Tracker <span class="tool-help" title="Queries a bridge client for tracked resources. Apps using ab_track_alloc/free and ab_track_open/close report allocations and open handles. Shows leaked resources (allocated but never freed).">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_list_resources</code></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="toolResClient" class="client-dropdown" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select client...</option>
+            </select>
+            <button class="btn" onclick="toolResources()">Check</button>
+          </div>
+          <div id="toolResResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Performance Profiler <span class="tool-help" title="Queries a bridge client for perf data. ab_perf_frame_start/end tracks frame timing (avg/min/max). ab_perf_section_start/end measures named code sections. Uses VHPOSR ($DFF006) for ~64us precision.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_perf_report</code></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="toolPerfClient" class="client-dropdown" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select client...</option>
+            </select>
+            <button class="btn" onclick="toolPerf()">Report</button>
+          </div>
+          <div id="toolPerfResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+      </div></div>
+
+      <!-- Develop tools -->
+      <div class="tool-subpanel" id="toolpanel-develop">
+      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Build &amp; Run <span class="tool-help" title="Full dev cycle: cross-compile via Docker, deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), launch new binary. One click from code change to running on the Amiga.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_run</code></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <select id="toolRunProject" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="">Select project...</option>
+            </select>
+            <button class="btn" onclick="toolRefreshProjects()" title="Refresh project list" style="padding:4px 8px;">&#x21bb;</button>
+            <button class="btn" onclick="toolRun()">Run</button>
+          </div>
+          <div id="toolRunResult" style="margin-top:8px;font-size:11px;font-family:var(--mono);white-space:pre-wrap;color:var(--text-primary);"></div>
+        </div>
+
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">New Project <span class="tool-help" title="Creates examples/&lt;name&gt;/ with Makefile + main.c. Window: Intuition window on Workbench. Screen: custom screen (320x256x5). Headless: CLI-only with bridge hooks. All include bridge client integration.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">MCP: <code>amiga_create_project</code></div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="toolNewName" placeholder="Project name" style="flex:1;min-width:100px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+            <select id="toolNewTemplate" style="background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:4px 6px;font-size:12px;">
+              <option value="window">Window</option>
+              <option value="screen">Screen</option>
+              <option value="headless">Headless</option>
+            </select>
+            <button class="btn" onclick="toolNewProject()">Create</button>
+          </div>
+          <div id="toolNewResult" style="margin-top:8px;font-size:11px;color:var(--text-dim);"></div>
+        </div>
+
+        <!-- Test Harness -->
+        <div class="card" style="padding:14px;">
+          <h3 style="margin-bottom:6px;">Test Harness <span class="tool-help" title="Run automated tests on the Amiga. Test programs use ab_test_begin/AB_ASSERT/ab_test_end from the bridge client library. Results stream back in real-time. See docs/test-harness.md for usage guide.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;">Link with <code>-lbridge</code>, use <code>ab_test_begin()</code> / <code>AB_ASSERT()</code> / <code>ab_test_end()</code></div>
+          <div id="testResults" style="font-family:var(--mono);font-size:11px;max-height:250px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;margin-bottom:6px;">
+            <div style="color:var(--text-dim);">Waiting for test events...</div>
+          </div>
+          <div id="testSummary" style="font-size:12px;"></div>
+        </div>
+
+      </div></div>
+
+      <!-- Inspect tools -->
+      <div class="tool-subpanel" id="toolpanel-inspect">
+      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+
+        <!-- Intuition Inspector -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Intuition Inspector <span class="tool-help" title="Browse and manage Intuition screens, windows, and gadgets. Click a screen to list its windows, click a window to see gadgets. Use window controls to activate, front/back, and manage windows remotely.">?</span></h3>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button class="btn" onclick="intuiRefreshScreens()">Refresh</button>
+            <span id="intuiStatus" style="font-size:11px;color:var(--text-dim);margin-left:auto;"></span>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <div style="flex:1;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Screens</div>
+              <div id="intuiScreens" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
+            </div>
+            <div style="flex:1.5;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Windows</div>
+              <div id="intuiWindows" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Gadgets</div>
+              <div id="intuiGadgets" style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;background:var(--bg-input);border-radius:4px;padding:4px;min-height:60px;"></div>
+            </div>
+          </div>
+          <!-- Window/Screen actions -->
+          <div id="intuiActions" style="display:none;border-top:1px solid var(--border);padding-top:8px;">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Selected: <span id="intuiSelectedName" style="color:var(--accent-orange);"></span> <span id="intuiSelectedAddr" style="color:var(--text-dim);font-family:var(--mono);"></span></div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              <button class="btn" onclick="intuiAction('activate')" title="Give focus to this window">Activate</button>
+              <button class="btn" onclick="intuiAction('tofront')" title="Bring to front">To Front</button>
+              <button class="btn" onclick="intuiAction('toback')" title="Send to back">To Back</button>
+              <button class="btn" onclick="intuiAction('zip')" title="Toggle min/max size">Zip</button>
+              <button class="btn" onclick="intuiAction('scrtofront')" title="Bring screen to front">Screen Front</button>
+              <button class="btn" onclick="intuiAction('scrtoback')" title="Send screen to back">Screen Back</button>
+            </div>
+            <div id="intuiActionResult" style="font-size:11px;color:var(--text-dim);margin-top:4px;"></div>
+          </div>
+        </div>
+
+      </div></div>
+
+      <!-- Control tools -->
+      <div class="tool-subpanel" id="toolpanel-control">
+      <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+
+        <!-- Input Injection -->
+        <div class="card" style="padding:14px;grid-column:span 2;">
+          <h3 style="margin-bottom:6px;">Input Injection <span class="tool-help" title="Inject keyboard and mouse events into the Amiga via input.device. First activate a window in the Inspect tab, then use these controls to send input to it.">?</span></h3>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Keyboard</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+                <button class="btn" onclick="inputKey('44')" title="Return">Return</button>
+                <button class="btn" onclick="inputKey('45')" title="Escape">Esc</button>
+                <button class="btn" onclick="inputKey('40')" title="Space">Space</button>
+                <button class="btn" onclick="inputKey('41')" title="Backspace">BS</button>
+                <button class="btn" onclick="inputKey('46')" title="Delete">Del</button>
+                <button class="btn" onclick="inputKey('42')" title="Tab">Tab</button>
+              </div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+                <button class="btn" onclick="inputKey('4f')" title="Left arrow">←</button>
+                <button class="btn" onclick="inputKey('4e')" title="Right arrow">→</button>
+                <button class="btn" onclick="inputKey('4c')" title="Up arrow">↑</button>
+                <button class="btn" onclick="inputKey('4d')" title="Down arrow">↓</button>
+              </div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+                <button class="btn" onclick="inputKey('50')" title="F1" style="font-size:10px;">F1</button>
+                <button class="btn" onclick="inputKey('51')" title="F2" style="font-size:10px;">F2</button>
+                <button class="btn" onclick="inputKey('52')" title="F3" style="font-size:10px;">F3</button>
+                <button class="btn" onclick="inputKey('53')" title="F4" style="font-size:10px;">F4</button>
+                <button class="btn" onclick="inputKey('54')" title="F5" style="font-size:10px;">F5</button>
+                <button class="btn" onclick="inputKey('55')" title="F6" style="font-size:10px;">F6</button>
+                <button class="btn" onclick="inputKey('56')" title="F7" style="font-size:10px;">F7</button>
+                <button class="btn" onclick="inputKey('57')" title="F8" style="font-size:10px;">F8</button>
+                <button class="btn" onclick="inputKey('58')" title="F9" style="font-size:10px;">F9</button>
+                <button class="btn" onclick="inputKey('59')" title="F10" style="font-size:10px;">F10</button>
+              </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <input id="inputRawKey" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:60px;font-family:var(--mono);" placeholder="hex">
+                <button class="btn" onclick="inputKey(document.getElementById('inputRawKey').value)">Send Key</button>
+              </div>
+            </div>
+            <div style="min-width:150px;">
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Mouse</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;width:120px;margin-bottom:6px;">
+                <div></div>
+                <button class="btn" onclick="inputMove(0,-20)" style="padding:4px;">↑</button>
+                <div></div>
+                <button class="btn" onclick="inputMove(-20,0)" style="padding:4px;">←</button>
+                <div style="text-align:center;line-height:28px;font-size:10px;color:var(--text-dim);">20px</div>
+                <button class="btn" onclick="inputMove(20,0)" style="padding:4px;">→</button>
+                <div></div>
+                <button class="btn" onclick="inputMove(0,20)" style="padding:4px;">↓</button>
+                <div></div>
+              </div>
+              <div style="display:flex;gap:4px;flex-direction:column;">
+                <button class="btn" onclick="inputClick('left','down');setTimeout(()=>inputClick('left','up'),50)">Left Click</button>
+                <button class="btn" onclick="inputClick('right','down');setTimeout(()=>inputClick('right','up'),50)">Right Click</button>
+                <button class="btn" onclick="inputClick('left','down');setTimeout(()=>{inputClick('left','up');setTimeout(()=>{inputClick('left','down');setTimeout(()=>inputClick('left','up'),50)},80)},50)">Double Click</button>
+              </div>
+            </div>
+          </div>
+          <div id="inputResult" style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:6px;"></div>
+        </div>
+
+      </div></div>
+
     </div>
 
     <!-- Config -->
@@ -1190,10 +1414,13 @@ async function api(path, opts = {}) {
       ...opts,
       headers: { 'Content-Type': 'application/json', ...opts.headers },
     });
-    return await res.json();
+    const text = await res.text();
+    try { return JSON.parse(text); } catch(e) {
+      return {error: res.ok ? 'Invalid response' : (text || 'HTTP ' + res.status)};
+    }
   } catch (err) {
     console.error('API error:', err);
-    return null;
+    return {error: err.message || 'Network error'};
   }
 }
 
@@ -1266,6 +1493,11 @@ function connectSSE() {
   eventSource.addEventListener('snoop', (e) => {
     const data = JSON.parse(e.data);
     handleSnoopEvent(data);
+  });
+
+  eventSource.addEventListener('test', (e) => {
+    const data = JSON.parse(e.data);
+    handleTestEvent(data);
   });
 
   eventSource.onerror = () => {
@@ -2008,14 +2240,83 @@ async function doDisconnect() {
 
 async function doExec() {
   const input = document.getElementById('cmdInput');
+  const outEl = document.getElementById('cmdOutput');
   const cmd = input.value.trim();
   if (!cmd) return;
-  document.getElementById('cmdOutput').textContent = 'Sending: ' + cmd;
-  const data = await api('/command', {
+  outEl.textContent = 'Sending: ' + cmd;
+  const data = await api('/command/raw', {
     method: 'POST',
-    body: JSON.stringify({ command: cmd }),
+    body: JSON.stringify({ line: cmd }),
   });
-  document.getElementById('cmdOutput').textContent = data ? (data.response || data.message || JSON.stringify(data)) : 'No response';
+  if (data && data.response) {
+    outEl.innerHTML = formatCmdResponse(data.response);
+  } else if (data && data.error) {
+    outEl.innerHTML = '<span style="color:var(--red);">Error: ' + escapeHtml(data.error) + '</span>';
+  } else {
+    outEl.textContent = data ? JSON.stringify(data, null, 2) : 'No response';
+  }
+}
+
+function formatCmdResponse(resp) {
+  // Response is like: [TYPE] {"key":"val",...}
+  // Try to extract and pretty-print the JSON part
+  const lines = resp.split('\n');
+  let html = '';
+  for (const line of lines) {
+    const m = line.match(/^\[(\w+)\]\s*(\{.+\})$/);
+    if (m) {
+      const label = m[1];
+      try {
+        const obj = JSON.parse(m[2]);
+        html += '<div style="color:var(--accent-blue);font-weight:bold;margin-bottom:2px;">' + escapeHtml(label) + '</div>';
+        html += formatCmdObj(obj);
+      } catch(e) {
+        html += '<div>' + escapeHtml(line) + '</div>';
+      }
+    } else {
+      html += '<div>' + escapeHtml(line) + '</div>';
+    }
+  }
+  return html;
+}
+
+function formatCmdObj(obj) {
+  let html = '<table style="border-collapse:collapse;width:100%;margin-bottom:6px;">';
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'type') continue; // already shown as label
+    let valHtml;
+    if (Array.isArray(v)) {
+      if (v.length === 0) {
+        valHtml = '<span style="color:var(--text-dim);">(empty)</span>';
+      } else if (typeof v[0] === 'object') {
+        // Array of objects - render as sub-table
+        valHtml = '<div style="max-height:150px;overflow-y:auto;">';
+        for (let i = 0; i < v.length; i++) {
+          const item = v[i];
+          const parts = Object.entries(item).map(([ik,iv]) => '<span style="color:var(--text-dim);">' + ik + ':</span>' + escapeHtml(String(iv)));
+          valHtml += '<div style="padding:1px 0;border-bottom:1px solid rgba(255,255,255,0.03);">' + (i+1) + '. ' + parts.join(' ') + '</div>';
+        }
+        valHtml += '</div>';
+      } else {
+        valHtml = escapeHtml(v.join(', '));
+      }
+    } else if (typeof v === 'object' && v !== null) {
+      valHtml = escapeHtml(JSON.stringify(v, null, 2));
+    } else {
+      valHtml = '<span style="color:var(--green);">' + escapeHtml(String(v)) + '</span>';
+    }
+    html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">';
+    html += '<td style="padding:2px 8px 2px 0;color:var(--text-secondary);white-space:nowrap;vertical-align:top;">' + escapeHtml(k) + '</td>';
+    html += '<td style="padding:2px 0;word-break:break-all;">' + valHtml + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+  return html;
+}
+
+function cmdQuick(cmd) {
+  document.getElementById('cmdInput').value = cmd;
+  doExec();
 }
 
 // ─── Utility ───
@@ -3284,6 +3585,286 @@ function renderSnoopLog() {
   html += '</table>';
   el.innerHTML = html;
   el.scrollTop = 0;
+}
+
+// ─── Tool Sub-Tabs ───
+function switchToolSubTab(name) {
+  document.querySelectorAll('.tool-subtab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tool-subpanel').forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector('[data-subtab="' + name + '"]');
+  const panel = document.getElementById('toolpanel-' + name);
+  if (tab) tab.classList.add('active');
+  if (panel) panel.classList.add('active');
+  localStorage.setItem('amigaDevbench_activeToolTab', name);
+}
+
+// Restore last active tool sub-tab
+{
+  const saved = localStorage.getItem('amigaDevbench_activeToolTab');
+  if (saved) {
+    // Defer to after DOM is ready
+    setTimeout(() => switchToolSubTab(saved), 0);
+  }
+}
+
+// ─── Audio Inspector ───
+async function audioRefresh() {
+  const el = document.getElementById('audioChannels');
+  el.textContent = 'Reading...';
+  const data = await api('/tool/audio/channels');
+  if (!data || data.error) {
+    el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</span>';
+    return;
+  }
+  const dma = parseInt(data.dmaEnabled, 10);
+  const ireq = parseInt(data.intReq, 10);
+  const iena = parseInt(data.intEna, 10);
+  let html = '<table style="width:100%;border-collapse:collapse;">';
+  html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:2px 4px;color:var(--text-dim);font-size:10px;">Ch</th><th style="padding:2px 4px;color:var(--text-dim);font-size:10px;">DMA</th><th style="padding:2px 4px;color:var(--text-dim);font-size:10px;">IRQ</th><th style="padding:2px 4px;color:var(--text-dim);font-size:10px;">IEN</th></tr>';
+  for (let ch = 0; ch < 4; ch++) {
+    const bit = 1 << ch;
+    const dmaOn = (dma & bit) !== 0;
+    const irqOn = (ireq & bit) !== 0;
+    const ienOn = (iena & bit) !== 0;
+    html += '<tr>';
+    html += '<td style="padding:2px 4px;font-weight:bold;">CH' + ch + '</td>';
+    html += '<td style="padding:2px 4px;text-align:center;color:' + (dmaOn ? 'var(--green)' : 'var(--text-dim)') + ';">' + (dmaOn ? 'ON' : 'off') + '</td>';
+    html += '<td style="padding:2px 4px;text-align:center;color:' + (irqOn ? 'var(--yellow)' : 'var(--text-dim)') + ';">' + (irqOn ? 'YES' : '-') + '</td>';
+    html += '<td style="padding:2px 4px;text-align:center;color:' + (ienOn ? 'var(--accent-blue)' : 'var(--text-dim)') + ';">' + (ienOn ? 'YES' : '-') + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+async function audioReadSample() {
+  const addr = document.getElementById('audioSampleAddr').value.trim();
+  const size = parseInt(document.getElementById('audioSampleSize').value) || 256;
+  if (!addr) return;
+  const canvas = document.getElementById('audioWaveform');
+  const data = await api('/tool/audio/sample?address=' + encodeURIComponent(addr) + '&size=' + size);
+  if (!data || data.error) {
+    canvas.style.display = 'none';
+    document.getElementById('audioChannels').innerHTML += '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
+    return;
+  }
+  // Draw waveform from hex data (signed 8-bit samples)
+  const hex = data.hexData || '';
+  const samples = [];
+  for (let i = 0; i < hex.length; i += 2) {
+    let val = parseInt(hex.substr(i, 2), 16);
+    if (val > 127) val -= 256; // signed
+    samples.push(val);
+  }
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, w, h);
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+  // Waveform
+  if (samples.length > 0) {
+    ctx.strokeStyle = 'var(--green)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; i++) {
+      const x = (i / samples.length) * w;
+      const y = h/2 - (samples[i] / 128) * (h/2 - 2);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+// ─── Intuition Inspector ───
+let intuiSelectedWindow = null; // {addr, title, screenAddr}
+let intuiSelectedScreen = null; // {addr, title}
+
+async function intuiRefreshScreens() {
+  const el = document.getElementById('intuiScreens');
+  const statusEl = document.getElementById('intuiStatus');
+  el.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
+  document.getElementById('intuiWindows').innerHTML = '';
+  document.getElementById('intuiGadgets').innerHTML = '';
+  statusEl.textContent = '';
+  const data = await api('/tool/screens');
+  if (!data || data.error) {
+    el.innerHTML = '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
+    return;
+  }
+  statusEl.textContent = data.count + ' screen(s)';
+  if (!data.screens || data.screens.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-dim);">No screens</div>';
+    return;
+  }
+  let html = '';
+  for (const s of data.screens) {
+    html += '<div style="padding:3px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:4px;" onmouseover="this.style.background=\'rgba(255,255,255,0.05)\'" onmouseout="this.style.background=\'\'">';
+    html += '<div style="flex:1;" onclick="intuiSelectScreen(\'' + s.addr + '\',\'' + escapeHtml(s.title || '(untitled)').replace(/'/g, "\\'") + '\');intuiLoadWindows(\'' + s.addr + '\')">';
+    html += '<div style="color:var(--accent-blue);font-weight:bold;">' + escapeHtml(s.title || '(untitled)') + '</div>';
+    html += '<div style="color:var(--text-dim);font-size:10px;">' + s.width + 'x' + s.height + ' d=' + s.depth + ' @ ' + s.addr + '</div>';
+    html += '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function intuiLoadWindows(screenAddr) {
+  const el = document.getElementById('intuiWindows');
+  el.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
+  document.getElementById('intuiGadgets').innerHTML = '';
+  const data = await api('/tool/screen/windows?screen=' + encodeURIComponent(screenAddr));
+  if (!data || data.error) {
+    el.innerHTML = '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
+    return;
+  }
+  if (!data.windows || data.windows.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-dim);">No windows</div>';
+    return;
+  }
+  let html = '';
+  for (const w of data.windows) {
+    const wtitle = escapeHtml(w.title || '(untitled)').replace(/'/g, "\\'");
+    html += '<div style="padding:3px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.05);" onmouseover="this.style.background=\'rgba(255,255,255,0.05)\'" onmouseout="this.style.background=\'\'">';
+    html += '<div onclick="intuiSelectWindow(\'' + w.addr + '\',\'' + wtitle + '\',\'' + (data.screenAddr||'') + '\');intuiLoadGadgets(\'' + w.addr + '\')">';
+    html += '<div style="color:var(--accent-orange);">' + escapeHtml(w.title || '(untitled)') + '</div>';
+    html += '<div style="color:var(--text-dim);font-size:10px;">' + w.left + ',' + w.top + ' ' + w.width + 'x' + w.height + ' @ ' + w.addr + '</div>';
+    html += '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function intuiLoadGadgets(windowAddr) {
+  const el = document.getElementById('intuiGadgets');
+  el.innerHTML = '<div style="color:var(--text-dim);">Loading...</div>';
+  const data = await api('/tool/gadgets?window=' + encodeURIComponent(windowAddr));
+  if (!data || data.error) {
+    el.innerHTML = '<div style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</div>';
+    return;
+  }
+  if (!data.gadgets || data.gadgets.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-dim);">No gadgets</div>';
+    return;
+  }
+  let html = '';
+  for (const g of data.gadgets) {
+    html += '<div style="padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.05);">';
+    html += '<div style="color:var(--green);">' + escapeHtml(g.text || '(no text)') + ' <span style="color:var(--text-dim);font-size:10px;">id=' + g.gadgetId + ' type=' + g.gadgetType + '</span></div>';
+    html += '<div style="color:var(--text-dim);font-size:10px;">' + g.left + ',' + g.top + ' ' + g.width + 'x' + g.height + ' @ ' + g.addr + '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function intuiSelectScreen(addr, title) {
+  intuiSelectedScreen = {addr: addr, title: title};
+  intuiSelectedWindow = null;
+  const actionsEl = document.getElementById('intuiActions');
+  actionsEl.style.display = 'block';
+  document.getElementById('intuiSelectedName').textContent = title;
+  document.getElementById('intuiSelectedAddr').textContent = '@ ' + addr + ' (screen)';
+}
+
+function intuiSelectWindow(addr, title, screenAddr) {
+  intuiSelectedWindow = {addr: addr, title: title, screenAddr: screenAddr};
+  const actionsEl = document.getElementById('intuiActions');
+  actionsEl.style.display = 'block';
+  document.getElementById('intuiSelectedName').textContent = title;
+  document.getElementById('intuiSelectedAddr').textContent = '@ ' + addr;
+}
+
+async function intuiAction(action) {
+  const resultEl = document.getElementById('intuiActionResult');
+  let endpoint, body;
+
+  if (action === 'scrtofront' || action === 'scrtoback') {
+    const addr = intuiSelectedScreen ? intuiSelectedScreen.addr :
+                 (intuiSelectedWindow ? intuiSelectedWindow.screenAddr : null);
+    if (!addr) { resultEl.textContent = 'No screen selected'; return; }
+    endpoint = '/tool/scr/' + (action === 'scrtofront' ? 'tofront' : 'toback');
+    body = {screen: addr};
+  } else {
+    if (!intuiSelectedWindow) { resultEl.textContent = 'Select a window first'; return; }
+    endpoint = '/tool/win/' + action;
+    body = {window: intuiSelectedWindow.addr};
+    if (action === 'activate') {
+      // Also record this as the focused window for input injection reference
+    }
+  }
+
+  resultEl.textContent = action + '...';
+  const data = await api(endpoint, {
+    method: 'POST', body: JSON.stringify(body)
+  });
+  if (data && data.status === 'ok') {
+    resultEl.innerHTML = '<span style="color:var(--green);">' + action + ' OK</span>';
+  } else {
+    resultEl.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data?.error || 'Failed') + '</span>';
+  }
+  setTimeout(() => { resultEl.textContent = ''; }, 3000);
+}
+
+// ─── Input Injection ───
+async function inputKey(rawkey) {
+  if (!rawkey) return;
+  const resultEl = document.getElementById('inputResult');
+  // Send key down then key up
+  const down = await api('/tool/input/key', {
+    method: 'POST', body: JSON.stringify({rawkey: rawkey, direction: 'down'})
+  });
+  await api('/tool/input/key', {
+    method: 'POST', body: JSON.stringify({rawkey: rawkey, direction: 'up'})
+  });
+  resultEl.textContent = 'Key 0x' + rawkey + ' sent';
+  setTimeout(() => { resultEl.textContent = ''; }, 2000);
+}
+
+async function inputMove(dx, dy) {
+  const resultEl = document.getElementById('inputResult');
+  await api('/tool/input/move', {
+    method: 'POST', body: JSON.stringify({dx: dx, dy: dy})
+  });
+  resultEl.textContent = 'Move ' + dx + ',' + dy;
+  setTimeout(() => { resultEl.textContent = ''; }, 1000);
+}
+
+async function inputClick(button, direction) {
+  await api('/tool/input/click', {
+    method: 'POST', body: JSON.stringify({button: button, direction: direction})
+  });
+  const resultEl = document.getElementById('inputResult');
+  resultEl.textContent = button + ' ' + direction;
+  setTimeout(() => { resultEl.textContent = ''; }, 1000);
+}
+
+// ─── Test Harness ───
+let testCurrentSuite = '';
+let testEntries = [];
+
+function handleTestEvent(data) {
+  const resultsEl = document.getElementById('testResults');
+  const summaryEl = document.getElementById('testSummary');
+
+  if (data.type === 'TEST_BEGIN') {
+    testCurrentSuite = data.suite;
+    testEntries = [];
+    resultsEl.innerHTML = '<div style="color:var(--accent-blue);font-weight:bold;">Suite: ' + escapeHtml(data.suite) + '</div>';
+    summaryEl.textContent = 'Running...';
+  } else if (data.type === 'TEST_PASS') {
+    testEntries.push(data);
+    resultsEl.innerHTML += '<div style="color:var(--green);">PASS ' + escapeHtml(data.testName) + ' <span style="color:var(--text-dim);font-size:10px;">' + escapeHtml(data.file) + ':' + data.line + '</span></div>';
+    resultsEl.scrollTop = resultsEl.scrollHeight;
+  } else if (data.type === 'TEST_FAIL') {
+    testEntries.push(data);
+    resultsEl.innerHTML += '<div style="color:var(--red);font-weight:bold;">FAIL ' + escapeHtml(data.testName) + ' <span style="color:var(--text-dim);font-size:10px;">' + escapeHtml(data.file) + ':' + data.line + '</span></div>';
+    resultsEl.scrollTop = resultsEl.scrollHeight;
+  } else if (data.type === 'TEST_END') {
+    const color = data.failed > 0 ? 'var(--red)' : 'var(--green)';
+    summaryEl.innerHTML = '<span style="color:' + color + ';font-weight:bold;">' + escapeHtml(data.suite) + ': ' + data.passed + '/' + data.total + ' passed' + (data.failed > 0 ? ', ' + data.failed + ' FAILED' : '') + '</span>';
+  }
 }
 
 // ─── Init ───

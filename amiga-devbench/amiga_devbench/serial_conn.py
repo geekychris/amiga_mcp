@@ -323,12 +323,51 @@ class SerialConnection:
             self._event_bus.publish("cmd", msg)
 
         elif msg_type == "CLOG":
+            raw_msg = msg["message"]
+            # Check for test harness messages embedded in CLOG
+            if raw_msg.startswith("TEST_"):
+                test_parsed = protocol.parse_message(raw_msg)
+                if test_parsed:
+                    test_parsed["client"] = msg.get("client", "")
+                    test_parsed["timestamp"] = msg["timestamp"]
+                    self._event_bus.publish("test", test_parsed)
+                    # Also publish as log for visibility
+                    ttype = test_parsed["type"]
+                    if ttype == "TEST_PASS":
+                        self._event_bus.publish("log", {
+                            "type": "LOG", "level": "I", "tick": 0,
+                            "message": f"[TEST] PASS: {test_parsed.get('testName', '?')}",
+                            "timestamp": msg["timestamp"], "client": msg.get("client", ""),
+                        })
+                    elif ttype == "TEST_FAIL":
+                        self._event_bus.publish("log", {
+                            "type": "LOG", "level": "E", "tick": 0,
+                            "message": f"[TEST] FAIL: {test_parsed.get('testName', '?')} at {test_parsed.get('file', '?')}:{test_parsed.get('line', 0)}",
+                            "timestamp": msg["timestamp"], "client": msg.get("client", ""),
+                        })
+                    elif ttype == "TEST_END":
+                        p = test_parsed.get("passed", 0)
+                        f = test_parsed.get("failed", 0)
+                        t = test_parsed.get("total", 0)
+                        self._event_bus.publish("log", {
+                            "type": "LOG", "level": "E" if f > 0 else "I", "tick": 0,
+                            "message": f"[TEST] Suite '{test_parsed.get('suite', '?')}': {p}/{t} passed, {f} failed",
+                            "timestamp": msg["timestamp"], "client": msg.get("client", ""),
+                        })
+                    elif ttype == "TEST_BEGIN":
+                        self._event_bus.publish("log", {
+                            "type": "LOG", "level": "I", "tick": 0,
+                            "message": f"[TEST] Suite '{test_parsed.get('suite', '?')}' started",
+                            "timestamp": msg["timestamp"], "client": msg.get("client", ""),
+                        })
+                    return  # Don't publish as regular CLOG
+
             # Store as regular log with client prefix
             log_entry = {
                 "type": "LOG",
                 "level": msg["level"],
                 "tick": msg["tick"],
-                "message": f"[{msg['client']}] {msg['message']}",
+                "message": f"[{msg['client']}] {raw_msg}",
                 "timestamp": msg["timestamp"],
                 "client": msg["client"],
             }
@@ -466,6 +505,21 @@ class SerialConnection:
 
         elif msg_type == "SNOOPSTATE":
             self._event_bus.publish("snoopstate", msg)
+
+        elif msg_type == "AUDIOCHANNELS":
+            self._event_bus.publish("audiochannels", msg)
+
+        elif msg_type == "AUDIOSAMPLE":
+            self._event_bus.publish("audiosample", msg)
+
+        elif msg_type == "SCREENS":
+            self._event_bus.publish("screens", msg)
+
+        elif msg_type == "WINDOWS":
+            self._event_bus.publish("windows", msg)
+
+        elif msg_type == "GADGETS":
+            self._event_bus.publish("gadgets", msg)
 
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():

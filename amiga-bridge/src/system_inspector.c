@@ -646,8 +646,9 @@ void sys_handle_search(const char *args)
         return;
     }
 
-    /* Validate memory range */
-    if (!TypeOfMem((APTR)addr)) {
+    /* Validate memory range — allow ROM and all readable regions.
+     * TypeOfMem returns 0 for ROM, so only reject very low addresses. */
+    if (addr < 0x100) {
         protocol_send_raw("ERR|SEARCH|Invalid memory address");
         return;
     }

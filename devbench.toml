@@ -1,0 +1,26 @@
+# Amiga DevBench Configuration
+# This file is auto-discovered when running from the project root.
+# Override location with: python3 -m amiga_devbench --config /path/to/config.toml
+
+[serial]
+mode = "tcp"                # "tcp" or "pty"
+host = "127.0.0.1"
+port = 1234
+pty_path = "/tmp/amiga-serial"
+
+[emulator]
+binary = "/opt/homebrew/bin/fs-uae"
+config = "~/Documents/FS-UAE/Configurations/AmiKit-Debug.fs-uae"
+auto_start = false          # Start emulator automatically with devbench
+
+[server]
+port = 3000
+log_level = "INFO"
+
+[paths]
+# deploy_dir: where to copy compiled binaries (AmiKit shared folder)
+deploy_dir = "/Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/Dropbox/Dev"
+
+[bridge]
+# Auto-enable crash handler when bridge daemon sends READY
+crash_handler_auto_enable = true

@@ -402,6 +402,7 @@ int main(int argc, char **argv)
     }
 
     /* Clean up in reverse order */
+    input_cleanup();
     snoop_stop();
     crash_cleanup();
 

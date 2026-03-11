@@ -238,6 +238,38 @@ void protocol_parse_line(const char *line)
         send_ok("SNOOPSTOP", "Snoop monitoring stopped");
     } else if (strcmp(cmd, "SNOOPSTATUS") == 0) {
         snoop_handle_status();
+    } else if (strcmp(cmd, "AUDIOCHANNELS") == 0) {
+        audio_handle_channels();
+    } else if (strcmp(cmd, "AUDIOSAMPLE") == 0) {
+        audio_handle_sample(args);
+    } else if (strcmp(cmd, "LISTSCREENS") == 0) {
+        intui_handle_screens();
+    } else if (strcmp(cmd, "LISTWINDOWS2") == 0) {
+        intui_handle_windows(args);
+    } else if (strcmp(cmd, "LISTGADGETS") == 0) {
+        intui_handle_gadgets(args);
+    } else if (strcmp(cmd, "WINACTIVATE") == 0) {
+        intui_handle_activate(args);
+    } else if (strcmp(cmd, "WINTOFRONT") == 0) {
+        intui_handle_tofront(args);
+    } else if (strcmp(cmd, "WINTOBACK") == 0) {
+        intui_handle_toback(args);
+    } else if (strcmp(cmd, "WINZIP") == 0) {
+        intui_handle_zip(args);
+    } else if (strcmp(cmd, "WINMOVE") == 0) {
+        intui_handle_move(args);
+    } else if (strcmp(cmd, "WINSIZE") == 0) {
+        intui_handle_size(args);
+    } else if (strcmp(cmd, "SCRTOFRONT") == 0) {
+        intui_handle_scrtofront(args);
+    } else if (strcmp(cmd, "SCRTOBACK") == 0) {
+        intui_handle_scrtoback(args);
+    } else if (strcmp(cmd, "INPUTKEY") == 0) {
+        input_handle_key(args);
+    } else if (strcmp(cmd, "INPUTMOVE") == 0) {
+        input_handle_mouse_move(args);
+    } else if (strcmp(cmd, "INPUTCLICK") == 0) {
+        input_handle_mouse_button(args);
     } else if (strcmp(cmd, "CRASHTEST") == 0) {
         /* Trigger a non-fatal Alert to test the crash handler */
         send_ok("CRASHTEST", "Triggering test alert...");

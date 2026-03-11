@@ -105,4 +105,20 @@ void ab_perf_section_start(const char *label);
 /* Mark the end of a named code section */
 void ab_perf_section_end(const char *label);
 
+/* ---- Test Harness ---- */
+
+/* Begin a test suite with a name. Sends TEST_BEGIN to host. */
+void ab_test_begin(const char *suiteName);
+
+/* Assert a condition. If fail, logs file/line and message.
+ * Returns 1 if passed, 0 if failed. */
+int ab_test_assert(int condition, const char *testName,
+                   const char *file, int line);
+
+/* End test suite. Sends TEST_END with summary (pass/fail/total). */
+void ab_test_end(void);
+
+/* Convenience macro that auto-fills file and line */
+#define AB_ASSERT(cond, name) ab_test_assert((cond), (name), __FILE__, __LINE__)
+
 #endif /* BRIDGE_CLIENT_H */
