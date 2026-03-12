@@ -46,6 +46,25 @@ Amiga over a serial link.
 - Verify deployments with CRC32 checksums, tail log files in real-time
 - Full process lifecycle: launch, track, signal, and stop async processes
 
+Before we go any further.  The purpose of this tool is to make the amazing amiga community productive with AI.  Here are some screenshots of games I clobbered together in an afternoon.  They are included as examples and as of publishing are terrible.  Go ahead make them better:
+
+Frank the frog
+
+![img.png](doc_images/frank.png)
+
+Invaded
+
+![img_1.png](doc_images/invaded.png)
+
+Moon kindalookaround
+
+![img_2.png](doc_images/mooooon.png)
+
+PacBro
+![img_3.png](doc_images/pac1.png)
+
+![img_4.png](doc_images/pac2.png)
+
 ```mermaid
 graph LR
     subgraph Host ["Host Machine (macOS)"]
