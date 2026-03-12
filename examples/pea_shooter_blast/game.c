@@ -842,7 +842,6 @@ static void update_powerups(GameState *gs)
 
 static void update_scroll(GameState *gs)
 {
-    WORD tank_screen_x;
     LONG max_scroll;
 
     /* Target scroll: keep tank roughly 1/3 from left edge */
