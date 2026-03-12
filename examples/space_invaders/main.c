@@ -301,9 +301,11 @@ int main(int argc, char *argv[])
     }
 
 cleanup:
+    /* Stop sound first - disables audio DMA */
+    sound_cleanup();
+
     AB_I("Space Invaders shutting down");
     ab_cleanup();
-    sound_cleanup();
 
     /* Drain any pending safe message before freeing buffers */
     if (safe_pending && safe_port) {
@@ -312,9 +314,23 @@ cleanup:
         safe_pending = FALSE;
     }
 
+    /* Wait for blitter to finish any pending ops */
+    WaitBlit();
+
+    /* Make sure we're showing buffer 0 before closing */
+    if (screen && sbuf[0]) {
+        ChangeScreenBuffer(screen, sbuf[0]);
+        WaitTOF();
+        WaitTOF();
+    }
+
+    /* Close window before screen */
     if (win) CloseWindow(win);
+
+    /* Free screen buffers */
     if (sbuf[1]) FreeScreenBuffer(screen, sbuf[1]);
     if (sbuf[0]) FreeScreenBuffer(screen, sbuf[0]);
+
     if (safe_port) DeleteMsgPort(safe_port);
     if (screen) CloseScreen(screen);
     if (GfxBase) CloseLibrary((struct Library *)GfxBase);

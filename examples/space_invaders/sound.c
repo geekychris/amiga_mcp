@@ -98,8 +98,18 @@ int sound_init(void)
 
 void sound_cleanup(void)
 {
-    /* Stop all audio */
+    /* Stop all audio DMA */
     CUSTOM->dmacon = DMAF_AUD0 | DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3;
+
+    /* Zero out all channel registers to be safe */
+    {
+        int ch;
+        for (ch = 0; ch < 4; ch++) {
+            CUSTOM->aud[ch].ac_vol = 0;
+            CUSTOM->aud[ch].ac_per = 1;
+            CUSTOM->aud[ch].ac_len = 1;
+        }
+    }
 
     if (wave_square) { FreeMem(wave_square, WAVE_LEN); wave_square = NULL; }
     if (wave_sine)   { FreeMem(wave_sine, WAVE_LEN);   wave_sine = NULL; }

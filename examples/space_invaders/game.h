@@ -40,7 +40,7 @@
 
 /* Bullets */
 #define MAX_ALIEN_BULLETS 3
-#define PLAYER_BULLET_SPEED 6
+#define PLAYER_BULLET_SPEED 10
 #define ALIEN_BULLET_SPEED 3
 
 /* UFO */
