@@ -5,6 +5,8 @@ host machine to an emulated (or real) Amiga via serial, providing live debugging
 memory inspection, variable editing, remote execution, and full MCP integration
 with Claude Code.
 
+![img.png](docs/amiga_bench.png)
+
 ---
 
 ## Table of Contents
