@@ -631,8 +631,7 @@
 <body>
   <!-- Header -->
   <div class="header">
-    <h1 style="cursor:pointer;" onclick="showAbout()" title="About AmigaDevBench">AmigaDevBench</h1>
-    <span class="subtitle">Debug Console</span>
+    <img src="/static/dev_bench_logo.png" alt="AmigaDevBench" onclick="showAbout()" title="About AmigaDevBench" style="height:64px;cursor:pointer;">
     <button onclick="showAbout()" style="background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;margin-left:4px;" title="About">About</button>
     <div class="sys-info" id="sysInfo">--</div>
     <div class="conn-status" style="gap:12px;">
@@ -5521,8 +5520,7 @@ function showAbout() {
       </div>
       <div class="file-modal-body" style="padding:20px;overflow-y:auto;font-size:13px;line-height:1.7;">
         <div style="text-align:center;margin-bottom:16px;">
-          <div style="font-size:24px;margin-bottom:6px;">&#x1F4BE;</div>
-          <div style="color:var(--text-secondary);font-size:12px;">Cross-development environment for the Commodore Amiga</div>
+          <img src="/static/amiga_bench.png" alt="Amiga DevBench" style="max-width:100%;height:auto;border-radius:6px;margin-bottom:8px;">
           <div style="color:var(--text-dim);font-size:11px;margin-top:4px;">Built with love, Claude Code, and far too much nostalgia</div>
         </div>
 

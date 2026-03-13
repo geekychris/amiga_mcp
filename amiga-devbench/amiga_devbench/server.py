@@ -915,6 +915,21 @@ async def serve_index(request: Request) -> HTMLResponse:
     return HTMLResponse("<h1>Web UI not found</h1>", status_code=404)
 
 
+async def serve_static(request: Request) -> Response:
+    """Serve static files from the web directory."""
+    filename = request.path_params["filename"]
+    # Prevent path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return Response("Not found", status_code=404)
+    web_dir = Path(__file__).parent / "web"
+    filepath = web_dir / filename
+    if not filepath.is_file():
+        return Response("Not found", status_code=404)
+    content_types = {".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+    ct = content_types.get(filepath.suffix, "application/octet-stream")
+    return Response(filepath.read_bytes(), media_type=ct)
+
+
 # ─── Application Factory ───
 
 def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
@@ -3691,6 +3706,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),
+        Route("/static/{filename}", serve_static, methods=["GET"]),
         # MCP endpoint - mount the ASGI handler directly
         Route("/mcp", mcp_asgi_handler, methods=["GET", "POST", "DELETE"]),
     ]
