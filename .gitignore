@@ -4,4 +4,5 @@ dist/
 *.a
 hello_world
 bouncing_ball
+logs/
 

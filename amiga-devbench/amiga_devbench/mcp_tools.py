@@ -19,6 +19,7 @@ from .deployer import Deployer
 from .scaffolder import create_project
 from .screenshot import save_screenshot, parse_palette
 from .copper import decode_copper_list, format_copper_list
+from . import file_transfer
 
 logger = logging.getLogger(__name__)
 
@@ -1796,6 +1797,128 @@ async def amiga_checksum(path: str) -> str:
             return f"Error: {err.get('message', '?')}"
         return "No response (timeout)"
     return f"File: {msg['path']}\nCRC32: {msg['crc32']}\nSize: {msg['size']} bytes"
+
+
+# ─── File Transfer (Serial) ───
+
+@mcp.tool()
+async def amiga_push_file(local_path: str, amiga_path: str) -> str:
+    """Transfer a file from the host to the Amiga via serial bridge.
+
+    Multi-chunk transfer with CRC32 verification. For remote setups where
+    the shared folder is not available. Supports binary files of any size.
+
+    Args:
+        local_path: Path on host filesystem (absolute or relative to project root)
+        amiga_path: Destination path on Amiga (e.g. "DH2:Dev/myprogram")
+    """
+    conn, state, bus = _require_connected()
+    result = await file_transfer.push_file(conn, bus, local_path, amiga_path)
+    return result.message
+
+
+@mcp.tool()
+async def amiga_pull_file(amiga_path: str, local_path: str) -> str:
+    """Transfer a file from the Amiga to the host via serial bridge.
+
+    Multi-chunk download with CRC32 verification. For retrieving files
+    from the Amiga when shared folder is not available.
+
+    Args:
+        amiga_path: Source path on Amiga (e.g. "DH2:Dev/myprogram")
+        local_path: Destination path on host filesystem
+    """
+    conn, state, bus = _require_connected()
+    result = await file_transfer.pull_file(conn, bus, amiga_path, local_path)
+    return result.message
+
+
+@mcp.tool()
+async def amiga_transfer(
+    source: str,
+    dest: str,
+    source_is_amiga: bool = False,
+    dest_is_amiga: bool = True,
+) -> str:
+    """Transfer files between host and Amiga via serial bridge.
+
+    Copies a file in either direction over the serial connection.
+    Set source_is_amiga/dest_is_amiga to control direction.
+    Supports multi-file copy with glob patterns on the host side.
+
+    Args:
+        source: Source path (host or Amiga depending on flags)
+        dest: Destination path (host or Amiga depending on flags)
+        source_is_amiga: True if source is on Amiga (default: False = host)
+        dest_is_amiga: True if dest is on Amiga (default: True)
+    """
+    conn, state, bus = _require_connected()
+
+    if source_is_amiga and not dest_is_amiga:
+        # Amiga -> Host
+        result = await file_transfer.pull_file(conn, bus, source, dest)
+    elif not source_is_amiga and dest_is_amiga:
+        # Host -> Amiga
+        from pathlib import Path
+        import glob as globmod
+        src_path = Path(source)
+        if '*' in source or '?' in source:
+            # Glob pattern: copy multiple files
+            files = sorted(globmod.glob(source))
+            if not files:
+                return f"No files match pattern: {source}"
+            pairs = []
+            for f in files:
+                fname = Path(f).name
+                amiga_dest = dest.rstrip("/") + "/" + fname if dest.endswith(("/", ":")) else dest
+                pairs.append((f, amiga_dest))
+            result = await file_transfer.push_files(conn, bus, pairs)
+        else:
+            result = await file_transfer.push_file(conn, bus, source, dest)
+    else:
+        return "Invalid direction: source and dest cannot both be on the same side"
+
+    return result.message
+
+
+@mcp.tool()
+async def amiga_serial_deploy(project: str, amiga_dest: str = "DH2:Dev") -> str:
+    """Build and deploy a project to the Amiga via serial transfer.
+
+    Alternative to amiga_deploy for remote setups without a shared folder.
+    Builds the project, finds the binary, and transfers it over serial.
+
+    Args:
+        project: Project path (e.g. "examples/red_baron")
+        amiga_dest: Destination directory on Amiga (default: DH2:Dev)
+    """
+    conn, state, bus = _require_connected()
+
+    # Build first
+    assert _builder is not None
+    build_result = _builder.build(project)
+    if not build_result.success:
+        return f"Build FAILED: {build_result.message}"
+
+    # Find binary
+    assert _deployer is not None
+    binary = _deployer._find_binary(project)
+    if not binary:
+        return f"Build succeeded but no binary found for: {project}"
+
+    # Transfer via serial
+    amiga_path = amiga_dest.rstrip("/") + "/" + binary.name
+    result = await file_transfer.push_file(
+        conn, bus, str(binary), amiga_path
+    )
+
+    if result.success:
+        return (
+            f"Build: OK\n"
+            f"Serial deploy: {result.message}\n"
+            f"Amiga path: {amiga_path}"
+        )
+    return f"Build: OK\nSerial deploy FAILED: {result.message}"
 
 
 # ─── Assign Management ───

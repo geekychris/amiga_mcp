@@ -539,18 +539,18 @@ void protocol_send_dir(const char *path)
 
 void protocol_send_file(const char *path, ULONG offset, ULONG size)
 {
-    static UBYTE filebuf[256];
+    static UBYTE filebuf[450];
     ULONG actual = 0;
     int result;
 
-    if (size > 256) size = 256;
+    if (size > 450) size = 450;
 
-    result = fs_read_file(path, offset, size, filebuf, 256, &actual);
+    result = fs_read_file(path, offset, size, filebuf, 450, &actual);
     if (result < 0) {
         send_err("READFILE failed", path);
     } else {
         static char buf[BRIDGE_MAX_LINE];
-        static char hexbuf[514];
+        static char hexbuf[902];
         ULONG i;
         for (i = 0; i < actual; i++) {
             sprintf(hexbuf + i * 2, "%02lx", (unsigned long)filebuf[i]);
@@ -963,7 +963,7 @@ static void handle_writefile(const char *args)
     /* Format: path|offset|hexdata */
     static char path[256];
     ULONG offset = 0;
-    static UBYTE databuf[256];
+    static UBYTE databuf[450];
     ULONG datalen = 0;
     const char *sep1;
     const char *sep2;
@@ -990,7 +990,7 @@ static void handle_writefile(const char *args)
         ULONG i;
 
         datalen = hexlen / 2;
-        if (datalen > 256) datalen = 256;
+        if (datalen > 450) datalen = 450;
 
         for (i = 0; i < datalen; i++) {
             char hb[3];
@@ -2240,7 +2240,7 @@ static void handle_append(const char *args)
     /* Format: path|hexdata */
     const char *sep;
     static char path[256];
-    static UBYTE databuf[256];
+    static UBYTE databuf[450];
     ULONG datalen = 0;
 
     if (!args || args[0] == '\0') {
@@ -2264,7 +2264,7 @@ static void handle_append(const char *args)
         ULONG i;
 
         datalen = hexlen / 2;
-        if (datalen > 256) datalen = 256;
+        if (datalen > 450) datalen = 450;
 
         for (i = 0; i < datalen; i++) {
             char hb[3];

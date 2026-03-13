@@ -631,8 +631,9 @@
 <body>
   <!-- Header -->
   <div class="header">
-    <h1>AmigaDevBench</h1>
+    <h1 style="cursor:pointer;" onclick="showAbout()" title="About AmigaDevBench">AmigaDevBench</h1>
     <span class="subtitle">Debug Console</span>
+    <button onclick="showAbout()" style="background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;margin-left:4px;" title="About">About</button>
     <div class="sys-info" id="sysInfo">--</div>
     <div class="conn-status" style="gap:12px;">
       <div style="display:flex;align-items:center;gap:5px;">
@@ -659,6 +660,7 @@
     <div class="tab" data-tab="system">System</div>
     <div class="tab" data-tab="debug">Debug</div>
     <div class="tab" data-tab="develop">Develop</div>
+    <div class="tab" data-tab="transfer">Transfer</div>
     <div class="tab" data-tab="config">Config</div>
     <div class="tab" data-tab="traffic">Traffic</div>
   </div>
@@ -1547,6 +1549,59 @@
           <div id="testSummary" style="font-size:12px;"></div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- Transfer -->
+    <div class="tab-panel" id="panel-transfer">
+      <div style="max-width:800px;margin:0 auto;padding:16px;">
+        <div class="card" style="padding:16px;margin-bottom:12px;">
+          <h3 style="margin-bottom:10px;">File Transfer <span class="tool-help" title="Transfer files between host and Amiga over serial bridge. For remote setups where shared folders aren't available.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px;">MCP: <code>amiga_transfer</code> &middot; Serial bridge required</div>
+
+          <!-- Direction selector -->
+          <div style="display:flex;gap:12px;margin-bottom:14px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="xferDir" value="push" checked onchange="xferDirChanged()"> Host &rarr; Amiga
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="xferDir" value="pull" onchange="xferDirChanged()"> Amiga &rarr; Host
+            </label>
+          </div>
+
+          <!-- Source -->
+          <div style="margin-bottom:10px;">
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px;" id="xferSrcLabel">Source (host path or glob pattern)</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="xferSource" placeholder="/path/to/file or /path/*.bin" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;">
+            </div>
+          </div>
+
+          <!-- Destination -->
+          <div style="margin-bottom:14px;">
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px;" id="xferDstLabel">Destination (Amiga path)</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="xferDest" placeholder="DH2:Dev/" value="DH2:Dev/" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;">
+            </div>
+          </div>
+
+          <!-- Transfer button -->
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn orange" onclick="xferStart()" id="xferBtn">Transfer</button>
+            <span id="xferSpinner" style="display:none;color:var(--text-dim);font-size:12px;">Transferring...</span>
+          </div>
+
+          <!-- Result -->
+          <div id="xferResult" style="margin-top:12px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;"></div>
+        </div>
+
+        <!-- Transfer history -->
+        <div class="card" style="padding:16px;">
+          <h3 style="margin-bottom:8px;">Transfer History</h3>
+          <div id="xferHistory" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;color:var(--text-secondary);">
+            <span style="color:var(--text-dim);">No transfers yet</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -5268,6 +5323,245 @@ async function toolProtectSet() {
   if (data.error) { el.innerHTML = '<span style="color:var(--red);">' + escapeHtml(data.error) + '</span>'; return; }
   el.innerHTML = '<span style="color:var(--green);">Protection bits updated</span>';
   setTimeout(() => toolProtectGet(), 500);
+}
+
+// ─── File Transfer ───
+
+const _xferHistory = [];
+
+function xferDirChanged() {
+  const dir = document.querySelector('input[name="xferDir"]:checked').value;
+  const srcLabel = document.getElementById('xferSrcLabel');
+  const dstLabel = document.getElementById('xferDstLabel');
+  const srcInput = document.getElementById('xferSource');
+  const dstInput = document.getElementById('xferDest');
+  if (dir === 'push') {
+    srcLabel.textContent = 'Source (host path or glob pattern)';
+    dstLabel.textContent = 'Destination (Amiga path)';
+    srcInput.placeholder = '/path/to/file or /path/*.bin';
+    dstInput.placeholder = 'DH2:Dev/';
+  } else {
+    srcLabel.textContent = 'Source (Amiga path)';
+    dstLabel.textContent = 'Destination (host path)';
+    srcInput.placeholder = 'DH2:Dev/myfile';
+    dstInput.placeholder = '/tmp/downloaded_file';
+  }
+}
+
+async function xferStart() {
+  const source = document.getElementById('xferSource').value.trim();
+  const dest = document.getElementById('xferDest').value.trim();
+  const direction = document.querySelector('input[name="xferDir"]:checked').value;
+  if (!source || !dest) { alert('Please enter source and destination paths.'); return; }
+
+  const btn = document.getElementById('xferBtn');
+  const spinner = document.getElementById('xferSpinner');
+  const result = document.getElementById('xferResult');
+  btn.disabled = true;
+  spinner.style.display = 'inline';
+  result.innerHTML = '';
+
+  const data = await api('/transfer', {
+    method: 'POST',
+    body: JSON.stringify({ source, dest, direction }),
+  });
+
+  btn.disabled = false;
+  spinner.style.display = 'none';
+
+  if (!data || data.error) {
+    result.innerHTML = '<span style="color:var(--red);">\u2716 ' + escapeHtml(data?.error || 'No response') + '</span>';
+    _xferAddHistory(direction, source, dest, false, data?.error || 'Error');
+    return;
+  }
+
+  if (data.success) {
+    let msg = '\u2714 ' + escapeHtml(data.message);
+    if (data.crc_match) msg += '\n  CRC32 verified';
+    result.innerHTML = '<span style="color:var(--green);">' + msg + '</span>';
+  } else {
+    result.innerHTML = '<span style="color:var(--red);">\u2716 ' + escapeHtml(data.message) + '</span>';
+  }
+  _xferAddHistory(direction, source, dest, data.success, data.message);
+}
+
+function _xferAddHistory(dir, src, dst, ok, msg) {
+  const now = new Date().toLocaleTimeString();
+  const arrow = dir === 'push' ? '\u2192' : '\u2190';
+  const icon = ok ? '<span style="color:var(--green);">\u2714</span>' : '<span style="color:var(--red);">\u2716</span>';
+  _xferHistory.unshift({ time: now, dir, src, dst, ok, msg, icon, arrow });
+  if (_xferHistory.length > 50) _xferHistory.pop();
+  const el = document.getElementById('xferHistory');
+  el.innerHTML = _xferHistory.map(h =>
+    '<div style="padding:3px 0;border-bottom:1px solid var(--border);">' +
+    h.icon + ' <span style="color:var(--text-dim);">' + h.time + '</span> ' +
+    escapeHtml(h.src) + ' ' + h.arrow + ' ' + escapeHtml(h.dst) +
+    '<br><span style="color:var(--text-dim);margin-left:20px;">' + escapeHtml(h.msg) + '</span></div>'
+  ).join('');
+}
+
+// ─── About Dialog ───
+
+function showAbout() {
+  // Data-driven tribute list
+  // d: deceased (orange border), a: alive (blue border)
+  const _R = 'd', _A = 'a';
+  const sections = [
+    { title: 'Amiga Inc / Hi-Toro \u2014 Los Gatos', people: [
+      [_R, 'Jay Miner',        'Father of the Amiga \u2014 Chipset visionary. And Mitchy.', '1932\u20131994'],
+      [_R, 'Dave Morse',       'Co-founder & CEO \u2014 Named Lorraine, Agnus, Denise, Paula', '1943\u20132007'],
+      [_R, 'Dave Needle',      'Hardware co-architect \u2014 Custom chips',             '1947\u20132016'],
+      [_A, 'Carl Sassenrath',  'Exec kernel \u2014 Preemptive multitasking on a home computer'],
+      [_A, 'RJ Mical',         'Intuition \u2014 The GUI that changed everything'],
+      [_A, 'Caryn Mical',      'Producer, Amiga Forever documentary \u2014 Marketing'],
+      [_A, 'Dale Luck',        'Graphics library \u2014 Boing Ball co-creator'],
+      [_A, 'Bob Pariseau',     'VP Software \u2014 Hired the team, directed the Lincoln Center launch'],
+      [_A, 'Joe Decuir',       'Agnus chip architect \u2014 DMA engine, IEEE Fellow'],
+      [_A, 'Ron Nicholson',    'Lead hardware \u2014 Lorraine chipset co-designer'],
+      [_A, 'Glenn Keller',     'Paula chip \u2014 Audio, serial, floppy'],
+      [_A, 'Dave Dean',        'Denise chip \u2014 Video & sprite hardware'],
+      [_A, 'Sam Dicker',       'Sound driver & audio architecture'],
+      [_A, 'Sheryl Knowles',   'First artist \u2014 Kickstart logo creator'],
+      [_A, 'Jack Haeger',      'Art director \u2014 Four-Byte Burger'],
+      [_A, 'Larry Kaplan',     'Co-founder of Hi-Toro'],
+      [_A, 'Bob Burns',        'Keyboard, console, input, fonts, clipboard \u2014 "Kodiak"'],
+      [_A, 'Rob Peck',         'Software engineer \u2014 Programmer\'s Guide author'],
+      [_A, 'Howard Stolz',     'Industrial design \u2014 A1000 case'],
+      [_A, 'Neil Katin',       'Devices & drivers'],
+      [_A, 'Terry Fisher',     'Board & chip layout'],
+      [_A, 'Sandy Fisher',     'Board & chip layout'],
+      [_A, 'Edwin Chu',        'Chip layout engineer'],
+      [_A, 'Lee Ho',           'Hardware engineering'],
+      [_A, 'John Cahill',      'Lead lab technician'],
+      [_A, 'Gary McCoy',       'VP of Sales'],
+      [_A, 'Mitchell Gass',    'Documentation & manuals'],
+    ]},
+    { title: 'Commodore-Amiga \u2014 West Chester', people: [
+      [_R, 'Hedley Davis',     'Chip team manager \u2014 A3000, Akiko, "Hedley Hi-Res"', '1958\u20132026'],
+      [_R, 'George Robbins',   'Lead engineer \u2014 A500, A600, A1200. Song titles on PCBs.', '\u2020 2002'],
+      [_R, 'Gail Wellington',  'CATS General Manager \u2014 Mother of CDTV',            '1940\u20132025'],
+      [_A, 'Dave Haynie',      'Chief engineer \u2014 A2000, A3000, Zorro III, AGA. Deathbed Vigil.'],
+      [_A, 'Andy Finkel',      'Software manager \u2014 AmigaOS, Developer Conferences'],
+      [_A, 'Jeff Porter',      'Director of R&D \u2014 A500, CD32'],
+      [_A, 'Bob Welland',      'Hardware \u2014 A500, A2620 CPU module'],
+      [_A, 'Beth Richard',     'Chip design \u2014 CDTV, CD32, CD1200'],
+      [_A, 'Bryce Nesbitt',    'Core OS \u2014 Workbench 2.0, Enforcer'],
+      [_A, 'Dave Berezowski',  'Workbench 2.0 lead, printer.device'],
+      [_A, 'Peter Cherna',     'AmigaOS engineer'],
+      [_A, 'Randell Jesup',    'AmigaOS engineer'],
+      [_A, 'Michael Sinz',     'Kernel & stability'],
+      [_A, 'Bart Whitebook',   'Autoboot & hardware engineering'],
+      [_A, 'Carolyn Scheppner','CATS technical manager \u2014 IFF/ILBM docs'],
+      [_A, 'Allan Havemose',   'Director of Software Development'],
+      [_A, 'Greg Berlin',      'Hardware manager \u2014 A3000'],
+      [_A, 'Jeff Boyer',       'Hardware \u2014 A3000 co-designer'],
+      [_A, 'Scott Hood',       'Hardware \u2014 A3000 co-designer'],
+      [_A, 'Bob Raible',       'Hardware \u2014 AA/Pandora chipset (A4000/A1200)'],
+      [_A, 'Darren Greenwald', 'Software engineering'],
+      [_A, 'Martin Taillefer', 'Software engineering'],
+      [_A, 'Spencer Shanson',  'Hardware engineering'],
+      [_A, 'Jerry Horanoff',   'Chips division'],
+      [_A, 'Bill Richard',     'Hardware engineering'],
+      [_A, 'Lew Eggebrecht',   'VP of Engineering'],
+      [_A, 'Keith Gabryelski', 'Amiga UNIX development lead'],
+      [_A, 'Ken Farinsky',     'Developer Conference presenter'],
+      [_A, 'Fred Bowen',       'Senior engineer \u2014 Deathbed Vigil co-producer'],
+      [_A, 'Bil Herd',         'C128 designer \u2014 Amiga engineering ally'],
+      [_A, 'Rick Geiger',      'General Manager, Amiga Division'],
+    ]},
+    { title: 'CATS, Documentation & Developer Support', people: [
+      [_A, 'Dan Baker',        'CATS technology group \u2014 UI Style Guide co-author'],
+      [_A, 'Susan Deyl',       'ROM Kernel, Intuition & Hardware Reference Manuals'],
+      [_A, 'Chris Raymond',    'Hardware Reference Manual co-author'],
+      [_A, 'David Junod',      'AppShell \u2014 UI Style Guide co-author'],
+      [_A, 'Jim Mackraz',      'AmigaOS systems \u2014 Commodities Exchange library'],
+    ]},
+    { title: 'AmigaDOS, Tools & the Wider Amiga World', people: [
+      [_R, 'Fred Fish',        '1,100+ Fish Disks \u2014 Built the community, one floppy at a time', '1952\u20132007'],
+      [_A, 'Tim King',         'MetaComCo \u2014 Brought TRIPOS to the Amiga as AmigaDOS'],
+      [_A, 'Martin Richards',  'Creator of TRIPOS at Cambridge \u2014 The soul of AmigaDOS'],
+      [_A, 'Bill Hawes',       'ARexx \u2014 The scripting language that glued it all together'],
+      [_A, 'Dan Silva',        'Deluxe Paint \u2014 The art tool of a generation'],
+      [_A, 'Jim Sachs',        'Pixel artist \u2014 Defender of the Crown, legendary Amiga artwork'],
+      [_A, 'Jerry Morrison',   'Created IFF at Electronic Arts \u2014 The universal file format'],
+      [_A, 'Leo Schwab',       'Disney Animation Studio lead \u2014 "ewhac"'],
+      [_A, 'Perry Kivolowitz', 'ASDG hardware \u2014 Oscar/Emmy winning VFX pioneer'],
+    ]},
+  ];
+
+  function personHTML(p) {
+    const isDead = p[0] === 'd';
+    const border = isDead ? 'var(--accent-orange)' : 'var(--accent-blue)';
+    const bg = isDead ? 'rgba(224,112,32,0.05)' : 'rgba(74,144,217,0.05)';
+    const nameColor = isDead ? 'var(--accent-orange)' : 'var(--accent-blue)';
+    let html = '<div style="border-left:3px solid ' + border + ';padding:4px 8px;background:' + bg + ';border-radius:0 4px 4px 0;">';
+    html += '<div style="color:' + nameColor + ';font-weight:bold;font-size:12px;">' + p[1] + '</div>';
+    html += '<div style="color:var(--text-dim);font-size:10px;">' + p[2] + '</div>';
+    if (p[3]) html += '<div style="color:var(--text-dim);font-size:9px;font-style:italic;">' + p[3] + ' \u2665</div>';
+    html += '</div>';
+    return html;
+  }
+
+  let sectionsHTML = '';
+  for (const sec of sections) {
+    sectionsHTML += '<div style="margin-top:16px;">';
+    sectionsHTML += '<div style="font-size:11px;color:var(--text-secondary);font-weight:bold;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border);">' + sec.title + '</div>';
+    sectionsHTML += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;">';
+    for (const p of sec.people) sectionsHTML += personHTML(p);
+    sectionsHTML += '</div></div>';
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'file-modal-overlay';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="file-modal" style="max-width:740px;max-height:92vh;">
+      <div class="file-modal-header" style="justify-content:center;border-bottom:2px solid var(--accent-orange);padding:14px;">
+        <span style="color:var(--accent-orange);font-size:16px;font-weight:bold;font-family:var(--mono);letter-spacing:2px;">AmigaDevBench</span>
+      </div>
+      <div class="file-modal-body" style="padding:20px;overflow-y:auto;font-size:13px;line-height:1.7;">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="font-size:24px;margin-bottom:6px;">&#x1F4BE;</div>
+          <div style="color:var(--text-secondary);font-size:12px;">Cross-development environment for the Commodore Amiga</div>
+          <div style="color:var(--text-dim);font-size:11px;margin-top:4px;">Built with love, Claude Code, and far too much nostalgia</div>
+        </div>
+
+        <div style="border-top:1px solid var(--border);padding-top:14px;">
+          <div style="text-align:center;margin-bottom:12px;">
+            <div style="color:var(--accent-orange);font-size:14px;font-weight:bold;margin-bottom:6px;">To the Amiga Team</div>
+            <div style="color:var(--text-secondary);font-size:12px;max-width:520px;margin:0 auto;font-style:italic;">
+              For creating magic that inspired a generation of kids to become
+              artists, programmers, engineers, and musicians.
+              You gave us a machine that didn't just compute &mdash; it dreamed.
+            </div>
+          </div>
+          ${sectionsHTML}
+          <div style="text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid var(--border);">
+            <div style="color:var(--text-dim);font-size:11px;line-height:1.8;">
+              <span style="color:var(--accent-orange);">&hearts;</span> Remembered with love &mdash;
+              <span style="color:var(--accent-blue);">&#x25CF;</span> Still inspiring us
+            </div>
+            <div style="color:var(--text-dim);font-size:10px;margin-top:10px;max-width:460px;margin-left:auto;margin-right:auto;line-height:1.6;">
+              We apologise to anyone we have missed. Hundreds of people across
+              Amiga Inc, Commodore, MetaComCo, and the wider community poured
+              their hearts into this machine. Every one of you matters.
+              If your name should be here, please let us know.
+            </div>
+            <div style="margin-top:12px;">
+              <span style="color:var(--text-dim);font-style:italic;font-size:11px;">
+                &ldquo;We made Amiga, they fucked it up.&rdquo;
+              </span>
+              <br><span style="color:var(--text-dim);font-size:10px;">&mdash; RJ Mical, on Commodore management</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="file-modal-footer" style="justify-content:center;">
+        <button class="btn" onclick="this.closest('.file-modal-overlay').remove()">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
 }
 </script>
 </body>

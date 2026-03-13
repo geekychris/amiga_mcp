@@ -52,6 +52,10 @@ class SerialConnection:
         self._auto_reconnect = True
         self._reconnect_task: asyncio.Task | None = None
 
+        # Optional callbacks for persistent logging
+        self.on_tx: Any = None  # called with (line: str)
+        self.on_rx: Any = None  # called with (line: str)
+
     @property
     def connected(self) -> bool:
         return self._connected
@@ -251,6 +255,11 @@ class SerialConnection:
         if not self._connected:
             raise RuntimeError("Not connected to Amiga serial port")
         logger.debug("TX: %s", line[:120])
+        if self.on_tx:
+            try:
+                self.on_tx(line)
+            except Exception:
+                pass
         data = (line + "\n").encode("latin-1")
         if self._mode == "tcp":
             if self._writer is None:
@@ -291,6 +300,11 @@ class SerialConnection:
             if cleaned != trimmed:
                 logger.debug("Stripped noise from line: %s -> %s", repr(trimmed[:80]), repr(cleaned[:80]))
             logger.debug("RX line: %s", cleaned[:120])
+            if self.on_rx:
+                try:
+                    self.on_rx(cleaned)
+                except Exception:
+                    pass
             msg = parse_message(cleaned)
             if msg is None:
                 logger.debug("Unparseable line: %s", cleaned[:120])

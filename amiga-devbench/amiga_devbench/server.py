@@ -24,8 +24,10 @@ from sse_starlette.sse import EventSourceResponse
 from .builder import Builder
 from .config import DevBenchConfig
 from .deployer import Deployer
+from . import file_transfer
 from .emulator import EmulatorManager
 from .mcp_tools import mcp, init_tools
+from .persistent_log import PersistentLog
 from .protocol import format_hex_dump, level_name
 from .serial_conn import SerialConnection
 from .simulator import AmigaSimulator
@@ -43,6 +45,7 @@ _deployer: Deployer | None = None
 _emulator: EmulatorManager | None = None
 _config: DevBenchConfig | None = None
 _traffic: TrafficLog | None = None
+_plog: PersistentLog | None = None
 
 
 # ─── Web API Routes ───
@@ -916,11 +919,15 @@ async def serve_index(request: Request) -> HTMLResponse:
 
 def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     """Create the Starlette application with MCP + Web API + static files."""
-    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config, _traffic
+    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config, _traffic, _plog
 
     _state = AmigaState()
     _traffic = TrafficLog(maxlen=2000)
     _event_bus = EventBus()
+
+    # Persistent log file
+    project_root_early = cfg.project_root if cfg else (args.project_root or str(Path.cwd()))
+    _plog = PersistentLog(Path(project_root_early) / "logs")
 
     # Use config if provided, fall back to args
     if cfg:
@@ -941,6 +948,11 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         port=cfg.serial_port if cfg else args.serial_port,
         pty_path=cfg.pty_path if cfg else args.pty_path,
     )
+
+    # Wire persistent log callbacks for TX/RX
+    if _plog:
+        _conn.on_tx = _plog.write_tx
+        _conn.on_rx = _plog.write_rx
 
     if not use_tcp:
         _conn.set_mode("pty", pty_path=cfg.pty_path if cfg else args.pty_path)
@@ -1049,11 +1061,17 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
             ready_task = asyncio.ensure_future(_on_bridge_ready())
 
+            # Start persistent event logger
+            if _plog:
+                _plog.start(_event_bus)
+
             yield
 
             ready_task.cancel()
 
             # Shutdown
+            if _plog:
+                _plog.stop()
             if _conn:
                 _conn.disconnect()
             if _builder:
@@ -3387,6 +3405,53 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
     # ─── REST traffic logging middleware ───
 
+    # ─── File Transfer (host <-> Amiga via serial) ───
+
+    async def api_transfer(request: Request) -> JSONResponse:
+        """Transfer files between host and Amiga over serial."""
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        source = body.get("source", "")
+        dest = body.get("dest", "")
+        direction = body.get("direction", "push")  # push = host->amiga, pull = amiga->host
+        if not source or not dest:
+            return JSONResponse({"error": "Missing source or dest"}, status_code=400)
+
+        try:
+            if direction == "push":
+                # Host -> Amiga: support glob patterns
+                import glob as globmod
+                if '*' in source or '?' in source:
+                    files = sorted(globmod.glob(source))
+                    if not files:
+                        return JSONResponse({"error": f"No files match: {source}"})
+                    pairs = []
+                    for f in files:
+                        fname = Path(f).name
+                        amiga_dest = dest.rstrip("/") + "/" + fname if dest.endswith(("/", ":")) else dest
+                        pairs.append((f, amiga_dest))
+                    result = await file_transfer.push_files(_conn, _event_bus, pairs)
+                else:
+                    result = await file_transfer.push_file(_conn, _event_bus, source, dest)
+            elif direction == "pull":
+                # Amiga -> Host
+                result = await file_transfer.pull_file(_conn, _event_bus, source, dest)
+            else:
+                return JSONResponse({"error": f"Invalid direction: {direction}"}, status_code=400)
+
+            return JSONResponse({
+                "success": result.success,
+                "message": result.message,
+                "bytes": result.bytes_transferred,
+                "elapsed": round(result.elapsed, 2),
+                "crc_match": result.crc_match,
+                "files": result.files,
+            })
+        except Exception as exc:
+            logger.exception("Transfer failed")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
     _SKIP_TRAFFIC_PATHS = {"/api/events", "/api/traffic", "/api/traffic/detail",
                            "/api/traffic/clear", "/api/traffic/replay", "/health", "/", "/mcp"}
 
@@ -3421,15 +3486,18 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
                         pass
 
+                full_path = path + ("?" + str(request.query_params) if request.query_params else "")
                 _traffic.record(
                     kind="rest",
                     method=method,
-                    path=path + ("?" + str(request.query_params) if request.query_params else ""),
+                    path=full_path,
                     request_body=req_body,
                     response_body=resp_body,
                     status=response.status_code,
                     duration_ms=round(duration, 1),
                 )
+                if _plog:
+                    _plog.write_api(method, full_path, status=response.status_code, duration_ms=round(duration, 1))
                 return response
             except Exception as exc:
                 duration = (time.time() - t0) * 1000
@@ -3442,6 +3510,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                     duration_ms=round(duration, 1),
                     error=str(exc),
                 )
+                if _plog:
+                    _plog.write_api(method, path, status=500, duration_ms=round(duration, 1), error=str(exc))
                 raise
 
     # Define routes
@@ -3616,6 +3686,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/traffic/clear", api_traffic_clear, methods=["POST"]),
         Route("/api/traffic/replay", api_traffic_replay, methods=["POST"]),
 
+        # File transfer (host <-> Amiga serial)
+        Route("/api/transfer", api_transfer, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),
