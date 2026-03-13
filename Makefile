@@ -23,6 +23,7 @@ examples: lib
 	$(DOCKER_RUN) make -C examples/arexx_test
 	$(DOCKER_RUN) make -C examples/test_example
 	$(DOCKER_RUN) make -C examples/test_new_features
+	$(DOCKER_RUN) make -C examples/boing_ball
 
 bridge:
 	$(DOCKER_RUN) make -C amiga-bridge
@@ -43,6 +44,7 @@ clean:
 	$(DOCKER_RUN) make -C examples/arexx_test clean
 	$(DOCKER_RUN) make -C examples/test_example clean
 	$(DOCKER_RUN) make -C examples/test_new_features clean
+	$(DOCKER_RUN) make -C examples/boing_ball clean
 	$(DOCKER_RUN) make -C amiga-bridge clean
 
 mcp-server:
