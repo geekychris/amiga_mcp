@@ -227,67 +227,66 @@ static void safe_rect(struct RastPort *rp, WORD x1, WORD y1, WORD x2, WORD y2)
     RectFill(rp, x1, y1, x2, y2);
 }
 
-/* Draw ostrich rider (player or enemy) */
+/* Draw ostrich rider (player or enemy) - 20x20 bounding box */
 static void draw_rider(struct RastPort *rp, WORD x, WORD y, WORD facing,
                        WORD flapping, WORD anim_frame,
                        WORD body_color, WORD rider_color)
 {
-    /* Clipping */
     WORD rx = x;
     if (rx < -PLAYER_W - 4 || rx >= SCREEN_W + 4) return;
     if (y < -4 || y >= SCREEN_H) return;
 
-    /* Rider (upper body) - 6x6 block at top */
+    /* Rider (upper body) - 7x7 block at top */
     SetAPen(rp, rider_color);
-    safe_rect(rp, rx + 5, y, rx + 10, y + 5);
+    safe_rect(rp, rx + 6, y, rx + 13, y + 6);
 
     /* Rider head */
-    safe_rect(rp, rx + 6, y - 2, rx + 9, y - 1);
+    safe_rect(rp, rx + 7, y - 2, rx + 12, y - 1);
 
     /* Lance (in facing direction) */
     SetAPen(rp, COL_WHITE);
     if (facing == 0) {
-        safe_rect(rp, rx + 11, y + 2, rx + 15, y + 3);
+        safe_rect(rp, rx + 14, y + 2, rx + 19, y + 4);
     } else {
-        safe_rect(rp, rx, y + 2, rx + 4, y + 3);
+        safe_rect(rp, rx, y + 2, rx + 5, y + 4);
     }
 
-    /* Ostrich body */
+    /* Ostrich body - wider and taller */
     SetAPen(rp, body_color);
-    safe_rect(rp, rx + 3, y + 6, rx + 12, y + 11);
+    safe_rect(rp, rx + 3, y + 7, rx + 16, y + 13);
 
     /* Ostrich neck */
-    safe_rect(rp, rx + 4, y + 3, rx + 5, y + 6);
+    safe_rect(rp, rx + 4, y + 4, rx + 6, y + 7);
 
     /* Ostrich head/beak */
     if (facing == 0) {
-        safe_rect(rp, rx + 2, y + 2, rx + 4, y + 4);
+        safe_rect(rp, rx + 2, y + 2, rx + 4, y + 5);
         SetAPen(rp, COL_SCORE);
-        safe_rect(rp, rx, y + 3, rx + 2, y + 3);
+        safe_rect(rp, rx, y + 3, rx + 2, y + 4);
     } else {
-        safe_rect(rp, rx + 11, y + 2, rx + 13, y + 4);
+        safe_rect(rp, rx + 15, y + 2, rx + 17, y + 5);
         SetAPen(rp, COL_SCORE);
-        safe_rect(rp, rx + 13, y + 3, rx + 15, y + 3);
+        safe_rect(rp, rx + 17, y + 3, rx + 19, y + 4);
     }
 
-    /* Legs */
+    /* Legs - longer */
     SetAPen(rp, body_color);
     if (anim_frame == 0) {
-        safe_rect(rp, rx + 5, y + 12, rx + 6, y + 15);
-        safe_rect(rp, rx + 9, y + 12, rx + 10, y + 14);
+        safe_rect(rp, rx + 6, y + 14, rx + 8, y + 19);
+        safe_rect(rp, rx + 12, y + 14, rx + 14, y + 17);
     } else {
-        safe_rect(rp, rx + 5, y + 12, rx + 6, y + 14);
-        safe_rect(rp, rx + 9, y + 12, rx + 10, y + 15);
+        safe_rect(rp, rx + 6, y + 14, rx + 8, y + 17);
+        safe_rect(rp, rx + 12, y + 14, rx + 14, y + 19);
     }
 
-    /* Wings */
+    /* Wings - larger */
     SetAPen(rp, body_color);
     if (flapping) {
-        safe_rect(rp, rx + 1, y + 4, rx + 3, y + 6);
-        safe_rect(rp, rx + 12, y + 4, rx + 14, y + 6);
+        safe_rect(rp, rx, y + 5, rx + 3, y + 7);
+        safe_rect(rp, rx + 16, y + 5, rx + 19, y + 7);
     } else {
-        safe_rect(rp, rx + 1, y + 8, rx + 3, y + 10);
-        safe_rect(rp, rx + 12, y + 8, rx + 14, y + 10);
+        safe_rect(rp, rx, y + 9, rx + 3, y + 12);
+        safe_rect(rp, rx + 16, y + 9, rx + 19, y + 12);
     }
 }
 

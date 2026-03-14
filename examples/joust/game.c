@@ -182,6 +182,24 @@ static WORD check_platform(GameState *gs, Fixed fx, Fixed fy, WORD w)
     return -1;
 }
 
+/* Check if entity hits underside of a platform (when rising) */
+static WORD check_platform_above(GameState *gs, Fixed fx, Fixed fy, WORD w)
+{
+    WORD px = FIX_INT(fx);
+    WORD py = FIX_INT(fy); /* top of entity */
+    WORD i;
+
+    for (i = 1; i < gs->num_platforms; i++) { /* skip ground */
+        Platform *pl = &gs->platforms[i];
+        if (py >= pl->y && py <= pl->y + PLAT_THICK) {
+            if (px + w > pl->x && px < pl->x + pl->w) {
+                return pl->y + PLAT_THICK; /* bottom of platform */
+            }
+        }
+    }
+    return -1;
+}
+
 /* Horizontal wrap */
 static Fixed wrap_x(Fixed fx)
 {
@@ -252,7 +270,16 @@ static void update_player(GameState *gs, Player *p, UWORD input)
         p->dy = 0;
     }
 
-    /* Platform collision */
+    /* Platform collision from below (when rising) */
+    if (p->dy < 0) {
+        WORD plat_bot = check_platform_above(gs, p->x, p->y, PLAYER_W);
+        if (plat_bot >= 0) {
+            p->y = FIX(plat_bot);
+            p->dy = 0;
+        }
+    }
+
+    /* Platform collision from above (when falling) */
     plat_y = check_platform(gs, p->x, p->y, PLAYER_W);
     if (plat_y >= 0 && p->dy >= 0) {
         p->y = FIX(plat_y - PLAYER_H);

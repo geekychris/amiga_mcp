@@ -436,6 +436,9 @@ int main(void)
             }
         }
 
+        /* Ensure all drawing is complete before swap */
+        WaitBlit();
+
         /* Poll bridge */
         ab_poll();
 

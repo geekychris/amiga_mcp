@@ -35,9 +35,9 @@ typedef struct {
     WORD x, y, w;   /* position and width in pixels */
 } Platform;
 
-/* Player dimensions */
-#define PLAYER_W    16
-#define PLAYER_H    16
+/* Rider dimensions (player and enemy, same size) */
+#define PLAYER_W    20
+#define PLAYER_H    20
 #define LANCE_H     4   /* height of lance hitbox from top */
 
 /* Enemy types */

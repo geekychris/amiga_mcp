@@ -419,7 +419,7 @@ void draw_puffs(struct RastPort *rp, GameState *gs)
     }
 }
 
-/* Boing balls */
+/* Boing balls - true checkerboard: horizontal bands x vertical stripes */
 void draw_boings(struct RastPort *rp, GameState *gs)
 {
     WORD i;
@@ -434,71 +434,66 @@ void draw_boings(struct RastPort *rp, GameState *gs)
         if (sx < -r || sx >= SCREEN_W + r) continue;
         if (sy < HUD_H || sy >= SCREEN_H) continue;
 
-        /* Draw the boing ball: red and white stripes with rotation */
         for (dy = -r; dy <= r; dy++) {
-            /* Calculate horizontal extent at this row (circle) */
             WORD row_y = sy + dy;
-            WORD half_w;
-            WORD dx_sq;
+            WORD dx_sq, half_w;
+            WORD x1, x2, hband;
+            WORD stripe_w = 3;  /* width of each vertical stripe */
+            WORD phase = b->rot >> 2;  /* horizontal rotation */
+            WORD seg_start, seg_col;
 
             if (row_y < HUD_H || row_y >= SCREEN_H) continue;
 
-            /* Circle: x^2 + y^2 = r^2, so half_width = sqrt(r^2 - dy^2) */
             dx_sq = r * r - dy * dy;
-            /* Integer sqrt approximation */
             half_w = 0;
             while ((half_w + 1) * (half_w + 1) <= dx_sq) half_w++;
-
             if (half_w <= 0) continue;
 
-            /* Draw this row as stripes */
+            x1 = sx - half_w;
+            x2 = sx + half_w;
+            if (x1 < 0) x1 = 0;
+            if (x2 >= SCREEN_W) x2 = SCREEN_W - 1;
+            if (x1 > x2) continue;
+
+            /* Horizontal band (rows): alternates every 3 pixels */
+            hband = ((dy + phase) / 3) & 1;
+
+            /* Draw vertical stripes across this row */
+            seg_start = x1;
+            seg_col = (((x1 - sx + phase) / stripe_w) & 1) ^ hband;
+
             {
-                WORD x1 = sx - half_w;
-                WORD x2 = sx + half_w;
-                WORD stripe_x;
-                WORD stripe_phase = (b->rot + dy * 2) & 0xFF;
-                WORD run_start = x1;
-                WORD run_color;
-
-                if (x1 < 0) x1 = 0;
-                if (x2 >= SCREEN_W) x2 = SCREEN_W - 1;
-                if (x1 > x2) continue;
-
-                /* Determine stripe color at start */
-                run_color = ((x1 - sx + stripe_phase) & 7) < 4 ? COL_RED : COL_WHITE;
-                run_start = x1;
-
-                for (stripe_x = x1; stripe_x <= x2 + 1; stripe_x++) {
-                    WORD c;
-                    if (stripe_x <= x2)
-                        c = (((stripe_x - sx) + stripe_phase) & 7) < 4 ? COL_RED : COL_WHITE;
+                WORD px;
+                for (px = x1; px <= x2 + 1; px++) {
+                    WORD col;
+                    if (px <= x2)
+                        col = (((px - sx + phase) / stripe_w) & 1) ^ hband;
                     else
-                        c = -1;  /* flush last run */
+                        col = -1;
 
-                    if (c != run_color) {
-                        if (run_start <= x2 && run_color >= 0) {
-                            WORD end = stripe_x - 1;
+                    if (col != seg_col) {
+                        if (seg_col >= 0) {
+                            WORD end = px - 1;
                             if (end > x2) end = x2;
-                            SetAPen(rp, run_color);
-                            RectFill(rp, run_start, row_y, end, row_y);
+                            SetAPen(rp, seg_col ? COL_RED : COL_WHITE);
+                            RectFill(rp, seg_start, row_y, end, row_y);
                         }
-                        run_start = stripe_x;
-                        run_color = c;
+                        seg_start = px;
+                        seg_col = col;
                     }
                 }
             }
         }
 
-        /* Shadow beneath ball */
+        /* Shadow */
         {
             WORD shx1 = sx - r / 2;
             WORD shx2 = sx + r / 2;
-            WORD shy = FLOOR_Y + 1;
             if (shx1 < 0) shx1 = 0;
             if (shx2 >= SCREEN_W) shx2 = SCREEN_W - 1;
-            if (shy < SCREEN_H && shx1 <= shx2) {
+            if (FLOOR_Y + 1 < SCREEN_H && shx1 <= shx2) {
                 SetAPen(rp, COL_DKRED);
-                RectFill(rp, shx1, shy, shx2, shy + 1);
+                RectFill(rp, shx1, FLOOR_Y + 1, shx2, FLOOR_Y + 2);
             }
         }
     }

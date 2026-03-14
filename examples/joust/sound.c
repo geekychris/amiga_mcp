@@ -1,12 +1,13 @@
 /*
  * JOUST - Sound system
  * Direct hardware audio via custom chip registers
- * Channel 0: Flap SFX
- * Channel 1: Kill/collision SFX
+ * Channel 0: Flap SFX (loaded from flap.raw)
+ * Channel 1: Kill/collision SFX (loaded from smash.raw)
  * Channel 2: Egg collect / misc SFX
  * Channel 3: Background melody
  */
 #include <proto/exec.h>
+#include <proto/dos.h>
 #include <exec/memory.h>
 #include <hardware/custom.h>
 #include <hardware/dmabits.h>
@@ -14,17 +15,24 @@
 
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
 
-/* Waveform sizes */
+/* Synthesized waveform sizes */
 #define SINE_LEN     32
 #define NOISE_LEN    64
-#define BLIP_LEN     16
 #define SWEEP_LEN    48
 
-/* Chip RAM buffers */
+/* Chip RAM buffers - synthesized */
 static BYTE *sine_wave = NULL;
 static BYTE *noise_wave = NULL;
-static BYTE *blip_wave = NULL;
 static BYTE *sweep_wave = NULL;
+
+/* Chip RAM buffers - loaded from files */
+static BYTE *flap_sample = NULL;
+static LONG  flap_len = 0;
+static BYTE *smash_sample = NULL;
+static LONG  smash_len = 0;
+
+/* Playback period for 11025 Hz samples on PAL Amiga */
+#define PERIOD_11KHZ  322   /* 3546895 / 11025 */
 
 /* SFX active timers (frames remaining) */
 static WORD sfx_timer[3] = { 0, 0, 0 };
@@ -35,8 +43,6 @@ static WORD music_note_idx = 0;
 static WORD music_timer = 0;
 
 /* Medieval/fanfare melody - Amiga periods for notes */
-/* C4=428, D4=381, E4=339, F4=320, G4=285, A4=254, B4=226, C5=214 */
-/* G3=570, A3=508, C4=428 */
 #define NOTE_C3  856
 #define NOTE_G3  570
 #define NOTE_A3  508
@@ -69,6 +75,33 @@ static BYTE snd_noise(void)
     return (BYTE)((snd_rng >> 16) & 0xFF);
 }
 
+/* Load a raw 8-bit signed PCM file into chip RAM */
+static BYTE *load_sample(const char *filename, LONG *out_len)
+{
+    BPTR fh;
+    BYTE *buf = NULL;
+    LONG len;
+
+    fh = Open((STRPTR)filename, MODE_OLDFILE);
+    if (!fh) return NULL;
+
+    Seek(fh, 0, OFFSET_END);
+    len = Seek(fh, 0, OFFSET_BEGINNING);
+
+    /* Paula needs even-length buffers */
+    if (len & 1) len--;
+    if (len < 2) { Close(fh); return NULL; }
+
+    buf = (BYTE *)AllocMem(len, MEMF_CHIP);
+    if (buf) {
+        Read(fh, buf, len);
+        *out_len = len;
+    }
+
+    Close(fh);
+    return buf;
+}
+
 void sound_init(void)
 {
     WORD i;
@@ -76,17 +109,19 @@ void sound_init(void)
     /* Disable all audio DMA */
     CUSTOM->dmacon = DMAF_AUD0 | DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3;
 
-    /* Allocate waveforms in chip RAM */
+    /* Load sampled sound effects from files */
+    flap_sample = load_sample("DH2:Dev/flap.raw", &flap_len);
+    smash_sample = load_sample("DH2:Dev/smash.raw", &smash_len);
+
+    /* Allocate synthesized waveforms in chip RAM */
     sine_wave = (BYTE *)AllocMem(SINE_LEN, MEMF_CHIP | MEMF_CLEAR);
     noise_wave = (BYTE *)AllocMem(NOISE_LEN, MEMF_CHIP | MEMF_CLEAR);
-    blip_wave = (BYTE *)AllocMem(BLIP_LEN, MEMF_CHIP | MEMF_CLEAR);
     sweep_wave = (BYTE *)AllocMem(SWEEP_LEN, MEMF_CHIP | MEMF_CLEAR);
 
-    if (!sine_wave || !noise_wave || !blip_wave || !sweep_wave) return;
+    if (!sine_wave || !noise_wave || !sweep_wave) return;
 
     /* Generate sine wave */
     {
-        /* Simple sine approximation using lookup */
         static const BYTE sine_tab[32] = {
             0, 25, 49, 71, 90, 106, 117, 125,
             127, 125, 117, 106, 90, 71, 49, 25,
@@ -101,11 +136,6 @@ void sound_init(void)
     /* Generate noise */
     for (i = 0; i < NOISE_LEN; i++) {
         noise_wave[i] = snd_noise();
-    }
-
-    /* Generate blip (short square pulse) */
-    for (i = 0; i < BLIP_LEN; i++) {
-        blip_wave[i] = (i < BLIP_LEN / 2) ? 80 : -80;
     }
 
     /* Generate sweep (descending tone for egg pickup) */
@@ -131,43 +161,46 @@ void sound_cleanup(void)
     CUSTOM->aud[3].ac_vol = 0;
 
     /* Free chip RAM */
-    if (sine_wave)  FreeMem(sine_wave, SINE_LEN);
-    if (noise_wave) FreeMem(noise_wave, NOISE_LEN);
-    if (blip_wave)  FreeMem(blip_wave, BLIP_LEN);
-    if (sweep_wave) FreeMem(sweep_wave, SWEEP_LEN);
+    if (sine_wave)    FreeMem(sine_wave, SINE_LEN);
+    if (noise_wave)   FreeMem(noise_wave, NOISE_LEN);
+    if (sweep_wave)   FreeMem(sweep_wave, SWEEP_LEN);
+    if (flap_sample)  FreeMem(flap_sample, flap_len);
+    if (smash_sample) FreeMem(smash_sample, smash_len);
 
     sine_wave = NULL;
     noise_wave = NULL;
-    blip_wave = NULL;
     sweep_wave = NULL;
+    flap_sample = NULL;
+    smash_sample = NULL;
 }
 
 void sound_flap(void)
 {
-    if (!blip_wave) return;
+    if (!flap_sample) return;
 
-    /* Channel 0: short high blip */
-    CUSTOM->aud[0].ac_ptr = (UWORD *)blip_wave;
-    CUSTOM->aud[0].ac_len = BLIP_LEN / 2;
-    CUSTOM->aud[0].ac_per = 150;
-    CUSTOM->aud[0].ac_vol = 30;
+    /* Channel 0: sampled wing flap at 11025 Hz */
+    CUSTOM->aud[0].ac_ptr = (UWORD *)flap_sample;
+    CUSTOM->aud[0].ac_len = flap_len / 2;    /* length in words */
+    CUSTOM->aud[0].ac_per = PERIOD_11KHZ;
+    CUSTOM->aud[0].ac_vol = 50;
     CUSTOM->dmacon = DMAF_SETCLR | DMAF_AUD0;
 
-    sfx_timer[0] = 3;
+    /* Play through once: frames = sample_bytes / (11025/50) */
+    sfx_timer[0] = (WORD)(flap_len / 220) + 1;
 }
 
 void sound_kill(void)
 {
-    if (!noise_wave) return;
+    if (!smash_sample) return;
 
-    /* Channel 1: noise burst */
-    CUSTOM->aud[1].ac_ptr = (UWORD *)noise_wave;
-    CUSTOM->aud[1].ac_len = NOISE_LEN / 2;
-    CUSTOM->aud[1].ac_per = 200;
-    CUSTOM->aud[1].ac_vol = 50;
+    /* Channel 1: sampled crunch/splat at 11025 Hz */
+    CUSTOM->aud[1].ac_ptr = (UWORD *)smash_sample;
+    CUSTOM->aud[1].ac_len = smash_len / 2;
+    CUSTOM->aud[1].ac_per = PERIOD_11KHZ;
+    CUSTOM->aud[1].ac_vol = 60;
     CUSTOM->dmacon = DMAF_SETCLR | DMAF_AUD1;
 
-    sfx_timer[1] = 6;
+    sfx_timer[1] = (WORD)(smash_len / 220) + 1;
 }
 
 void sound_egg(void)

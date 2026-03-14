@@ -149,22 +149,32 @@ static void draw_car(struct RastPort *rp, int x, int y, UBYTE color)
     RectFill(rp, x + 5, y + 2, x + 10, y + 3);
 }
 
-/* Draw a truck shape */
-static void draw_truck(struct RastPort *rp, int x, int y, UBYTE color)
+/* Draw a truck shape - cab faces the direction of travel */
+static void draw_truck(struct RastPort *rp, int x, int y, UBYTE color, int dir)
 {
-    /* Cargo */
-    SetAPen(rp, (long)color);
-    RectFill(rp, x + 1, y + 2, x + 22, y + 12);
-    /* Cab */
-    RectFill(rp, x + 23, y + 4, x + 30, y + 12);
-    /* Wheels */
-    SetAPen(rp, (long)COL_BG);
-    RectFill(rp, x + 3, y + 12, x + 6, y + 14);
-    RectFill(rp, x + 16, y + 12, x + 19, y + 14);
-    RectFill(rp, x + 25, y + 12, x + 28, y + 14);
-    /* Windshield */
-    SetAPen(rp, (long)COL_WATER);
-    RectFill(rp, x + 24, y + 5, x + 29, y + 7);
+    if (dir == DIR_RIGHT) {
+        /* Cab on right (front), cargo on left (back) */
+        SetAPen(rp, (long)color);
+        RectFill(rp, x + 1, y + 2, x + 22, y + 12);   /* Cargo */
+        RectFill(rp, x + 23, y + 4, x + 30, y + 12);   /* Cab */
+        SetAPen(rp, (long)COL_BG);
+        RectFill(rp, x + 3, y + 12, x + 6, y + 14);    /* Rear wheel */
+        RectFill(rp, x + 16, y + 12, x + 19, y + 14);  /* Mid wheel */
+        RectFill(rp, x + 25, y + 12, x + 28, y + 14);  /* Front wheel */
+        SetAPen(rp, (long)COL_WATER);
+        RectFill(rp, x + 24, y + 5, x + 29, y + 7);    /* Windshield */
+    } else {
+        /* Cab on left (front), cargo on right (back) */
+        SetAPen(rp, (long)color);
+        RectFill(rp, x + 1, y + 4, x + 8, y + 12);     /* Cab */
+        RectFill(rp, x + 9, y + 2, x + 30, y + 12);    /* Cargo */
+        SetAPen(rp, (long)COL_BG);
+        RectFill(rp, x + 3, y + 12, x + 6, y + 14);    /* Front wheel */
+        RectFill(rp, x + 12, y + 12, x + 15, y + 14);  /* Mid wheel */
+        RectFill(rp, x + 25, y + 12, x + 28, y + 14);  /* Rear wheel */
+        SetAPen(rp, (long)COL_WATER);
+        RectFill(rp, x + 2, y + 5, x + 7, y + 7);      /* Windshield */
+    }
 }
 
 /* Draw a log */
@@ -239,7 +249,7 @@ void lanes_draw(struct RastPort *rp)
                 }
             } else {
                 if (w >= 32) {
-                    draw_truck(rp, x, y, l->color);
+                    draw_truck(rp, x, y, l->color, l->dir);
                 } else {
                     draw_car(rp, x, y, l->color);
                 }

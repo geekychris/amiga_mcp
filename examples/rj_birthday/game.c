@@ -879,41 +879,9 @@ static void update_silicon(GameState *gs, InputState *inp)
     static const WORD station_x[] = { 155, 215, 275 };
     static const char *station_names[] = { "AMIGA", "LYNX", "3DO" };
 
-    /* Check if player is near a station and presses fire */
-    if (inp->fire_edge) {
-        WORD s;
-        for (s = 0; s < 3; s++) {
-            WORD sx = room_x + station_x[s];
-            WORD dx = p->x - sx;
-            if (dx > -20 && dx < 20 && p->y > FLOOR_Y - 50 && p->y < FLOOR_Y) {
-                /* Check if a guest is nearby wanting a demo */
-                for (i = 0; i < MAX_GUESTS; i++) {
-                    Guest *g = &gs->guests[i];
-                    WORD gdx;
-                    if (!g->active || g->room != ROOM_SILICON || g->state != GUEST_WANT)
-                        continue;
-                    gdx = g->x - sx;
-                    if (gdx > -30 && gdx < 30) {
-                        g->state = GUEST_HAPPY;
-                        g->timer = 80;
-                        gs->score += 250;
-                        sfx_cheer();
-                        game_set_message(gs, station_names[s], 30);
-
-                        /* Easter egg: Intuition reference at Amiga station */
-                        if (s == 0 && gs->egg_timer <= 0) {
-                            WORD j;
-                            for (j = 0; EGG_INTUITION[j] && j < 39; j++)
-                                gs->egg_text[j] = EGG_INTUITION[j];
-                            gs->egg_text[j] = 0;
-                            gs->egg_timer = 100;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    /* Demo station interactions handled in priority block */
+    (void)station_x;
+    (void)station_names;
 
     /* Spawn tech enthusiast guests */
     if ((gs->party_clock % (130 - gs->wave * 8)) == 0) {
@@ -1510,83 +1478,75 @@ void game_update(GameState *gs, InputState *inp)
     /* Camera */
     update_camera(gs);
 
-    /* Room-specific logic */
-    switch (gs->current_room) {
-        case ROOM_FOYER:     update_foyer(gs, inp); break;
-        case ROOM_AMSTERDAM: update_amsterdam(gs, inp); break;
-        case ROOM_TOKYO:     update_tokyo(gs, inp); break;
-        case ROOM_SILICON:   update_silicon(gs, inp); break;
-        case ROOM_BAYAREA:   update_bayarea(gs, inp); break;
-        case ROOM_LIVING:    update_living(gs, inp); break;
-    }
+    /* --- Priority interactions: greeting + arcade FIRST --- */
+    /* These should get first crack at fire_edge before room mechanics */
+    {
+        WORD fire_used = 0;
 
-    /* --- Universal greeting mechanic --- */
-    /* Press fire near an idle/entering guest to greet them */
-    if (inp->fire_edge) {
-        WORD gi;
-        Player *p = &gs->player;
-        for (gi = 0; gi < MAX_GUESTS; gi++) {
-            Guest *g = &gs->guests[gi];
-            WORD dx, dy;
-            if (!g->active) continue;
-            if (g->greeted) continue;
-            if (g->state != GUEST_IDLE && g->state != GUEST_ENTERING
-                && g->state != GUEST_WANT) continue;
-            dx = p->x - g->x;
-            dy = p->y - g->y;
-            if (dx > -25 && dx < 25 && dy > -25 && dy < 25) {
-                /* Greet this guest! */
-                g->greeted = 1;
-                g->bubble_timer = 80;
-                {
-                    static const char *greetings[] = {
-                        "Happy Bday RJ!",
-                        "HBD RJ!",
-                        "Party time!",
-                        "70 looks great!",
-                        "Legend!",
-                        "Cheers RJ!"
-                    };
-                    const char *gt = greetings[rng() % 6];
-                    WORD j;
-                    for (j = 0; gt[j] && j < BUBBLE_LEN - 1; j++)
-                        g->bubble_text[j] = gt[j];
-                    g->bubble_text[j] = 0;
+        /* Greeting: press fire near an idle guest to greet them */
+        if (inp->fire_edge && !fire_used) {
+            WORD gi;
+            Player *p = &gs->player;
+            for (gi = 0; gi < MAX_GUESTS; gi++) {
+                Guest *g = &gs->guests[gi];
+                WORD dx, dy;
+                if (!g->active) continue;
+                if (g->greeted) continue;
+                if (g->state != GUEST_IDLE && g->state != GUEST_ENTERING
+                    && g->state != GUEST_WANT) continue;
+                dx = p->x - g->x;
+                dy = p->y - g->y;
+                if (dx > -25 && dx < 25 && dy > -25 && dy < 25) {
+                    g->greeted = 1;
+                    g->bubble_timer = 80;
+                    {
+                        static const char *greetings[] = {
+                            "Happy Bday RJ!",
+                            "HBD RJ!",
+                            "Party time!",
+                            "70 looks great!",
+                            "Legend!",
+                            "Cheers RJ!"
+                        };
+                        const char *gt = greetings[rng() % 6];
+                        WORD j;
+                        for (j = 0; gt[j] && j < BUBBLE_LEN - 1; j++)
+                            g->bubble_text[j] = gt[j];
+                        g->bubble_text[j] = 0;
+                    }
+                    gs->rj_bubble_timer = 60;
+                    {
+                        static const char *responses[] = {
+                            "Thanks friend!",
+                            "So glad you came!",
+                            "You're the best!",
+                            "Party on!",
+                            "Love ya!"
+                        };
+                        const char *rt = responses[rng() % 5];
+                        WORD j;
+                        for (j = 0; rt[j] && j < BUBBLE_LEN - 1; j++)
+                            gs->rj_bubble[j] = rt[j];
+                        gs->rj_bubble[j] = 0;
+                    }
+                    gs->score += 150;
+                    gs->happiness += 3;
+                    sfx_ding();
+                    fire_used = 1;
+                    break;
                 }
-                /* RJ responds */
-                gs->rj_bubble_timer = 60;
-                {
-                    static const char *responses[] = {
-                        "Thanks friend!",
-                        "So glad you came!",
-                        "You're the best!",
-                        "Party on!",
-                        "Love ya!"
-                    };
-                    const char *rt = responses[rng() % 5];
-                    WORD j;
-                    for (j = 0; rt[j] && j < BUBBLE_LEN - 1; j++)
-                        gs->rj_bubble[j] = rt[j];
-                    gs->rj_bubble[j] = 0;
-                }
-                gs->score += 150;
-                gs->happiness += 3;
-                sfx_ding();
-                break;  /* only greet one per press */
             }
         }
-    }
 
-    /* --- Arcade cabinet interaction (Silicon Valley) --- */
-    if (inp->fire_edge && gs->current_room == ROOM_SILICON &&
-        gs->arcade_timer <= 0 && !sinistar_is_playing()) {
-        Player *p = &gs->player;
-        WORD room_x = ROOM_SILICON * ROOM_W;
-        /* Sinistar cabinet at room x+35, Red Baron at x+80 */
-        WORD dx_sin = p->x - (room_x + 35);
-        WORD dx_rb  = p->x - (room_x + 80);
-        WORD near_y = (p->y > FLOOR_Y - 65 && p->y < FLOOR_Y + 5);
-        if (dx_sin > -20 && dx_sin < 20 && near_y) {
+        /* Arcade cabinets */
+        if (inp->fire_edge && !fire_used && gs->current_room == ROOM_SILICON &&
+            gs->arcade_timer <= 0 && !sinistar_is_playing()) {
+            Player *p = &gs->player;
+            WORD room_x = ROOM_SILICON * ROOM_W;
+            WORD dx_sin = p->x - (room_x + 35);
+            WORD dx_rb  = p->x - (room_x + 80);
+            WORD near_y = (p->y > FLOOR_Y - 65 && p->y < FLOOR_Y + 5);
+            if (dx_sin > -20 && dx_sin < 20 && near_y) {
             gs->arcade_timer = 100;
             gs->arcade_which = 0;
             gs->score += 200;
@@ -1605,6 +1565,7 @@ void game_update(GameState *gs, InputState *inp)
                     gs->rj_bubble[j] = s[j];
                 gs->rj_bubble[j] = 0;
             }
+            fire_used = 1;
         }
         else if (dx_rb > -20 && dx_rb < 20 && near_y) {
             gs->arcade_timer = 80;
@@ -1619,7 +1580,71 @@ void game_update(GameState *gs, InputState *inp)
                     gs->rj_bubble[j] = s[j];
                 gs->rj_bubble[j] = 0;
             }
+            fire_used = 1;
         }
+        } /* end arcade if */
+
+        /* Demo stations (Amiga/Lynx/3DO) */
+        if (inp->fire_edge && !fire_used && gs->current_room == ROOM_SILICON) {
+            Player *p = &gs->player;
+            WORD room_x = ROOM_SILICON * ROOM_W;
+            static const WORD stn_x[] = { 155, 215, 275 };
+            static const char *stn_names[] = { "AMIGA!", "LYNX!", "3DO!" };
+            static const char *stn_quotes[] = {
+                "I made Intuition!",
+                "Handheld gaming!",
+                "Multimedia!"
+            };
+            WORD s;
+            for (s = 0; s < 3; s++) {
+                WORD dx = p->x - (room_x + stn_x[s]);
+                if (dx > -20 && dx < 20 && p->y > FLOOR_Y - 55 && p->y < FLOOR_Y + 5) {
+                    gs->score += 150;
+                    sfx_ding();
+                    game_set_message(gs, stn_names[s], 30);
+                    gs->rj_bubble_timer = 60;
+                    {
+                        const char *q = stn_quotes[s];
+                        WORD j;
+                        for (j = 0; q[j] && j < BUBBLE_LEN - 1; j++)
+                            gs->rj_bubble[j] = q[j];
+                        gs->rj_bubble[j] = 0;
+                    }
+                    /* Also satisfy any nearby guest wanting a demo */
+                    {
+                        WORD gi;
+                        for (gi = 0; gi < MAX_GUESTS; gi++) {
+                            Guest *g = &gs->guests[gi];
+                            if (!g->active || g->room != ROOM_SILICON) continue;
+                            if (g->state != GUEST_WANT) continue;
+                            if (g->x > room_x + stn_x[s] - 30 &&
+                                g->x < room_x + stn_x[s] + 30) {
+                                g->state = GUEST_HAPPY;
+                                g->timer = 80;
+                                gs->score += 100;
+                            }
+                        }
+                    }
+                    fire_used = 1;
+                    break;
+                }
+            }
+        }
+
+        /* If fire was used for greeting/arcade/demo, suppress for room mechanics */
+        if (fire_used) {
+            inp->fire_edge = 0;
+        }
+    }
+
+    /* Room-specific logic */
+    switch (gs->current_room) {
+        case ROOM_FOYER:     update_foyer(gs, inp); break;
+        case ROOM_AMSTERDAM: update_amsterdam(gs, inp); break;
+        case ROOM_TOKYO:     update_tokyo(gs, inp); break;
+        case ROOM_SILICON:   update_silicon(gs, inp); break;
+        case ROOM_BAYAREA:   update_bayarea(gs, inp); break;
+        case ROOM_LIVING:    update_living(gs, inp); break;
     }
 
     /* Update guest bubble timers */
