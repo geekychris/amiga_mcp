@@ -95,6 +95,10 @@
 #define COP_H           18
 #define COP_SPEED       2
 
+/* Boing balls */
+#define MAX_BOINGS      5
+#define BOING_SIZE      8   /* radius in pixels */
+
 /* Smoke puff */
 #define MAX_PUFFS       6
 #define PUFF_LIFE       20
@@ -138,6 +142,15 @@
 #define SUSHI_LANES     3
 #define SUSHI_LANE_Y0   165
 #define SUSHI_LANE_H    24
+
+/* Boing ball */
+typedef struct {
+    WORD active;
+    WORD x, y;          /* world coords */
+    WORD vx, vy;
+    WORD rot;           /* rotation angle for stripe pattern */
+    WORD bounces;       /* bounces remaining before despawn */
+} BoingBall;
 
 /* Smoke puff particle */
 typedef struct {
@@ -240,6 +253,7 @@ typedef struct {
     WORD arcade_which;  /* 0=sinistar, 1=red baron */
 
     SmokePuff puffs[MAX_PUFFS];  /* smoke puff particles */
+    BoingBall boings[MAX_BOINGS]; /* living room boing balls */
     PotCop cops[MAX_COPS];       /* pot police officers */
     WORD cop_spawn_timer;        /* time until next cop spawns */
     WORD cop_hit_cooldown;       /* player invulnerability after cop hit */
@@ -314,6 +328,7 @@ void draw_enter_name(struct RastPort *rp, GameState *gs);
 void draw_message(struct RastPort *rp, GameState *gs);
 void draw_puffs(struct RastPort *rp, GameState *gs);
 void draw_cops(struct RastPort *rp, GameState *gs);
+void draw_boings(struct RastPort *rp, GameState *gs);
 void draw_help(struct RastPort *rp, GameState *gs);
 void draw_guest_edit(struct RastPort *rp, GameState *gs);
 void draw_jail(struct RastPort *rp, GameState *gs);

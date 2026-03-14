@@ -96,6 +96,7 @@ void game_init(GameState *gs)
         WORD pi;
         for (pi = 0; pi < MAX_PUFFS; pi++) gs->puffs[pi].life = 0;
         for (pi = 0; pi < MAX_COPS; pi++) gs->cops[pi].active = 0;
+        for (pi = 0; pi < MAX_BOINGS; pi++) gs->boings[pi].active = 0;
     }
     gs->cop_spawn_timer = 300;
     gs->cop_hit_cooldown = 0;
@@ -1116,6 +1117,60 @@ static void update_living(GameState *gs, InputState *inp)
         if (g) {
             g->state = GUEST_HAPPY;
             g->timer = 300;
+        }
+    }
+
+    /* Boing balls falling from ceiling */
+    /* Spawn a new one periodically */
+    if ((gs->party_clock % 80) == 0) {
+        WORD bi;
+        for (bi = 0; bi < MAX_BOINGS; bi++) {
+            if (!gs->boings[bi].active) {
+                BoingBall *b = &gs->boings[bi];
+                b->active = 1;
+                b->x = room_x + rng_range(30, 290);
+                b->y = HUD_H + 5;
+                b->vx = rng_range(-2, 2);
+                b->vy = 1;
+                b->rot = rng_range(0, 255);
+                b->bounces = 3 + rng_range(0, 3);
+                break;
+            }
+        }
+    }
+
+    /* Update boing balls: gravity + bounce */
+    {
+        WORD bi;
+        for (bi = 0; bi < MAX_BOINGS; bi++) {
+            BoingBall *b = &gs->boings[bi];
+            if (!b->active) continue;
+
+            b->x += b->vx;
+            b->y += b->vy;
+            b->vy += 1;  /* gravity */
+            b->rot += 4;  /* spin */
+
+            /* Bounce off floor */
+            if (b->y >= FLOOR_Y - BOING_SIZE) {
+                b->y = FLOOR_Y - BOING_SIZE;
+                b->vy = -(b->vy * 3 / 4);  /* damped bounce */
+                b->bounces--;
+                if (b->bounces <= 0) {
+                    b->active = 0;
+                    continue;
+                }
+            }
+
+            /* Bounce off walls (within room) */
+            if (b->x < room_x + BOING_SIZE) {
+                b->x = room_x + BOING_SIZE;
+                b->vx = -b->vx;
+            }
+            if (b->x > room_x + ROOM_W - BOING_SIZE) {
+                b->x = room_x + ROOM_W - BOING_SIZE;
+                b->vx = -b->vx;
+            }
         }
     }
 

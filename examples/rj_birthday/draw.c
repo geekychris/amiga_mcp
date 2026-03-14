@@ -5,12 +5,57 @@
 #include <graphics/rastport.h>
 #include <string.h>
 #include "game.h"
+#include "rj_sprite.h"
 
 /* Convert world X to screen X */
 #define W2S(gs, wx) ((wx) - (gs)->camera_x)
 
 /* Check if world X is on screen */
 #define ON_SCREEN(gs, wx, w) (W2S(gs, wx) + (w) > 0 && W2S(gs, wx) < SCREEN_W)
+
+/* Draw RJ head bitmap from planar data using color-keyed rectangles.
+ * Groups same-color horizontal runs to minimize draw calls. */
+static void draw_rj_head(struct RastPort *rp, WORD dx, WORD dy)
+{
+    WORD x, y;
+    for (y = 0; y < RJ_HEAD_H; y++) {
+        const UBYTE *row = &rj_head_data[y * RJ_HEAD_BPR * 4];
+        WORD sy = dy + y;
+        WORD run_color = -1;
+        WORD run_start = 0;
+
+        if (sy < 0 || sy >= SCREEN_H) continue;
+
+        for (x = 0; x <= RJ_HEAD_W; x++) {
+            WORD color = COL_BG;
+            if (x < RJ_HEAD_W) {
+                WORD byte_idx = x >> 3;
+                WORD bit = 7 - (x & 7);
+                color = 0;
+                if (row[0 * RJ_HEAD_BPR + byte_idx] & (1 << bit)) color |= 1;
+                if (row[1 * RJ_HEAD_BPR + byte_idx] & (1 << bit)) color |= 2;
+                if (row[2 * RJ_HEAD_BPR + byte_idx] & (1 << bit)) color |= 4;
+                if (row[3 * RJ_HEAD_BPR + byte_idx] & (1 << bit)) color |= 8;
+            }
+
+            if (color != run_color) {
+                /* Flush previous run */
+                if (run_color != COL_BG && run_color >= 0) {
+                    WORD rx1 = dx + run_start;
+                    WORD rx2 = dx + x - 1;
+                    if (rx1 < 0) rx1 = 0;
+                    if (rx2 >= SCREEN_W) rx2 = SCREEN_W - 1;
+                    if (rx1 <= rx2) {
+                        SetAPen(rp, run_color);
+                        RectFill(rp, rx1, sy, rx2, sy);
+                    }
+                }
+                run_color = color;
+                run_start = x;
+            }
+        }
+    }
+}
 
 void draw_clear(struct RastPort *rp)
 {
@@ -374,6 +419,91 @@ void draw_puffs(struct RastPort *rp, GameState *gs)
     }
 }
 
+/* Boing balls */
+void draw_boings(struct RastPort *rp, GameState *gs)
+{
+    WORD i;
+    for (i = 0; i < MAX_BOINGS; i++) {
+        BoingBall *b = &gs->boings[i];
+        WORD sx, sy, r, dy;
+        if (!b->active) continue;
+
+        sx = b->x - gs->camera_x;
+        sy = b->y;
+        r = BOING_SIZE;
+        if (sx < -r || sx >= SCREEN_W + r) continue;
+        if (sy < HUD_H || sy >= SCREEN_H) continue;
+
+        /* Draw the boing ball: red and white stripes with rotation */
+        for (dy = -r; dy <= r; dy++) {
+            /* Calculate horizontal extent at this row (circle) */
+            WORD row_y = sy + dy;
+            WORD half_w;
+            WORD dx_sq;
+
+            if (row_y < HUD_H || row_y >= SCREEN_H) continue;
+
+            /* Circle: x^2 + y^2 = r^2, so half_width = sqrt(r^2 - dy^2) */
+            dx_sq = r * r - dy * dy;
+            /* Integer sqrt approximation */
+            half_w = 0;
+            while ((half_w + 1) * (half_w + 1) <= dx_sq) half_w++;
+
+            if (half_w <= 0) continue;
+
+            /* Draw this row as stripes */
+            {
+                WORD x1 = sx - half_w;
+                WORD x2 = sx + half_w;
+                WORD stripe_x;
+                WORD stripe_phase = (b->rot + dy * 2) & 0xFF;
+                WORD run_start = x1;
+                WORD run_color;
+
+                if (x1 < 0) x1 = 0;
+                if (x2 >= SCREEN_W) x2 = SCREEN_W - 1;
+                if (x1 > x2) continue;
+
+                /* Determine stripe color at start */
+                run_color = ((x1 - sx + stripe_phase) & 7) < 4 ? COL_RED : COL_WHITE;
+                run_start = x1;
+
+                for (stripe_x = x1; stripe_x <= x2 + 1; stripe_x++) {
+                    WORD c;
+                    if (stripe_x <= x2)
+                        c = (((stripe_x - sx) + stripe_phase) & 7) < 4 ? COL_RED : COL_WHITE;
+                    else
+                        c = -1;  /* flush last run */
+
+                    if (c != run_color) {
+                        if (run_start <= x2 && run_color >= 0) {
+                            WORD end = stripe_x - 1;
+                            if (end > x2) end = x2;
+                            SetAPen(rp, run_color);
+                            RectFill(rp, run_start, row_y, end, row_y);
+                        }
+                        run_start = stripe_x;
+                        run_color = c;
+                    }
+                }
+            }
+        }
+
+        /* Shadow beneath ball */
+        {
+            WORD shx1 = sx - r / 2;
+            WORD shx2 = sx + r / 2;
+            WORD shy = FLOOR_Y + 1;
+            if (shx1 < 0) shx1 = 0;
+            if (shx2 >= SCREEN_W) shx2 = SCREEN_W - 1;
+            if (shy < SCREEN_H && shx1 <= shx2) {
+                SetAPen(rp, COL_DKRED);
+                RectFill(rp, shx1, shy, shx2, shy + 1);
+            }
+        }
+    }
+}
+
 /* Pot Police */
 void draw_cops(struct RastPort *rp, GameState *gs)
 {
@@ -530,25 +660,33 @@ void draw_title(struct RastPort *rp, GameState *gs)
     SetAPen(rp, COL_BTYELLOW);
     draw_text(rp, 116, 80, "BASH!");
 
-    /* RJ figure (bigger version) */
-    /* Party hat */
+    /* RJ portrait - bitmap head on a drawn body */
+    /* Party hat on top of head */
     SetAPen(rp, COL_RED);
-    Move(rp, 160, 95);
-    Draw(rp, 148, 115);
-    Draw(rp, 172, 115);
-    Draw(rp, 160, 95);
-    /* Head */
+    Move(rp, 160, 82);
+    Draw(rp, 148, 92);
+    Draw(rp, 172, 92);
+    Draw(rp, 160, 82);
+    /* Pom-pom */
+    SetAPen(rp, COL_BTYELLOW);
+    RectFill(rp, 158, 79, 162, 82);
+    /* Bitmap head */
+    draw_rj_head(rp, 144, 90);
+    /* Body (purple shirt like the photo) */
+    SetAPen(rp, COL_PINK);
+    RectFill(rp, 148, 130, 172, 160);
+    /* Collar */
+    SetAPen(rp, COL_WHITE);
+    RectFill(rp, 155, 130, 158, 135);
+    RectFill(rp, 162, 130, 165, 135);
+    /* Arms */
+    SetAPen(rp, COL_PINK);
+    RectFill(rp, 140, 133, 148, 150);
+    RectFill(rp, 172, 133, 180, 150);
+    /* Hands */
     SetAPen(rp, COL_TAN);
-    RectFill(rp, 150, 115, 170, 130);
-    /* Glasses */
-    SetAPen(rp, COL_BLUE);
-    RectFill(rp, 150, 120, 157, 126);
-    RectFill(rp, 163, 120, 170, 126);
-    Move(rp, 157, 123);
-    Draw(rp, 163, 123);
-    /* Body */
-    SetAPen(rp, COL_LTBLUE);
-    RectFill(rp, 153, 131, 167, 155);
+    RectFill(rp, 140, 150, 148, 155);
+    RectFill(rp, 172, 150, 180, 155);
 
     /* Instructions */
     SetAPen(rp, COL_WHITE);

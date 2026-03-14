@@ -401,6 +401,7 @@ int main(void)
                     rooms_draw_details(rp, &gs);
                     draw_items(rp, &gs);
                     draw_guests(rp, &gs);
+                    draw_boings(rp, &gs);
                     draw_cops(rp, &gs);
                     draw_player(rp, &gs);
                     draw_puffs(rp, &gs);
