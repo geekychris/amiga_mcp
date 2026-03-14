@@ -100,6 +100,7 @@ void game_init(GameState *gs)
     gs->cop_spawn_timer = 300;
     gs->cop_hit_cooldown = 0;
     gs->plants_collected = 0;
+    gs->jail_timer = 0;
 
     gs->title_blink = 0;
     gs->credits_scroll = 0;
@@ -419,16 +420,9 @@ static void spawn_cop(GameState *gs)
         if (!gs->cops[i].active) {
             PotCop *c = &gs->cops[i];
             c->active = 1;
-            /* Spawn at edge of Amsterdam, occasionally wander further */
-            if (gs->wave >= 5 && (rng() & 3) == 0) {
-                /* Roaming cop - patrols Amsterdam + one neighbor */
-                WORD side = rng() & 1;
-                c->patrol_min = room_x - (side ? ROOM_W / 2 : 0);
-                c->patrol_max = room_x + ROOM_W + (side ? 0 : ROOM_W / 2);
-            } else {
-                c->patrol_min = room_x;
-                c->patrol_max = room_x + ROOM_W - 20;
-            }
+            /* Cops stay within Amsterdam only */
+            c->patrol_min = room_x + 10;
+            c->patrol_max = room_x + ROOM_W - 20;
             c->x = (rng() & 1) ? c->patrol_min + 10 : c->patrol_max - 10;
             c->y = FLOOR_Y;
             c->dir = DIR_RIGHT;
@@ -472,25 +466,31 @@ static void update_cops(GameState *gs)
         dx = p->x - c->x;
         dy = p->y - c->y;
 
-        /* Start chasing if player is nearby */
-        if (dx > -80 && dx < 80 && dy > -40 && dy < 40) {
-            c->chase = 1;
-        } else {
-            c->chase = 0;
+        /* Only chase if player is in Amsterdam */
+        {
+            WORD player_in_amsterdam = (p->x >= ROOM_AMSTERDAM * ROOM_W &&
+                                        p->x < (ROOM_AMSTERDAM + 1) * ROOM_W);
+            if (player_in_amsterdam && dx > -100 && dx < 100 && dy > -50 && dy < 50) {
+                c->chase = 1;
+            } else {
+                c->chase = 0;
+            }
         }
 
-        /* Movement */
+        /* Movement - cops are SLOWER than player so you can run away */
         if (c->chase) {
-            /* Chase player */
+            /* Chase player slowly */
             if (p->x < c->x) {
-                c->x -= c->speed + 1;
+                c->x -= 1;  /* slower than player speed (3) */
                 c->dir = DIR_LEFT;
             } else {
-                c->x += c->speed + 1;
+                c->x += 1;
                 c->dir = DIR_RIGHT;
             }
-            if (p->y < c->y) c->y -= 1;
-            else if (p->y > c->y) c->y += 1;
+            if ((gs->party_clock & 1) == 0) {  /* even slower vertical */
+                if (p->y < c->y) c->y -= 1;
+                else if (p->y > c->y) c->y += 1;
+            }
         } else {
             /* Patrol back and forth */
             if (c->dir == DIR_RIGHT) {
@@ -513,35 +513,26 @@ static void update_cops(GameState *gs)
             c->frame ^= 1;
         }
 
-        /* Collision with player */
+        /* Collision with player -> GO TO JAIL */
         if (gs->cop_hit_cooldown == 0 && c->cooldown == 0) {
             if (dx > -12 && dx < 12 && dy > -12 && dy < 12) {
                 gs->lives--;
-                gs->cop_hit_cooldown = 100; /* invulnerable for 2 seconds */
-                c->cooldown = 100;
+                gs->state = GS_JAIL;
+                gs->jail_timer = 150;  /* 3 seconds in jail */
+                gs->party_clock += 100; /* lose party time! */
+                gs->cop_hit_cooldown = 150;
+                c->active = 0;  /* arresting cop disappears */
                 sfx_buzzer();
                 sfx_crash();
-                /* Push player away */
-                p->x += (dx > 0) ? -30 : 30;
-                /* Funny messages */
-                {
-                    static const char *cop_msgs[] = {
-                        "BUSTED!",
-                        "HALT!",
-                        "NOT SO FAST!",
-                        "PARTY FOUL!",
-                        "HANDS UP!"
-                    };
-                    game_set_message(gs, cop_msgs[rng() % 5], 40);
-                }
-                gs->rj_bubble_timer = 50;
+                /* Pick a funny RJ line */
+                gs->rj_bubble_timer = 100;
                 {
                     static const char *rj_msgs[] = {
                         "It's medicinal!",
-                        "RUN!",
                         "I know my rights!",
-                        "Yikes!",
-                        "Not cool man!"
+                        "Call my lawyer!",
+                        "Not cool man!",
+                        "I want a phone call!"
                     };
                     const char *rm = rj_msgs[rng() % 5];
                     WORD j;
@@ -549,14 +540,15 @@ static void update_cops(GameState *gs)
                         gs->rj_bubble[j] = rm[j];
                     gs->rj_bubble[j] = 0;
                 }
+                break;  /* stop processing cops */
             }
         }
 
-        /* Despawn if far from Amsterdam and not chasing */
-        if (!c->chase && (c->x < ROOM_AMSTERDAM * ROOM_W - ROOM_W ||
-                          c->x > ROOM_AMSTERDAM * ROOM_W + ROOM_W * 2)) {
-            c->active = 0;
-        }
+        /* Clamp cops to Amsterdam room */
+        if (c->x < ROOM_AMSTERDAM * ROOM_W + 10)
+            c->x = ROOM_AMSTERDAM * ROOM_W + 10;
+        if (c->x > (ROOM_AMSTERDAM + 1) * ROOM_W - 10)
+            c->x = (ROOM_AMSTERDAM + 1) * ROOM_W - 10;
     }
 }
 
@@ -1408,6 +1400,25 @@ void game_update(GameState *gs, InputState *inp)
         if (gs->credits_scroll > 400 ||
             (gs->credits_scroll > 100 && inp->fire_edge)) {
             gs->state = GS_TITLE;
+        }
+        return;
+    }
+
+    /* Jail screen - countdown then release */
+    if (gs->state == GS_JAIL) {
+        gs->jail_timer--;
+        if (gs->rj_bubble_timer > 0) gs->rj_bubble_timer--;
+        if (gs->jail_timer <= 0) {
+            /* Released! Back to foyer */
+            gs->state = GS_PLAYING;
+            gs->player.x = 160;
+            gs->player.y = FLOOR_Y;
+            gs->current_room = ROOM_FOYER;
+            gs->camera_x = 0;
+            gs->camera_target = 0;
+            gs->cop_hit_cooldown = 100;
+            game_set_message(gs, "RELEASED! PARTY ON!", 60);
+            sfx_cheer();
         }
         return;
     }

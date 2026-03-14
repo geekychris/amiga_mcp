@@ -429,6 +429,9 @@ int main(void)
                 case GS_GUEST_EDIT:
                     draw_guest_edit(rp, &gs);
                     break;
+                case GS_JAIL:
+                    draw_jail(rp, &gs);
+                    break;
             }
         }
 

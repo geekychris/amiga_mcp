@@ -59,6 +59,7 @@
 #define GS_ADD_GUEST    7   /* adding name to guest list */
 #define GS_HELP         8   /* how to play */
 #define GS_GUEST_EDIT   9   /* guest list editor */
+#define GS_JAIL         10  /* busted by pot police! */
 
 /* High score table */
 #define MAX_HISCORES    5
@@ -243,6 +244,7 @@ typedef struct {
     WORD cop_spawn_timer;        /* time until next cop spawns */
     WORD cop_hit_cooldown;       /* player invulnerability after cop hit */
     WORD plants_collected;       /* total plants picked up (attracts cops) */
+    WORD jail_timer;             /* frames left in jail */
 
     WORD title_blink;   /* title screen blink timer */
     WORD credits_scroll;/* credits Y offset */
@@ -314,6 +316,7 @@ void draw_puffs(struct RastPort *rp, GameState *gs);
 void draw_cops(struct RastPort *rp, GameState *gs);
 void draw_help(struct RastPort *rp, GameState *gs);
 void draw_guest_edit(struct RastPort *rp, GameState *gs);
+void draw_jail(struct RastPort *rp, GameState *gs);
 void draw_number(struct RastPort *rp, WORD x, WORD y, LONG num);
 void draw_text(struct RastPort *rp, WORD x, WORD y, const char *str);
 

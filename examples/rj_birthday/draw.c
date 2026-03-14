@@ -887,6 +887,107 @@ void draw_guest_edit(struct RastPort *rp, GameState *gs)
     draw_text(rp, 28, y, "ESC = SAVE AND EXIT");
 }
 
+/* Jail screen */
+void draw_jail(struct RastPort *rp, GameState *gs)
+{
+    WORD bx, by, i;
+    WORD secs;
+    char countdown[4];
+
+    SetRast(rp, COL_BG);
+
+    /* BUSTED! header */
+    SetAPen(rp, COL_RED);
+    draw_text(rp, 108, 30, "BUSTED!");
+
+    /* Jail cell - brick walls */
+    SetAPen(rp, COL_GREY);
+    RectFill(rp, 60, 50, 260, 200);
+    SetAPen(rp, COL_DKBROWN);
+    RectFill(rp, 65, 55, 255, 195);
+
+    /* Bricks pattern */
+    SetAPen(rp, COL_GREY);
+    for (by = 55; by < 195; by += 14) {
+        WORD offset = ((by / 14) & 1) ? 20 : 0;
+        Move(rp, 65, by);
+        Draw(rp, 255, by);
+        for (bx = 65 + offset; bx < 255; bx += 40) {
+            Move(rp, bx, by);
+            Draw(rp, bx, by + 14);
+        }
+    }
+
+    /* Bars */
+    SetAPen(rp, COL_WHITE);
+    for (i = 0; i < 7; i++) {
+        WORD barx = 85 + i * 25;
+        RectFill(rp, barx, 55, barx + 2, 195);
+    }
+
+    /* RJ behind bars */
+    {
+        WORD rx = 150, ry = 150;
+        /* Party hat */
+        SetAPen(rp, COL_RED);
+        Move(rp, rx + 6, ry - 24);
+        Draw(rp, rx + 2, ry - 16);
+        Draw(rp, rx + 10, ry - 16);
+        Draw(rp, rx + 6, ry - 24);
+        /* Head */
+        SetAPen(rp, COL_TAN);
+        RectFill(rp, rx + 3, ry - 15, rx + 9, ry - 8);
+        /* Glasses */
+        SetAPen(rp, COL_BLUE);
+        RectFill(rp, rx + 3, ry - 13, rx + 5, ry - 11);
+        RectFill(rp, rx + 7, ry - 13, rx + 9, ry - 11);
+        /* Sad mouth */
+        SetAPen(rp, COL_RED);
+        Move(rp, rx + 4, ry - 9);
+        Draw(rp, rx + 5, ry - 10);
+        Draw(rp, rx + 7, ry - 10);
+        Draw(rp, rx + 8, ry - 9);
+        /* Body */
+        SetAPen(rp, COL_ORANGE);  /* jail jumpsuit! */
+        RectFill(rp, rx + 4, ry - 7, rx + 8, ry + 3);
+    }
+
+    /* RJ's speech bubble */
+    if (gs->rj_bubble_timer > 0 && gs->rj_bubble[0]) {
+        WORD tlen = (WORD)strlen(gs->rj_bubble);
+        WORD bw = tlen * 8 + 4;
+        WORD bxx = 160 - bw / 2;
+        SetAPen(rp, COL_BTYELLOW);
+        RectFill(rp, bxx, 95, bxx + bw, 107);
+        SetAPen(rp, COL_RED);
+        draw_text(rp, bxx + 2, 105, gs->rj_bubble);
+    }
+
+    /* Countdown */
+    secs = (gs->jail_timer / 50) + 1;
+    if (secs > 9) secs = 9;
+    countdown[0] = '0' + (char)secs;
+    countdown[1] = 0;
+
+    SetAPen(rp, COL_BTYELLOW);
+    draw_text(rp, 100, 220, "RELEASED IN ");
+    draw_text(rp, 196, 220, countdown);
+
+    /* Flashing siren effect */
+    if (gs->jail_timer & 8) {
+        SetAPen(rp, COL_RED);
+        RectFill(rp, 40, 45, 55, 55);
+        RectFill(rp, 265, 45, 280, 55);
+    } else {
+        SetAPen(rp, COL_BLUE);
+        RectFill(rp, 40, 45, 55, 55);
+        RectFill(rp, 265, 45, 280, 55);
+    }
+
+    SetAPen(rp, COL_GREY);
+    draw_text(rp, 64, 245, "PARTY TIME IS TICKING!");
+}
+
 /* On-screen message overlay */
 void draw_message(struct RastPort *rp, GameState *gs)
 {
