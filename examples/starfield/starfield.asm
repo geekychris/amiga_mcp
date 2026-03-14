@@ -57,7 +57,7 @@ BPLROW		equ	SCR_W/8			; 40 bytes per row
 
 ;--- Star constants ---
 MAX_STARS	equ	200
-STAR_STRUCT_SIZE equ	16		; dx.w, dy.w, x.l (16.16), y.l (16.16), speed.w, color.w
+STAR_STRUCT_SIZE equ	12		; x.l (16.16), y.l (16.16), speed.w, color.w
 
 ;--- Enterprise constants ---
 ENT_W		equ	96			; width in pixels
@@ -67,7 +67,7 @@ ENT_INTERVAL	equ	500			; frames between appearances
 ENT_SPEED	equ	2			; pixels per frame
 
 ;--- Steering ---
-STEER_ACCEL	equ	$10000			; 1.0 pixel per frame in 16.16
+STEER_SPEED	equ	$10000			; 1.0 pixel per frame VP movement (16.16)
 
 ;*********************************************************
 ;*  Exported symbols for C startup                       *
@@ -108,9 +108,9 @@ _sf_main:
 	addi.l	#SCR_BPL_SIZE,d0
 	move.l	d0,bpl2_ptr
 
-	; Clear steering velocity
-	clr.l	steer_vx
-	clr.l	steer_vy
+	; Initialize vanishing point at screen center
+	move.l	#(SCR_W/2)<<16,vp_x
+	move.l	#(SCR_H/2)<<16,vp_y
 
 	; Initialize the copper list
 	bsr	init_copper
@@ -201,33 +201,53 @@ _sf_main:
 	rts
 
 ;*********************************************************
-;*  handle_steering - Set steer velocity from key state  *
-;*  Stars shift in the pressed direction (sphere effect) *
+;*  handle_steering - Move vanishing point with keys     *
+;*  All stars radiate from VP; moving it reorients them  *
 ;*********************************************************
 handle_steering:
-	; Reset velocity each frame
-	clr.l	steer_vx
-	clr.l	steer_vy
-
 	; Left
 	tst.b	_sf_key_left
 	beq.s	.no_left
-	move.l	#-STEER_ACCEL,steer_vx
+	move.l	vp_x,d0
+	subi.l	#STEER_SPEED,d0
+	cmpi.l	#16<<16,d0
+	bge.s	.left_ok
+	move.l	#16<<16,d0
+.left_ok:
+	move.l	d0,vp_x
 .no_left:
 	; Right
 	tst.b	_sf_key_right
 	beq.s	.no_right
-	move.l	#STEER_ACCEL,steer_vx
+	move.l	vp_x,d0
+	addi.l	#STEER_SPEED,d0
+	cmpi.l	#(SCR_W-16)<<16,d0
+	ble.s	.right_ok
+	move.l	#(SCR_W-16)<<16,d0
+.right_ok:
+	move.l	d0,vp_x
 .no_right:
 	; Up
 	tst.b	_sf_key_up
 	beq.s	.no_up
-	move.l	#-STEER_ACCEL,steer_vy
+	move.l	vp_y,d0
+	subi.l	#STEER_SPEED,d0
+	cmpi.l	#16<<16,d0
+	bge.s	.up_ok
+	move.l	#16<<16,d0
+.up_ok:
+	move.l	d0,vp_y
 .no_up:
 	; Down
 	tst.b	_sf_key_down
 	beq.s	.no_down
-	move.l	#STEER_ACCEL,steer_vy
+	move.l	vp_y,d0
+	addi.l	#STEER_SPEED,d0
+	cmpi.l	#(SCR_H-16)<<16,d0
+	ble.s	.down_ok
+	move.l	#(SCR_H-16)<<16,d0
+.down_ok:
+	move.l	d0,vp_y
 .no_down:
 	rts
 
@@ -285,6 +305,8 @@ blit_clear_screen:
 
 ;*********************************************************
 ;*  init_stars - Initialize star array                   *
+;*  Stars scattered across screen, will auto-radiate     *
+;*  from VP due to position-based direction computation  *
 ;*********************************************************
 init_stars:
 	lea	star_data,a0
@@ -295,37 +317,33 @@ init_stars:
 	ori.l	#$A3B5C7D9,d0		; ensure non-zero
 	move.l	d0,random_seed
 .init_loop:
+	; Random X position: scatter across screen
 	bsr	random
-	andi.w	#$00FF,d0
-	subi.w	#128,d0
-	move.w	d0,(a0)+		; dx
-
-	bsr	random
-	andi.w	#$00FF,d0
-	subi.w	#128,d0
-	move.w	d0,(a0)+		; dy
-
-	; Start at screen center (16.16 fixed)
-	move.l	#160<<16,(a0)+		; x
-	move.l	#128<<16,(a0)+		; y
-
-	; Randomize initial position by scattering
-	bsr	random
-	andi.w	#$FF,d0
+	andi.w	#$01FF,d0		; 0-511
+	cmpi.w	#SCR_W,d0
+	blt.s	.x_ok
+	subi.w	#192,d0
+.x_ok:
 	ext.l	d0
-	asl.l	#8,d0			; random sub-pixel offset x
-	add.l	d0,-8(a0)
-	bsr	random
-	andi.w	#$FF,d0
-	ext.l	d0
-	asl.l	#8,d0
-	add.l	d0,-4(a0)
+	swap	d0
+	clr.w	d0
+	move.l	d0,(a0)+		; x (16.16)
 
+	; Random Y position
+	bsr	random
+	andi.w	#$FF,d0			; 0-255
+	ext.l	d0
+	swap	d0
+	clr.w	d0
+	move.l	d0,(a0)+		; y (16.16)
+
+	; Random speed
 	bsr	random
 	andi.w	#3,d0
 	addq.w	#1,d0
 	move.w	d0,(a0)+		; speed 1-4
 
+	; Color from speed
 	move.w	d0,d1
 	addq.w	#2,d1
 	cmpi.w	#7,d1
@@ -339,38 +357,42 @@ init_stars:
 	rts
 
 ;*********************************************************
-;*  update_stars - Move stars outward + apply steering   *
-;*  d5 = steer_vx, d6 = steer_vy (loaded before loop)   *
+;*  update_stars - Move stars radially from vanishing pt *
+;*  Direction is computed each frame from (pos - VP),    *
+;*  so stars always radiate from VP. Moving VP with keys *
+;*  naturally reorients all stars (sphere projection).   *
+;*  d5 = vp_x, d6 = vp_y (preloaded)                    *
 ;*********************************************************
 update_stars:
 	lea	star_data,a0
 	move.w	#MAX_STARS-1,d7
-	move.l	steer_vx,d5
-	move.l	steer_vy,d6
+	move.l	vp_x,d5
+	move.l	vp_y,d6
 
 .upd_loop:
-	move.w	(a0),d0			; dx
-	move.w	2(a0),d1		; dy
-	move.l	4(a0),d2		; x (16.16)
-	move.l	8(a0),d3		; y (16.16)
-	move.w	12(a0),d4		; speed
+	move.l	(a0),d2			; x (16.16)
+	move.l	4(a0),d3		; y (16.16)
+	move.w	8(a0),d4		; speed (1-4)
 
-	muls.w	d4,d0
-	ext.l	d0
-	asl.l	#6,d0
-	add.l	d0,d2
+	; Compute radial direction: dx = x - vp_x
+	move.l	d2,d0
+	sub.l	d5,d0			; dx from VP (16.16)
+	; Scale: shift = 9 - speed (speed 1->8, 2->7, 3->6, 4->5)
+	move.w	#9,d1
+	sub.w	d4,d1
+	asr.l	d1,d0			; movement amount
+	add.l	d0,d2			; x += movement
 
-	muls.w	d4,d1
-	ext.l	d1
-	asl.l	#6,d1
-	add.l	d1,d3
+	; Same for Y
+	move.l	d3,d0
+	sub.l	d6,d0			; dy from VP
+	move.w	#9,d1
+	sub.w	d4,d1
+	asr.l	d1,d0
+	add.l	d0,d3			; y += movement
 
-	; Apply steering velocity (shifts all stars)
-	add.l	d5,d2
-	add.l	d6,d3
-
-	move.l	d2,4(a0)
-	move.l	d3,8(a0)
+	move.l	d2,(a0)
+	move.l	d3,4(a0)
 
 	; Check bounds
 	swap	d2
@@ -389,40 +411,42 @@ update_stars:
 	rts
 
 .reset:
-	; Reset to screen center with new random direction
+	; Spawn at VP with small random scatter (±8 pixels)
+	move.l	d5,(a0)			; x = vp_x
+	move.l	d6,4(a0)		; y = vp_y
+
+	; Scatter X
 	bsr	random
-	andi.w	#$00FF,d0
-	subi.w	#128,d0
-	move.w	d0,(a0)			; new dx
+	andi.w	#$0F,d0			; 0-15
+	subi.w	#8,d0			; -8 to +7
+	ext.l	d0
+	swap	d0
+	clr.w	d0			; convert to 16.16
+	add.l	d0,(a0)
+
+	; Scatter Y
 	bsr	random
-	andi.w	#$00FF,d0
-	subi.w	#128,d0
-	move.w	d0,2(a0)		; new dy
+	andi.w	#$0F,d0
+	subi.w	#8,d0
+	ext.l	d0
+	swap	d0
+	clr.w	d0
+	add.l	d0,4(a0)
 
-	; Ensure at least one component is non-zero
-	tst.w	(a0)
-	bne.s	.dir_ok
-	tst.w	2(a0)
-	bne.s	.dir_ok
-	move.w	#64,(a0)
-.dir_ok:
-
-	; Always spawn from center
-	move.l	#160<<16,4(a0)		; x = center
-	move.l	#128<<16,8(a0)		; y = center
-
+	; Random speed
 	bsr	random
 	andi.w	#3,d0
 	addq.w	#1,d0
-	move.w	d0,12(a0)		; speed
+	move.w	d0,8(a0)		; speed 1-4
 
+	; Color from speed
 	move.w	d0,d1
 	addq.w	#2,d1
 	cmpi.w	#7,d1
 	ble.s	.col_ok2
 	move.w	#7,d1
 .col_ok2:
-	move.w	d1,14(a0)		; color
+	move.w	d1,10(a0)		; color
 
 	lea	STAR_STRUCT_SIZE(a0),a0
 	dbf	d7,.upd_loop
@@ -439,9 +463,9 @@ plot_stars:
 	move.w	#MAX_STARS-1,d7
 
 .plot_loop:
-	move.l	4(a0),d0		; x fixed
+	move.l	(a0),d0			; x (16.16)
 	swap	d0
-	move.l	8(a0),d1		; y fixed
+	move.l	4(a0),d1		; y (16.16)
 	swap	d1
 
 	tst.w	d0
@@ -465,7 +489,7 @@ plot_stars:
 	not.w	d3
 	andi.w	#7,d3
 
-	move.w	14(a0),d4		; color 1-7
+	move.w	10(a0),d4		; color 1-7
 
 	btst	#0,d4
 	beq.s	.no_bpl0
@@ -851,9 +875,9 @@ bpl2_ptr:		ds.l	1
 copper_list_ptr:	ds.l	1
 copper_bpl_ptrs:	ds.l	1
 
-; Steering velocity (16.16 fixed point, applied to all stars)
-steer_vx:		ds.l	1
-steer_vy:		ds.l	1
+; Vanishing point (16.16 fixed point, all stars radiate from here)
+vp_x:			ds.l	1
+vp_y:			ds.l	1
 
 ; Enterprise state
 ent_active:		ds.l	1
