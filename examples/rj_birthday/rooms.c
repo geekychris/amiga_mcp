@@ -182,11 +182,11 @@ static void draw_silicon(struct RastPort *rp, WORD sx)
     room_rect(rp, sx, 260, FLOOR_Y - 45, 295, FLOOR_Y - 20, COL_TAN);
     room_rect(rp, sx, 265, FLOOR_Y - 43, 290, FLOOR_Y - 22, COL_BG);
     room_text(rp, sx, 268, FLOOR_Y - 30, "3DO", COL_BTYELLOW);
-    /* Intuition plaque - Easter Egg! */
-    room_rect(rp, sx, 130, HUD_H + 10, 210, HUD_H + 30, COL_BTYELLOW);
-    room_text(rp, sx, 133, HUD_H + 24, EGG_INTUITION, COL_BLUE);
-    /* Crunch Neck sign */
-    room_text(rp, sx, 230, HUD_H + 24, EGG_CRUNCH, COL_ORANGE);
+    /* Tech posters on the wall */
+    room_rect(rp, sx, 130, HUD_H + 10, 190, HUD_H + 30, COL_BTYELLOW);
+    room_text(rp, sx, 135, HUD_H + 24, "AMIGA", COL_BLUE);
+    room_rect(rp, sx, 230, HUD_H + 10, 290, HUD_H + 30, COL_LTBLUE);
+    room_text(rp, sx, 240, HUD_H + 24, "1985", COL_WHITE);
 }
 
 static void draw_bayarea(struct RastPort *rp, WORD sx)
@@ -211,8 +211,8 @@ static void draw_bayarea(struct RastPort *rp, WORD sx)
     room_rect(rp, sx, 50, FLOOR_Y - 15, 80, FLOOR_Y - 5, COL_BROWN);
     room_rect(rp, sx, 150, FLOOR_Y - 15, 180, FLOOR_Y - 5, COL_BROWN);
     room_rect(rp, sx, 250, FLOOR_Y - 15, 280, FLOOR_Y - 5, COL_BROWN);
-    /* Joe Pillow reference */
-    room_text(rp, sx, 100, HUD_H + 60, EGG_JOEPILLOW, COL_YELLOW);
+    /* SF sign */
+    room_text(rp, sx, 120, HUD_H + 60, "SAN FRANCISCO", COL_YELLOW);
     /* Scooter lane marker */
     room_line(rp, sx, 0, FLOOR_Y - 25, 319, FLOOR_Y - 25, COL_BTYELLOW);
 }

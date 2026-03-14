@@ -88,6 +88,7 @@
 #define ITEM_FAVOR      6
 #define ITEM_DEMO       7
 #define ITEM_PLANT      8
+#define ITEM_CAKE       9
 
 /* Pot Police */
 #define MAX_COPS        3
@@ -257,6 +258,8 @@ typedef struct {
     PotCop cops[MAX_COPS];       /* pot police officers */
     WORD cop_spawn_timer;        /* time until next cop spawns */
     WORD cop_hit_cooldown;       /* player invulnerability after cop hit */
+    WORD cake_slices;            /* slices served in living room */
+    WORD cake_eaten;             /* RJ ate cake! animation timer */
     WORD plants_collected;       /* total plants picked up (attracts cops) */
     WORD jail_timer;             /* frames left in jail */
 

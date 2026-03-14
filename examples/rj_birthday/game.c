@@ -102,6 +102,8 @@ void game_init(GameState *gs)
     gs->cop_hit_cooldown = 0;
     gs->plants_collected = 0;
     gs->jail_timer = 0;
+    gs->cake_slices = 0;
+    gs->cake_eaten = 0;
 
     gs->title_blink = 0;
     gs->credits_scroll = 0;
@@ -1057,34 +1059,99 @@ static void update_living(GameState *gs, InputState *inp)
 {
     Player *p = &gs->player;
     WORD room_x = ROOM_LIVING * ROOM_W;
+    WORD cake_x = room_x + 160;
+
+    /* Cake eaten animation timer */
+    if (gs->cake_eaten > 0) gs->cake_eaten--;
 
     /* Check if party time is almost over -> trigger finale */
     if (gs->party_clock > PARTY_FRAMES - 200 && !gs->finale) {
         gs->finale = 1;
-        game_set_message(gs, "GET TO THE CAKE!", 100);
+        game_set_message(gs, "BLOW OUT THE CANDLES!", 100);
     }
 
-    /* Cake is at center of living room */
-    if (gs->finale && inp->fire_edge) {
-        WORD cake_x = room_x + 160;
+    /* Press fire near the cake */
+    if (inp->fire_edge) {
         WORD dx = p->x - cake_x;
-        if (dx > -25 && dx < 25 && p->y > FLOOR_Y - 40 && p->y < FLOOR_Y + 10) {
-            /* BLOW OUT CANDLES - WIN! */
-            gs->state = GS_WIN;
-            gs->score += 1000;
-            sfx_cheer();
-            sfx_party();
+        if (dx > -25 && dx < 25 && p->y > FLOOR_Y - 45 && p->y < FLOOR_Y + 10) {
+            if (gs->finale) {
+                /* BLOW OUT CANDLES - WIN! */
+                gs->state = GS_WIN;
+                gs->score += 1000;
+                sfx_cheer();
+                sfx_party();
+            }
+            else if (p->carrying == ITEM_NONE) {
+                /* Grab a slice of cake */
+                p->carrying = ITEM_CAKE;
+                sfx_pickup();
+                gs->rj_bubble_timer = 40;
+                {
+                    static const char *cake_msgs[] = {
+                        "Mmm cake!",
+                        "Delicious!",
+                        "Yummy!",
+                        "More frosting!"
+                    };
+                    const char *cm = cake_msgs[rng() % 4];
+                    WORD j;
+                    for (j = 0; cm[j] && j < BUBBLE_LEN - 1; j++)
+                        gs->rj_bubble[j] = cm[j];
+                    gs->rj_bubble[j] = 0;
+                }
+                gs->score += 50;
+                gs->cake_eaten = 30;
+                gs->cake_slices++;
+                /* Eating cake boosts happiness */
+                gs->happiness += 5;
+            }
         }
     }
 
-    /* Spawn dancing guests */
-    if ((gs->party_clock % 200) == 0) {
+    /* Deliver cake to guests */
+    if (p->carrying == ITEM_CAKE && inp->fire_edge) {
+        WORD gi;
+        for (gi = 0; gi < MAX_GUESTS; gi++) {
+            Guest *g = &gs->guests[gi];
+            WORD dx, dy;
+            if (!g->active || g->room != ROOM_LIVING) continue;
+            if (g->state != GUEST_IDLE && g->state != GUEST_HAPPY &&
+                g->state != GUEST_ENTERING) continue;
+            dx = p->x - g->x;
+            dy = p->y - g->y;
+            if (dx > -20 && dx < 20 && dy > -20 && dy < 20) {
+                p->carrying = ITEM_NONE;
+                gs->score += 200;
+                gs->happiness += 5;
+                sfx_ding();
+                sfx_chomp();
+                g->bubble_timer = 60;
+                {
+                    static const char *thx[] = {
+                        "Great cake!",
+                        "Thanks RJ!",
+                        "Nom nom!",
+                        "So good!"
+                    };
+                    const char *t = thx[rng() % 4];
+                    WORD j;
+                    for (j = 0; t[j] && j < BUBBLE_LEN - 1; j++)
+                        g->bubble_text[j] = t[j];
+                    g->bubble_text[j] = 0;
+                }
+                break;
+            }
+        }
+    }
+
+    /* Spawn guests wanting cake */
+    if ((gs->party_clock % 150) == 0) {
         Guest *g = spawn_guest(gs, ROOM_LIVING,
                                room_x + rng_range(30, 290),
                                FLOOR_Y);
         if (g) {
-            g->state = GUEST_HAPPY;
-            g->timer = 300;
+            g->state = GUEST_IDLE;
+            g->timer = 400;
         }
     }
 

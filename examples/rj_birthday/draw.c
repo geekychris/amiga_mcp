@@ -145,6 +145,7 @@ void draw_player(struct RastPort *rp, GameState *gs)
             case ITEM_SUSHI_B: ic = COL_BLUE; break;
             case ITEM_SUSHI_G: ic = COL_GREEN; break;
             case ITEM_FAVOR:   ic = COL_YELLOW; break;
+            case ITEM_CAKE:    ic = COL_PINK; break;
             default:           ic = COL_WHITE; break;
         }
         SetAPen(rp, ic);
@@ -372,6 +373,16 @@ void draw_items(struct RastPort *rp, GameState *gs)
                 Draw(rp, sx + 3, sy);
                 Draw(rp, sx, sy - 3);
                 Draw(rp, sx + 3, sy - 6);
+                break;
+            case ITEM_CAKE:
+                /* Slice of cake */
+                SetAPen(rp, COL_WHITE);
+                RectFill(rp, sx, sy - 6, sx + 7, sy);
+                SetAPen(rp, COL_PINK);
+                RectFill(rp, sx, sy - 7, sx + 7, sy - 6);
+                /* Cherry on top */
+                SetAPen(rp, COL_RED);
+                RectFill(rp, sx + 3, sy - 9, sx + 5, sy - 7);
                 break;
             case ITEM_PLANT:
                 /* Cannabis leaf - green star shape */
@@ -616,24 +627,45 @@ void draw_hud(struct RastPort *rp, GameState *gs)
         extern const char *room_name(WORD room);
         rn = room_name(gs->current_room);
         rl = (WORD)strlen(rn);
-        SetAPen(rp, COL_BTYELLOW);
-        draw_text(rp, (SCREEN_W - rl * 8) / 2, SCREEN_H - 4, rn);
+        {
+            WORD rw = rl * 8 + 8;
+            WORD rx = (SCREEN_W - rw) / 2;
+            SetAPen(rp, COL_BG);
+            RectFill(rp, rx, SCREEN_H - 12, rx + rw, SCREEN_H - 1);
+            SetAPen(rp, COL_BTYELLOW);
+            draw_text(rp, rx + 4, SCREEN_H - 4, rn);
+        }
     }
 
-    /* Message */
+    /* Message - centered with background box */
     if (gs->msg_timer > 0) {
         WORD ml = (WORD)strlen(gs->msg);
-        WORD mx = (SCREEN_W - ml * 8) / 2;
+        WORD mw = ml * 8 + 8;
+        WORD mx = (SCREEN_W - mw) / 2;
+        WORD my = WALK_Y_MIN - 15;
+        SetAPen(rp, COL_BG);
+        RectFill(rp, mx - 2, my - 10, mx + mw + 2, my + 2);
+        SetAPen(rp, COL_DKBROWN);
+        RectFill(rp, mx - 2, my - 10, mx + mw + 2, my - 10);
+        RectFill(rp, mx - 2, my + 2, mx + mw + 2, my + 2);
         SetAPen(rp, (gs->msg_timer & 4) ? COL_BTYELLOW : COL_WHITE);
-        draw_text(rp, mx, SCREEN_H / 2 - 20, gs->msg);
+        draw_text(rp, mx + 4, my - 1, gs->msg);
     }
 
-    /* Easter egg text */
+    /* Easter egg text - bottom area with background box */
     if (gs->egg_timer > 0) {
         WORD el = (WORD)strlen(gs->egg_text);
-        WORD ex = (SCREEN_W - el * 8) / 2;
+        WORD ew = el * 8 + 8;
+        WORD ex = (SCREEN_W - ew) / 2;
+        WORD ey = SCREEN_H - 28;
+        /* Background box */
+        SetAPen(rp, COL_DKBROWN);
+        RectFill(rp, ex - 2, ey - 10, ex + ew + 2, ey + 2);
+        SetAPen(rp, COL_BG);
+        RectFill(rp, ex, ey - 8, ex + ew, ey);
+        /* Text */
         SetAPen(rp, COL_BTYELLOW);
-        draw_text(rp, ex, HUD_H + 4, gs->egg_text);
+        draw_text(rp, ex + 4, ey - 1, gs->egg_text);
     }
 }
 
