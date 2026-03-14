@@ -6,7 +6,10 @@ LDFLAGS = -noixemul -L../../amiga-bridge -lbridge -lamiga
 
 TARGET = starfield
 
-OBJS = startup.o starfield.o
+C_OBJS = startup.o
+ASM_OBJS = starfield.o ptplayer.o
+
+OBJS = $(C_OBJS) $(ASM_OBJS)
 
 all: $(TARGET)
 
@@ -16,7 +19,10 @@ $(TARGET): $(OBJS)
 starfield.o: starfield.asm
 	$(AS) $(ASFLAGS) -o $@ $<
 
-startup.o: startup.c
+ptplayer.o: ptplayer.asm
+	$(AS) -Fhunk -m68000 -no-opt -quiet -o $@ $<
+
+%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
