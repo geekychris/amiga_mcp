@@ -23,9 +23,9 @@
 
 #include "ptplayer.h"
 
-/* Assembly entry point - returns 0 normally, 1 if ESC pressed */
+/* Assembly entry point */
 extern LONG sf_main(struct Custom *custom, APTR chipmem);
-/* Assembly-side state (updated by asm) */
+/* Assembly-side state */
 extern long sf_frame_count;
 extern long sf_star_count;
 /* Keyboard state: written by C, read by asm */
@@ -45,6 +45,7 @@ extern BYTE sf_key_esc;
 #define CUSTOM_BASE ((void *)0xdff000)
 
 struct GfxBase *GfxBase = NULL;
+struct IntuitionBase *IntuitionBase = NULL;
 static struct View *old_view = NULL;
 static UWORD old_dmacon;
 static UWORD old_intena;
@@ -58,6 +59,7 @@ static long bridge_ok = 0;
 static UBYTE *mod_data = NULL;
 static ULONG mod_size = 0;
 static int music_playing = 0;
+static int kbd_initialized = 0;
 
 /* --- Load MOD file from disk into chip RAM --- */
 
@@ -113,7 +115,22 @@ static void read_keyboard(void)
     UBYTE raw, code;
     UBYTE keyup;
 
-    /* Read keyboard unconditionally - always handshake to keep pipeline flowing */
+    if (!kbd_initialized) {
+        /* First call: flush stale keyboard state with a handshake
+         * and clear any pending CIA-A interrupt flags */
+        ciaa->ciacra |= 0x40;
+        { volatile UBYTE tmp; tmp = ciaa->ciacra; tmp = ciaa->ciacra; (void)tmp; }
+        ciaa->ciacra &= ~0x40;
+        (void)ciaa->ciaicr;   /* clear pending flags */
+        kbd_initialized = 1;
+        return;
+    }
+
+    /* Check if a key event is pending (CIA-A ICR bit 3 = SP complete) */
+    if (!(ciaa->ciaicr & 0x08))
+        return;  /* No new key data */
+
+    /* Read the key byte */
     raw = ciaa->ciasdr;
 
     /* The keyboard sends data inverted and bit-rotated */
@@ -125,21 +142,19 @@ static void read_keyboard(void)
 
     /* Handshake: pulse SP line to acknowledge */
     ciaa->ciacra |= 0x40;  /* set SP output mode */
-    /* Small delay - read a CIA register a few times */
     { volatile UBYTE tmp; tmp = ciaa->ciacra; tmp = ciaa->ciacra; tmp = ciaa->ciacra; (void)tmp; }
     ciaa->ciacra &= ~0x40; /* back to input mode */
 
     /* Update key states */
     if (keyup) {
-        /* Key released */
         switch (code) {
             case KEY_W: case KEY_UP:    sf_key_up = 0; break;
             case KEY_S: case KEY_DOWN:  sf_key_down = 0; break;
             case KEY_A: case KEY_LEFT:  sf_key_left = 0; break;
             case KEY_D: case KEY_RIGHT: sf_key_right = 0; break;
+            case KEY_ESC:               sf_key_esc = 0; break;
         }
     } else {
-        /* Key pressed */
         switch (code) {
             case KEY_ESC:               sf_key_esc = 1; break;
             case KEY_W: case KEY_UP:    sf_key_up = 1; break;
@@ -171,9 +186,15 @@ int main(void)
 {
     APTR chipmem;
 
-    /* Open graphics library - we need it to save/restore the view */
+    /* Open required libraries */
     GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 33);
     if (!GfxBase) return 20;
+
+    IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 33);
+    if (!IntuitionBase) {
+        CloseLibrary((struct Library *)GfxBase);
+        return 20;
+    }
 
     /* Try bridge connection (non-fatal) */
     if (ab_init("starfield") == 0) {
@@ -188,6 +209,7 @@ int main(void)
     if (!chipmem) {
         if (bridge_ok) AB_E("Failed to allocate %ld bytes chip memory", (long)CHIPMEM_SIZE);
         if (bridge_ok) ab_cleanup();
+        CloseLibrary((struct Library *)IntuitionBase);
         CloseLibrary((struct Library *)GfxBase);
         return 20;
     }
@@ -221,8 +243,6 @@ int main(void)
     OwnBlitter();
     WaitBlit();
 
-    /* Music will be started from assembly after DMA/interrupts are configured */
-
     Forbid();
 
     /* Disable all DMA and interrupts - asm will re-enable what's needed */
@@ -231,6 +251,7 @@ int main(void)
     hw->intreq = 0x7FFF;
 
     /* Clear keyboard state */
+    kbd_initialized = 0;
     sf_key_up = 0;
     sf_key_down = 0;
     sf_key_left = 0;
@@ -242,12 +263,14 @@ int main(void)
 
     /* ---- Restore system ---- */
 
-    /* Stop music */
+    /* Stop music first (needs CIA interrupt still active) */
     if (music_playing) {
         mt_end(CUSTOM_BASE);
         mt_remove_cia(CUSTOM_BASE);
+        music_playing = 0;
     }
 
+    /* Disable all DMA/interrupts, then restore saved state */
     hw->dmacon = 0x7FFF;
     hw->intena = 0x7FFF;
     hw->intreq = 0x7FFF;
@@ -265,7 +288,7 @@ int main(void)
     WaitTOF();
     WaitTOF();
 
-    /* Rebuild copper lists */
+    /* Rebuild copper lists (needs IntuitionBase) */
     RethinkDisplay();
 
     if (bridge_ok) {
@@ -277,6 +300,7 @@ int main(void)
     FreeMem(chipmem, CHIPMEM_SIZE);
     if (mod_data) FreeMem(mod_data, mod_size);
 
+    CloseLibrary((struct Library *)IntuitionBase);
     CloseLibrary((struct Library *)GfxBase);
     return 0;
 }

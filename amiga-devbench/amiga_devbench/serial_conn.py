@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 RECONNECT_INTERVAL = 5.0
 PTY_RESTART_DELAY = 2.0
 MAX_LOG_BUFFER = 1000
+BRIDGE_SILENCE_TIMEOUT = 45.0  # seconds of no bridge messages before forced reconnect
 
 
 class SerialConnection:
@@ -57,6 +58,9 @@ class SerialConnection:
         self._port_conflict: str | None = None  # description of conflict
         self._http_detected = False  # received HTTP instead of serial protocol
         self._first_data = True  # flag to check first received data
+
+        # Bridge silence watchdog
+        self._watchdog_task: asyncio.Task | None = None
 
         # Optional callbacks for persistent logging
         self.on_tx: Any = None  # called with (line: str)
@@ -144,6 +148,20 @@ class SerialConnection:
             return
         self._auto_reconnect = True
 
+        # Always reset stale state from previous connections
+        self._http_detected = False
+        self._first_data = True
+        self._line_buf = ""
+
+        # Clean up any leftover socket from previous connection
+        if self._writer:
+            try:
+                self._writer.close()
+            except Exception:
+                pass
+            self._writer = None
+            self._reader = None
+
         # Check for port conflicts before connecting
         conflict = self._check_port_conflict()
         if conflict:
@@ -160,7 +178,6 @@ class SerialConnection:
             if self._port_conflict:
                 logger.info("Port conflict resolved on port %d", self._port)
             self._port_conflict = None
-            self._http_detected = False
 
         try:
             self._reader, self._writer = await asyncio.wait_for(
@@ -168,15 +185,16 @@ class SerialConnection:
                 timeout=10.0,
             )
             self._connected = True
-            self._line_buf = ""
-            self._first_data = True
             self._state.connected = True
             self._state.connection_mode = "tcp"
             self._state.serial_connected_at = time.time()
+            self._state.last_bridge_message_at = None
+            self._state.last_heartbeat_at = None
             self._event_bus.publish("connected", {})
             logger.info("Connected to Amiga via TCP at %s:%d", self._host, self._port)
-            # Start read loop
+            # Start read loop and bridge silence watchdog
             self._tcp_task = asyncio.ensure_future(self._tcp_read_loop())
+            self._start_watchdog()
         except Exception as e:
             logger.error("TCP connection failed: %s", e)
             raise
@@ -196,6 +214,15 @@ class SerialConnection:
             was_connected = self._connected
             self._connected = False
             self._state.connected = False
+            self._stop_watchdog()
+            # Clean up socket so reconnect starts fresh
+            if self._writer:
+                try:
+                    self._writer.close()
+                except Exception:
+                    pass
+                self._writer = None
+                self._reader = None
             if was_connected:
                 self._event_bus.publish("disconnected", {})
                 logger.info("TCP disconnected")
@@ -285,6 +312,7 @@ class SerialConnection:
 
     def disconnect(self) -> None:
         self._auto_reconnect = False
+        self._stop_watchdog()
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
             self._reconnect_task = None
@@ -686,6 +714,55 @@ class SerialConnection:
 
         elif msg_type == "UPTIME":
             self._event_bus.publish("uptime", msg)
+
+    def _start_watchdog(self) -> None:
+        """Start the bridge silence watchdog timer."""
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+        self._watchdog_task = asyncio.ensure_future(self._watchdog_loop())
+
+    def _stop_watchdog(self) -> None:
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+
+    async def _watchdog_loop(self) -> None:
+        """Periodically check if bridge has gone silent and force reconnect.
+
+        Only triggers if we previously HAD bridge messages (last_bridge_message_at
+        is set) but haven't received any for BRIDGE_SILENCE_TIMEOUT seconds.
+        This handles the case where the emulator reboots but the TCP socket
+        stays open (e.g. FS-UAE restarts its serial listener).
+        """
+        try:
+            while self._connected:
+                await asyncio.sleep(10.0)
+                last_msg = self._state.last_bridge_message_at
+                if last_msg is None:
+                    continue  # never had bridge traffic, don't trigger
+                silence = time.time() - last_msg
+                if silence > BRIDGE_SILENCE_TIMEOUT:
+                    logger.warning(
+                        "Bridge silent for %.0fs — forcing reconnect",
+                        silence,
+                    )
+                    self._state.last_bridge_message_at = None
+                    # Force disconnect + reconnect cycle
+                    if self._writer:
+                        try:
+                            self._writer.close()
+                        except Exception:
+                            pass
+                    self._connected = False
+                    self._state.connected = False
+                    self._event_bus.publish("disconnected", {
+                        "reason": "bridge_silent",
+                    })
+                    if self._auto_reconnect:
+                        self._schedule_reconnect()
+                    break
+        except asyncio.CancelledError:
+            pass
 
     def _schedule_reconnect(self) -> None:
         if self._reconnect_task and not self._reconnect_task.done():
