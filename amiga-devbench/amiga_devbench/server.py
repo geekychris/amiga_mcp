@@ -70,7 +70,7 @@ async def api_events(request: Request) -> EventSourceResponse:
         async with _event_bus.subscribe("log", "heartbeat", "var", "connected",
                                         "disconnected", "clients", "tasks", "dir",
                                         "emulator_status", "crash", "snoop",
-                                        "test", "taildata") as queue:
+                                        "test", "taildata", "port_conflict") as queue:
             while True:
                 try:
                     evt, data = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -126,6 +126,8 @@ async def api_events(request: Request) -> EventSourceResponse:
                             "path": data.get("path"),
                             "data": data.get("data"),
                         })}
+                    elif evt == "port_conflict":
+                        yield {"event": "port_conflict", "data": json.dumps(data)}
 
                 except asyncio.TimeoutError:
                     # Send keepalive comment

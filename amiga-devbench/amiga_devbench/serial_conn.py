@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 import time
 from typing import Any
@@ -52,6 +53,11 @@ class SerialConnection:
         self._auto_reconnect = True
         self._reconnect_task: asyncio.Task | None = None
 
+        # Port conflict detection
+        self._port_conflict: str | None = None  # description of conflict
+        self._http_detected = False  # received HTTP instead of serial protocol
+        self._first_data = True  # flag to check first received data
+
         # Optional callbacks for persistent logging
         self.on_tx: Any = None  # called with (line: str)
         self.on_rx: Any = None  # called with (line: str)
@@ -88,10 +94,74 @@ class SerialConnection:
         else:
             await self.connect_tcp()
 
+    def _check_port_conflict(self) -> str | None:
+        """Check if another process is listening on our target port.
+
+        Returns a description of the conflict, or None if the port is clear
+        (or if we can't determine).
+        """
+        try:
+            result = subprocess.run(
+                ["lsof", "-i", f":{self._port}", "-P", "-n", "-sTCP:LISTEN"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+            listeners: list[dict[str, str]] = []
+            for line in result.stdout.strip().split("\n")[1:]:  # skip header
+                parts = line.split()
+                if len(parts) >= 9:
+                    listeners.append({
+                        "command": parts[0],
+                        "pid": parts[1],
+                        "name": parts[8],
+                    })
+            if len(listeners) <= 1:
+                return None
+            # Multiple listeners — find the one that isn't FS-UAE
+            conflicts = [
+                l for l in listeners
+                if "fs-uae" not in l["command"].lower()
+                and "fs_uae" not in l["command"].lower()
+            ]
+            if conflicts:
+                names = ", ".join(
+                    f"{c['command']} (pid {c['pid']}, {c['name']})"
+                    for c in conflicts
+                )
+                return (
+                    f"PORT CONFLICT on port {self._port}: {names} is also "
+                    f"listening. DevBench may connect to the wrong service. "
+                    f"Kill the conflicting process or change the serial port "
+                    f"in devbench.toml and FS-UAE config."
+                )
+        except Exception as e:
+            logger.debug("Port conflict check failed: %s", e)
+        return None
+
     async def connect_tcp(self) -> None:
         if self._connected:
             return
         self._auto_reconnect = True
+
+        # Check for port conflicts before connecting
+        conflict = self._check_port_conflict()
+        if conflict:
+            if conflict != self._port_conflict:
+                self._port_conflict = conflict
+                logger.warning(conflict)
+                self._event_bus.publish("port_conflict", {"message": conflict})
+                self._state.add_log({
+                    "type": "LOG", "level": "E", "tick": 0,
+                    "message": conflict,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+        else:
+            if self._port_conflict:
+                logger.info("Port conflict resolved on port %d", self._port)
+            self._port_conflict = None
+            self._http_detected = False
+
         try:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self._host, self._port),
@@ -99,6 +169,7 @@ class SerialConnection:
             )
             self._connected = True
             self._line_buf = ""
+            self._first_data = True
             self._state.connected = True
             self._state.connection_mode = "tcp"
             self._state.serial_connected_at = time.time()
@@ -274,6 +345,27 @@ class SerialConnection:
         # Log raw data for debugging
         raw_repr = repr(data[:200]) if len(data) > 200 else repr(data)
         logger.debug("RX raw: %s", raw_repr)
+
+        # Detect HTTP responses — sign of a port conflict
+        if self._first_data and self._mode == "tcp":
+            self._first_data = False
+            if data.startswith("HTTP/") or data.startswith("<!DOCTYPE") or data.startswith("<html"):
+                self._http_detected = True
+                msg = (
+                    f"PORT CONFLICT: Received HTTP response on serial port "
+                    f"{self._host}:{self._port} — another application (not "
+                    f"FS-UAE) is listening on this port. Check for conflicting "
+                    f"services (e.g. LM Studio, web servers) and kill them, "
+                    f"or change the serial port in devbench.toml."
+                )
+                logger.error(msg)
+                self._event_bus.publish("port_conflict", {"message": msg})
+                self._state.add_log({
+                    "type": "LOG", "level": "E", "tick": 0,
+                    "message": msg,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+                return  # discard the HTTP data
 
         # Flush stale buffer if it's been sitting too long (incomplete line)
         # This prevents a truncated response from corrupting the next one
@@ -632,4 +724,8 @@ class SerialConnection:
             result["port"] = self._port
         else:
             result["ptyPath"] = self._pty_path
+        if self._port_conflict:
+            result["portConflict"] = self._port_conflict
+        if self._http_detected:
+            result["httpDetected"] = True
         return result

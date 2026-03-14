@@ -669,6 +669,9 @@
 
     <!-- Dashboard -->
     <div class="tab-panel active" id="panel-dashboard">
+      <div id="portConflictBanner" style="display:none;background:#8b0000;color:#fff;padding:8px 12px;border-radius:4px;margin-bottom:8px;font-size:13px;line-height:1.4;">
+        <strong>PORT CONFLICT:</strong> <span id="portConflictMsg"></span>
+      </div>
       <div class="dash-grid">
         <div class="card">
           <h3>Connection</h3>
@@ -1831,6 +1834,14 @@ function connectSSE() {
     handleTailData(data);
   });
 
+  eventSource.addEventListener('port_conflict', (e) => {
+    const data = JSON.parse(e.data);
+    const banner = document.getElementById('portConflictBanner');
+    const msgEl = document.getElementById('portConflictMsg');
+    banner.style.display = 'block';
+    msgEl.textContent = data.message;
+  });
+
   eventSource.onerror = () => {
     console.log('SSE connection error, will retry...');
   };
@@ -1913,6 +1924,16 @@ function updateStatus(data) {
   document.getElementById('dashVarCount').textContent = data.varCount || 0;
   if (data.lastHeartbeat) {
     updateHeartbeat(data.lastHeartbeat);
+  }
+  // Port conflict banner
+  const banner = document.getElementById('portConflictBanner');
+  const msgEl = document.getElementById('portConflictMsg');
+  if (data.portConflict || data.httpDetected) {
+    banner.style.display = 'block';
+    msgEl.textContent = data.portConflict ||
+      'Received HTTP response on serial port — another application is using port ' + (data.port || '?') + '. Kill the conflicting process or change the port.';
+  } else {
+    banner.style.display = 'none';
   }
 }
 
