@@ -3723,38 +3723,135 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         return JSONResponse({"breakpoints": []})
 
     async def api_debugger_step(request: Request) -> JSONResponse:
+        """Source-level step into: keep stepping instructions until
+        the source line changes (enters a function or advances a line)."""
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
-        _conn.send_raw("DBGSTEP")
-        # Poll for stop (same pattern as break)
-        for attempt in range(10):
-            await asyncio.sleep(0.3)
-            if _dbg_state.stopped:
-                return JSONResponse(_dbg_state.to_dict())
-            async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
-                _conn.send_raw("DBGSTATUS")
-                try:
-                    evt, msg = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    if evt == "dbg_state":
-                        _dbg_state.update_from_state(msg)
+
+        # Get current source line before stepping
+        start_line = None
+        code_base = _dbg_state.code_base
+        start_pc = _dbg_state.pc
+        if code_base > 0 and start_pc >= code_base:
+            try:
+                from . import symbols as sym_mod
+                tables = sym_mod.get_all_tables()
+                for proj_name, sym_table in tables.items():
+                    src = sym_table.lookup_source_line(start_pc - code_base)
+                    if src:
+                        start_line = src  # (file, line)
+                    break
+            except Exception:
+                pass
+
+        # Step instructions until source line changes (max 50 steps)
+        for step_count in range(50):
+            _conn.send_raw("DBGSTEP")
+
+            # Wait for stop
+            stopped = False
+            for attempt in range(10):
+                await asyncio.sleep(0.2)
+                if _dbg_state.stopped:
+                    stopped = True
+                    break
+                async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
+                    _conn.send_raw("DBGSTATUS")
+                    try:
+                        evt, msg = await asyncio.wait_for(queue.get(), timeout=1.0)
+                        if evt == "dbg_state":
+                            _dbg_state.update_from_state(msg)
+                        elif evt == "dbg_stop":
+                            _dbg_state.update_from_stop(msg)
                         if _dbg_state.stopped:
+                            stopped = True
+                            break
+                    except asyncio.TimeoutError:
+                        pass
+
+            if not stopped:
+                return JSONResponse({"error": "step timeout"}, status_code=504)
+
+            # Check if source line changed
+            new_pc = _dbg_state.pc
+            if start_line is None:
+                # No source info — just return after one step
+                return JSONResponse(_dbg_state.to_dict())
+
+            if code_base > 0 and new_pc >= code_base:
+                try:
+                    from . import symbols as sym_mod
+                    tables = sym_mod.get_all_tables()
+                    for proj_name, sym_table in tables.items():
+                        new_src = sym_table.lookup_source_line(new_pc - code_base)
+                        if new_src and new_src != start_line:
+                            # Source line changed — we've stepped to a new line
                             return JSONResponse(_dbg_state.to_dict())
-                    elif evt == "dbg_stop":
-                        _dbg_state.update_from_stop(msg)
-                        return JSONResponse(_dbg_state.to_dict())
-                except asyncio.TimeoutError:
+                        break
+                except Exception:
                     pass
-        if _dbg_state.stopped:
-            return JSONResponse(_dbg_state.to_dict())
-        return JSONResponse({"error": "timeout"}, status_code=504)
+
+            # Same source line — continue stepping
+            # (need to send continue first since target is paused)
+            _dbg_state.stopped = False
+            continue
+
+        # Exhausted max steps
+        return JSONResponse(_dbg_state.to_dict())
 
     async def api_debugger_next(request: Request) -> JSONResponse:
+        """Source-level step over: find the next source line's address,
+        set a temp BP there, and continue. This skips over function
+        calls since the temp BP is on the NEXT line in the same function."""
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
-        _conn.send_raw("DBGNEXT")
-        for attempt in range(10):
+
+        # Find the next source line address after the current PC
+        code_base = _dbg_state.code_base
+        current_pc = _dbg_state.pc
+        next_line_addr = 0
+
+        if code_base > 0 and current_pc >= code_base:
+            rel_pc = current_pc - code_base
+            try:
+                from . import symbols as sym_mod
+                tables = sym_mod.get_all_tables()
+                for proj_name, sym_table in tables.items():
+                    # Find the source line for current PC
+                    cur_src = sym_table.lookup_source_line(rel_pc)
+                    if cur_src:
+                        cur_file, cur_line = cur_src
+                        # Find the next source line in the same file
+                        best_addr = 0xFFFFFFFF
+                        for sl in sym_table.source_lines:
+                            if sl.file == cur_file and sl.address > rel_pc and sl.address < best_addr:
+                                best_addr = sl.address
+                        if best_addr < 0xFFFFFFFF:
+                            next_line_addr = code_base + best_addr
+                    break
+            except Exception:
+                pass
+
+        if next_line_addr > 0:
+            # Set a temporary BP at the next source line and continue
+            addr_hex = f"{next_line_addr:08x}"
+            # Use BPSET (the bridge handles it)
+            async with _event_bus.subscribe("dbg_bpinfo", "err") as queue:
+                _conn.send_raw(f"BPSET|{addr_hex}")
+                try:
+                    await asyncio.wait_for(queue.get(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+            # Mark it as temporary by sending DBGCONT
+            _conn.send_raw("DBGCONT")
+        else:
+            # No next line — fall back to instruction-level DBGNEXT
+            _conn.send_raw("DBGNEXT")
+
+        # Poll for stop
+        for attempt in range(15):
             await asyncio.sleep(0.3)
             if _dbg_state.stopped:
                 return JSONResponse(_dbg_state.to_dict())
@@ -3764,10 +3861,9 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                     evt, msg = await asyncio.wait_for(queue.get(), timeout=1.0)
                     if evt == "dbg_state":
                         _dbg_state.update_from_state(msg)
-                        if _dbg_state.stopped:
-                            return JSONResponse(_dbg_state.to_dict())
                     elif evt == "dbg_stop":
                         _dbg_state.update_from_stop(msg)
+                    if _dbg_state.stopped:
                         return JSONResponse(_dbg_state.to_dict())
                 except asyncio.TimeoutError:
                     pass
