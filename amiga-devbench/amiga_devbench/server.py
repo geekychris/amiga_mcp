@@ -32,6 +32,8 @@ from .protocol import format_hex_dump, level_name
 from .serial_conn import SerialConnection
 from .simulator import AmigaSimulator
 from .state import AmigaState, EventBus
+from .debugger import DebuggerState, annotate_with_symbols
+from .gdb_server import GDBServer
 from .traffic_log import TrafficLog
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ _emulator: EmulatorManager | None = None
 _config: DevBenchConfig | None = None
 _traffic: TrafficLog | None = None
 _plog: PersistentLog | None = None
+_dbg_state: DebuggerState | None = None
+_gdb_server: GDBServer | None = None
 
 
 # ─── Web API Routes ───
@@ -70,7 +74,8 @@ async def api_events(request: Request) -> EventSourceResponse:
         async with _event_bus.subscribe("log", "heartbeat", "var", "connected",
                                         "disconnected", "clients", "tasks", "dir",
                                         "emulator_status", "crash", "snoop",
-                                        "test", "taildata", "port_conflict") as queue:
+                                        "test", "taildata", "port_conflict",
+                                        "dbg_stop", "dbg_running", "dbg_detached") as queue:
             while True:
                 try:
                     evt, data = await asyncio.wait_for(queue.get(), timeout=30.0)
@@ -128,6 +133,19 @@ async def api_events(request: Request) -> EventSourceResponse:
                         })}
                     elif evt == "port_conflict":
                         yield {"event": "port_conflict", "data": json.dumps(data)}
+                    elif evt == "dbg_stop":
+                        if _dbg_state:
+                            _dbg_state.update_from_stop(data)
+                        yield {"event": "dbg_stop", "data": json.dumps(
+                            _dbg_state.to_dict() if _dbg_state else data)}
+                    elif evt == "dbg_running":
+                        if _dbg_state:
+                            _dbg_state.stopped = False
+                        yield {"event": "dbg_running", "data": "{}"}
+                    elif evt == "dbg_detached":
+                        if _dbg_state:
+                            _dbg_state.reset()
+                        yield {"event": "dbg_detached", "data": "{}"}
 
                 except asyncio.TimeoutError:
                     # Send keepalive comment
@@ -909,11 +927,18 @@ async def health(request: Request) -> JSONResponse:
 
 
 async def serve_index(request: Request) -> HTMLResponse:
-    """Serve the web UI index.html."""
+    """Serve the web UI index.html with no-cache headers."""
     web_dir = Path(__file__).parent / "web"
     index_file = web_dir / "index.html"
     if index_file.is_file():
-        return HTMLResponse(index_file.read_text())
+        return HTMLResponse(
+            index_file.read_text(),
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     return HTMLResponse("<h1>Web UI not found</h1>", status_code=404)
 
 
@@ -936,9 +961,10 @@ async def serve_static(request: Request) -> Response:
 
 def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     """Create the Starlette application with MCP + Web API + static files."""
-    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config, _traffic, _plog
+    global _conn, _state, _event_bus, _builder, _deployer, _emulator, _config, _traffic, _plog, _dbg_state, _gdb_server
 
     _state = AmigaState()
+    _dbg_state = DebuggerState()
     _traffic = TrafficLog(maxlen=2000)
     _event_bus = EventBus()
 
@@ -1045,6 +1071,17 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 print(f"  Simulator:     running on port {_sim_port}")
             if _emulator and _emulator.is_running:
                 print(f"  Emulator:      running (pid {_emulator.pid})")
+
+            # Start GDB RSP server
+            _gdb_port = cfg.gdb_port if cfg and hasattr(cfg, 'gdb_port') else 2159
+            _gdb_server = GDBServer(_conn, _event_bus, _dbg_state, port=_gdb_port)
+            try:
+                await _gdb_server.start()
+                print(f"  GDB RSP:       localhost:{_gdb_port}")
+            except Exception as e:
+                logger.warning("GDB server failed to start: %s", e)
+                _gdb_server = None
+
             print("=" * 60)
             print()
 
@@ -1078,6 +1115,27 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
             ready_task = asyncio.ensure_future(_on_bridge_ready())
 
+            # Background listener to keep _dbg_state in sync with debugger events
+            async def _dbg_state_listener():
+                async with _event_bus.subscribe("dbg_stop", "dbg_running", "dbg_detached", "dbg_state") as queue:
+                    while True:
+                        try:
+                            evt, data = await queue.get()
+                            if evt == "dbg_stop" and _dbg_state:
+                                _dbg_state.update_from_stop(data)
+                            elif evt == "dbg_running" and _dbg_state:
+                                _dbg_state.stopped = False
+                            elif evt == "dbg_detached" and _dbg_state:
+                                _dbg_state.reset()
+                            elif evt == "dbg_state" and _dbg_state:
+                                _dbg_state.update_from_state(data)
+                        except asyncio.CancelledError:
+                            break
+                        except Exception:
+                            pass
+
+            dbg_listener_task = asyncio.ensure_future(_dbg_state_listener())
+
             # Start persistent event logger
             if _plog:
                 _plog.start(_event_bus)
@@ -1085,8 +1143,11 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             yield
 
             ready_task.cancel()
+            dbg_listener_task.cancel()
 
             # Shutdown
+            if _gdb_server:
+                await _gdb_server.stop()
             if _plog:
                 _plog.stop()
             if _conn:
@@ -3531,6 +3592,402 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                     _plog.write_api(method, path, status=500, duration_ms=round(duration, 1), error=str(exc))
                 raise
 
+    # ─── Debugger API Routes ───
+
+    async def api_debugger_status(request: Request) -> JSONResponse:
+        assert _dbg_state is not None
+        return JSONResponse(_dbg_state.to_dict())
+
+    async def api_debugger_attach(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        body = await request.json()
+        target = body.get("target", "")
+        if not target:
+            return JSONResponse({"error": "target required"}, status_code=400)
+        async with _event_bus.subscribe("dbg_state", "err") as queue:
+            _conn.send({"type": "DBGATTACH", "target": target})
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if evt == "dbg_state":
+                        _dbg_state.update_from_state(data)
+                        return JSONResponse(_dbg_state.to_dict())
+                    if evt == "err" and "DBGATTACH" in data.get("context", ""):
+                        return JSONResponse({"error": data.get("message", "attach failed")}, status_code=400)
+                except asyncio.TimeoutError:
+                    break
+        return JSONResponse({"error": "timeout"}, status_code=504)
+
+    async def api_debugger_detach(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        async with _event_bus.subscribe("dbg_detached") as queue:
+            _conn.send({"type": "DBGDETACH"})
+            try:
+                await asyncio.wait_for(queue.get(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+        _dbg_state.reset()
+        return JSONResponse({"ok": True})
+
+    async def api_debugger_bp_set(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        body = await request.json()
+        address = body.get("address", "")
+        if not address:
+            return JSONResponse({"error": "address required"}, status_code=400)
+
+        # Add code base offset if the address looks like a symbol offset
+        # (small address, below the typical load address range)
+        try:
+            addr_int = int(address, 16)
+            if _dbg_state and _dbg_state.code_base > 0 and addr_int < _dbg_state.code_base:
+                addr_int += _dbg_state.code_base
+                address = f"{addr_int:08x}"
+                logger.info("BP address relocated: +0x%X base = 0x%X", _dbg_state.code_base, addr_int)
+        except ValueError:
+            pass
+
+        async with _event_bus.subscribe("dbg_bpinfo", "err") as queue:
+            _conn.send({"type": "BPSET", "address": address})
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if evt == "dbg_bpinfo":
+                        return JSONResponse(data)
+                    if evt == "err" and "BPSET" in data.get("context", ""):
+                        return JSONResponse({"error": data.get("message", "failed")}, status_code=400)
+                except asyncio.TimeoutError:
+                    break
+        return JSONResponse({"error": "timeout"}, status_code=504)
+
+    async def api_debugger_bp_clear(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        body = await request.json()
+        bp_id = body.get("id", "")
+        async with _event_bus.subscribe("ok", "err") as queue:
+            _conn.send({"type": "BPCLEAR", "id": str(bp_id)})
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if evt == "ok" and "BPCLEAR" in data.get("context", ""):
+                        return JSONResponse({"ok": True})
+                    if evt == "err" and "BPCLEAR" in data.get("context", ""):
+                        return JSONResponse({"ok": False, "error": data.get("message", "")})
+                except asyncio.TimeoutError:
+                    break
+        return JSONResponse({"ok": False, "error": "timeout"})
+
+    async def api_debugger_bp_list(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        async with _event_bus.subscribe("dbg_bplist") as queue:
+            _conn.send({"type": "BPLIST"})
+            try:
+                evt, msg = await asyncio.wait_for(queue.get(), timeout=5.0)
+                _dbg_state.update_breakpoints(msg.get("breakpoints", []))
+                return JSONResponse({"breakpoints": msg.get("breakpoints", [])})
+            except asyncio.TimeoutError:
+                pass
+        return JSONResponse({"breakpoints": []})
+
+    async def api_debugger_step(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        async with _event_bus.subscribe("dbg_stop") as queue:
+            _conn.send({"type": "DBGSTEP"})
+            try:
+                evt, msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                _dbg_state.update_from_stop(msg)
+                return JSONResponse(_dbg_state.to_dict())
+            except asyncio.TimeoutError:
+                pass
+        return JSONResponse({"error": "timeout"}, status_code=504)
+
+    async def api_debugger_next(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        async with _event_bus.subscribe("dbg_stop") as queue:
+            _conn.send({"type": "DBGNEXT"})
+            try:
+                evt, msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                _dbg_state.update_from_stop(msg)
+                return JSONResponse(_dbg_state.to_dict())
+            except asyncio.TimeoutError:
+                pass
+        return JSONResponse({"error": "timeout"}, status_code=504)
+
+    async def api_debugger_continue(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        _conn.send({"type": "DBGCONT"})
+        # Don't wait for stop - return immediately
+        _dbg_state.stopped = False
+        return JSONResponse({"ok": True, "state": "running"})
+
+    async def api_debugger_regs(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        async with _event_bus.subscribe("dbg_regs") as queue:
+            _conn.send({"type": "DBGREGS"})
+            try:
+                evt, msg = await asyncio.wait_for(queue.get(), timeout=5.0)
+                _dbg_state.update_from_regs(msg)
+                return JSONResponse(_dbg_state.to_dict())
+            except asyncio.TimeoutError:
+                pass
+        return JSONResponse({"error": "timeout"}, status_code=504)
+
+    async def api_debugger_setreg(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        body = await request.json()
+        reg = body.get("reg", "")
+        value = body.get("value", "")
+        if not reg or not value:
+            return JSONResponse({"error": "reg and value required"}, status_code=400)
+        async with _event_bus.subscribe("ok", "err") as queue:
+            _conn.send({"type": "DBGSETREG", "reg": reg, "value": value})
+            deadline = asyncio.get_event_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                    if evt == "ok" and "DBGSETREG" in data.get("context", ""):
+                        return JSONResponse({"ok": True})
+                except asyncio.TimeoutError:
+                    break
+        return JSONResponse({"ok": False})
+
+    async def api_debugger_backtrace(request: Request) -> JSONResponse:
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        msg = None
+        async with _event_bus.subscribe("dbg_bt") as queue:
+            _conn.send({"type": "DBGBT"})
+            try:
+                evt, msg = await asyncio.wait_for(queue.get(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+        if msg:
+            _dbg_state.update_backtrace(msg.get("frames", []))
+            # Try to annotate with symbols
+            try:
+                from .symbols import _loaded_tables
+                if _loaded_tables:
+                    sym_table = list(_loaded_tables.values())[0]
+                    annotate_with_symbols(_dbg_state, sym_table)
+            except Exception:
+                pass
+            return JSONResponse({
+                "depth": msg.get("depth", 0),
+                "frames": [
+                    {
+                        "depth": f.depth,
+                        "pc": f.pc,
+                        "pcHex": f"{f.pc:08X}",
+                        "symbol": f.symbol,
+                        "file": f.source_file,
+                        "line": f.source_line,
+                    }
+                    for f in _dbg_state.backtrace
+                ],
+            })
+        return JSONResponse({"depth": 0, "frames": []})
+
+    async def api_debugger_source(request: Request) -> JSONResponse:
+        """Get source code context around a PC address."""
+        pc_str = request.query_params.get("pc", "0")
+        project = request.query_params.get("project", "")
+        context_lines = int(request.query_params.get("context", "10"))
+
+        try:
+            pc = int(pc_str, 16)
+        except ValueError:
+            return JSONResponse({"error": "invalid pc"}, status_code=400)
+
+        # If PC is an absolute address and we have a code base,
+        # subtract it to get the symbol-relative offset
+        lookup_pc = pc
+        if _dbg_state and _dbg_state.code_base > 0 and pc >= _dbg_state.code_base:
+            lookup_pc = pc - _dbg_state.code_base
+
+        try:
+            from . import symbols as sym_mod
+            tables = sym_mod.get_all_tables()
+            for proj_name, sym_table in tables.items():
+                if project and proj_name != project:
+                    continue
+                src = sym_table.lookup_source_line(lookup_pc)
+                if src:
+                    file_path, line_num = src
+                    # Read source file from host filesystem
+                    try:
+                        with open(file_path) as f:
+                            lines = f.readlines()
+                        start = max(0, line_num - context_lines - 1)
+                        end = min(len(lines), line_num + context_lines)
+                        return JSONResponse({
+                            "file": file_path,
+                            "line": line_num,
+                            "startLine": start + 1,
+                            "lines": [l.rstrip("\n") for l in lines[start:end]],
+                            "symbol": sym_table.lookup_address(pc),
+                        })
+                    except FileNotFoundError:
+                        return JSONResponse({
+                            "file": file_path,
+                            "line": line_num,
+                            "error": "source file not found on host",
+                            "symbol": sym_table.lookup_address(pc),
+                        })
+        except Exception:
+            pass
+
+        return JSONResponse({"error": "no source mapping for this address"})
+
+    async def api_debugger_source_file(request: Request) -> JSONResponse:
+        """Read an entire source file for display in the debugger."""
+        file_path = request.query_params.get("file", "")
+        if not file_path:
+            return JSONResponse({"error": "file required"}, status_code=400)
+
+        # Also accept project-relative paths
+        project = request.query_params.get("project", "")
+        if project and not os.path.isabs(file_path):
+            proj_root = os.path.join(os.getcwd(), "examples", project)
+            candidate = os.path.join(proj_root, file_path)
+            if os.path.isfile(candidate):
+                file_path = candidate
+
+        try:
+            with open(file_path) as f:
+                lines = f.readlines()
+
+            # Get breakpoint-able line numbers (lines with source mappings)
+            bp_lines: dict[int, int] = {}  # line_num -> address
+            try:
+                from . import symbols as sym_mod
+                tables = sym_mod.get_all_tables()
+                for proj_name, sym_table in tables.items():
+                    if project and proj_name != project:
+                        continue
+                    for sl in sym_table.source_lines:
+                        if sl.file == file_path or os.path.basename(sl.file) == os.path.basename(file_path):
+                            bp_lines[sl.line] = sl.address
+            except Exception:
+                pass
+
+            return JSONResponse({
+                "file": file_path,
+                "totalLines": len(lines),
+                "lines": [l.rstrip("\n") for l in lines],
+                "breakpointLines": bp_lines,
+            })
+        except FileNotFoundError:
+            return JSONResponse({"error": f"File not found: {file_path}"}, status_code=404)
+
+    async def api_debugger_sources_list(request: Request) -> JSONResponse:
+        """List source files - from symbol tables if loaded, otherwise scan project dir."""
+        project = request.query_params.get("project", "")
+        files: dict[str, int] = {}  # file -> mapped line count
+
+        # Try symbol tables first
+        try:
+            from . import symbols as sym_mod
+            tables = sym_mod.get_all_tables()
+            for proj_name, sym_table in tables.items():
+                if project and proj_name != project:
+                    continue
+                for sl in sym_table.source_lines:
+                    if sl.file not in files:
+                        files[sl.file] = 0
+                    files[sl.file] += 1
+        except Exception:
+            pass
+
+        # If no symbol sources found, scan project directory on disk
+        if not files and project:
+            proj_dir = os.path.join(os.getcwd(), "examples", project)
+            if os.path.isdir(proj_dir):
+                for fname in sorted(os.listdir(proj_dir)):
+                    if fname.endswith(('.c', '.h')):
+                        full_path = os.path.join(proj_dir, fname)
+                        try:
+                            with open(full_path) as f:
+                                line_count = sum(1 for _ in f)
+                            files[full_path] = line_count
+                        except Exception:
+                            pass
+
+        result = [{"file": f, "mappedLines": c} for f, c in sorted(files.items())]
+        return JSONResponse({"sources": result})
+
+    async def api_debugger_break(request: Request) -> JSONResponse:
+        """Break (stop) the running target."""
+        assert _conn is not None and _event_bus is not None and _dbg_state is not None
+        if not _conn.connected:
+            return JSONResponse({"error": "not connected"}, status_code=400)
+        if not _dbg_state.attached:
+            return JSONResponse({"error": "not attached"}, status_code=400)
+        if _dbg_state.stopped:
+            return JSONResponse(_dbg_state.to_dict())
+
+        # Send DBGBREAK, then poll DBGSTATUS to confirm.
+        # DBGSTOP events get lost in serial buffering, but
+        # DBGSTATUS request/response is reliable.
+        _conn.send_raw("DBGBREAK")
+
+        for attempt in range(6):
+            await asyncio.sleep(0.5)
+            if _dbg_state.stopped:
+                return JSONResponse(_dbg_state.to_dict())
+            async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
+                _conn.send_raw("DBGSTATUS")
+                try:
+                    evt, msg = await asyncio.wait_for(queue.get(), timeout=2.0)
+                    if evt == "dbg_state":
+                        _dbg_state.update_from_state(msg)
+                        if _dbg_state.stopped:
+                            return JSONResponse(_dbg_state.to_dict())
+                    elif evt == "dbg_stop":
+                        _dbg_state.update_from_stop(msg)
+                        return JSONResponse(_dbg_state.to_dict())
+                except asyncio.TimeoutError:
+                    pass
+
+        if _dbg_state.stopped:
+            return JSONResponse(_dbg_state.to_dict())
+        return JSONResponse({"error": "timeout"}, status_code=504)
+
     # Define routes
     routes = [
         # Web API
@@ -3705,6 +4162,23 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
         # File transfer (host <-> Amiga serial)
         Route("/api/transfer", api_transfer, methods=["POST"]),
+        # Debugger
+        Route("/api/debugger/status", api_debugger_status, methods=["GET"]),
+        Route("/api/debugger/attach", api_debugger_attach, methods=["POST"]),
+        Route("/api/debugger/detach", api_debugger_detach, methods=["POST"]),
+        Route("/api/debugger/breakpoints/set", api_debugger_bp_set, methods=["POST"]),
+        Route("/api/debugger/breakpoints/clear", api_debugger_bp_clear, methods=["POST"]),
+        Route("/api/debugger/breakpoints", api_debugger_bp_list, methods=["GET"]),
+        Route("/api/debugger/step", api_debugger_step, methods=["POST"]),
+        Route("/api/debugger/next", api_debugger_next, methods=["POST"]),
+        Route("/api/debugger/continue", api_debugger_continue, methods=["POST"]),
+        Route("/api/debugger/registers", api_debugger_regs, methods=["GET"]),
+        Route("/api/debugger/registers/set", api_debugger_setreg, methods=["POST"]),
+        Route("/api/debugger/backtrace", api_debugger_backtrace, methods=["GET"]),
+        Route("/api/debugger/break", api_debugger_break, methods=["POST"]),
+        Route("/api/debugger/source", api_debugger_source, methods=["GET"]),
+        Route("/api/debugger/source/file", api_debugger_source_file, methods=["GET"]),
+        Route("/api/debugger/sources", api_debugger_sources_list, methods=["GET"]),
         Route("/health", health, methods=["GET"]),
         # Web UI - serve index.html at root
         Route("/", serve_index, methods=["GET"]),

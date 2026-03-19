@@ -400,6 +400,11 @@ int main(int argc, char **argv)
                 tail_poll();
             }
 
+            /* Poll debugger for TRAP hits */
+            if (g_serial_connected) {
+                dbg_poll();
+            }
+
             /* Heartbeat (every ~5 seconds = 25 timer ticks) */
             hb_counter++;
             if (hb_counter >= 25 && g_serial_connected) {
@@ -437,6 +442,7 @@ int main(int argc, char **argv)
     }
 
     /* Clean up in reverse order */
+    dbg_cleanup();
     arexx_cleanup();
     clip_cleanup();
     pool_cleanup();

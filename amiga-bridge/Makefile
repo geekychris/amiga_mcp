@@ -12,7 +12,8 @@ DAEMON_SRCS = src/main.c src/serial_io.c src/ipc_manager.c \
               src/audio_inspector.c src/intuition_inspector.c \
               src/input_inject.c src/font_browser.c \
               src/chipwrite_logger.c src/pool_tracker.c \
-              src/clipboard_bridge.c src/arexx_bridge.c
+              src/clipboard_bridge.c src/arexx_bridge.c \
+              src/debugger.c
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 DAEMON_BIN = amiga-bridge
 
@@ -37,6 +38,10 @@ $(CLIENT_LIB): $(CLIENT_OBJS)
 
 # snoop.c needs -O2 so register __asm("d1") captures work correctly
 src/snoop.o: src/snoop.c
+	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -c -o $@ $<
+
+# debugger.c needs -O2 for register captures in exception handlers
+src/debugger.o: src/debugger.c
 	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -c -o $@ $<
 
 %.o: %.c

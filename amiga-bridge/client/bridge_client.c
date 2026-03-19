@@ -742,6 +742,34 @@ static void process_daemon_msg(struct Message *msg)
         ReplyMsg(msg);
         break;
 
+    case ABMSG_DEBUG_PAUSE:
+        /* Debugger is pausing us. Reply immediately (so daemon doesn't block),
+         * then enter a wait loop until we get a RESUME message. */
+        bm->result = 0;
+        ReplyMsg(msg);
+        printf("[DEBUG] Paused by debugger\n");
+        /* Block here: wait for messages, only exit on RESUME */
+        {
+            struct Message *dmsg;
+            BOOL paused = TRUE;
+            while (paused && connected) {
+                WaitPort(reply_port);
+                while ((dmsg = GetMsg(reply_port)) != NULL) {
+                    struct BridgeMsg *dbm = (struct BridgeMsg *)dmsg;
+                    if (dbm->type == ABMSG_DEBUG_RESUME) {
+                        dbm->result = 0;
+                        ReplyMsg(dmsg);
+                        paused = FALSE;
+                        printf("[DEBUG] Resumed\n");
+                        break;
+                    }
+                    /* Process other messages while paused (var get, etc) */
+                    process_daemon_msg(dmsg);
+                }
+            }
+        }
+        break;
+
     case ABMSG_SHUTDOWN:
         /* Daemon is shutting down */
         connected = FALSE;

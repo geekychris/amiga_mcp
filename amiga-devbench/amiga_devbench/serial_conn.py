@@ -587,6 +587,29 @@ class SerialConnection:
         elif msg_type == "SPRITE":
             self._event_bus.publish("sprite", msg)
 
+        # ---- Debugger messages ----
+        elif msg_type == "DBGSTOP":
+            self._event_bus.publish("dbg_stop", msg)
+            self._event_bus.publish("log", {
+                "type": "LOG", "level": "W", "tick": 0,
+                "message": f"[DBG] Stopped: {msg.get('reason', '?')} at PC=0x{msg.get('pc', 0):08X}",
+                "timestamp": msg.get("timestamp", ""),
+            })
+        elif msg_type == "DBGRUNNING":
+            self._event_bus.publish("dbg_running", msg)
+        elif msg_type == "DBGDETACHED":
+            self._event_bus.publish("dbg_detached", msg)
+        elif msg_type == "BPINFO":
+            self._event_bus.publish("dbg_bpinfo", msg)
+        elif msg_type == "BPLIST":
+            self._event_bus.publish("dbg_bplist", msg)
+        elif msg_type == "DBGREGS":
+            self._event_bus.publish("dbg_regs", msg)
+        elif msg_type == "DBGBT":
+            self._event_bus.publish("dbg_bt", msg)
+        elif msg_type == "DBGSTATE":
+            self._event_bus.publish("dbg_state", msg)
+
         elif msg_type == "CRASH":
             self._state.last_crash = msg
             self._state.add_log({

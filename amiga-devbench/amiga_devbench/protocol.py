@@ -9,7 +9,9 @@ Amiga -> Host: LOG, MEM, VAR, HB, CMD, READY, CLIENTS, TASKS, LIBS,
                STACKINFO, CHIPREGS, REGS, SEARCH, LIBINFO, DEVINFO,
                SNOOP, SNOOPSTATE, LIBFUNCS, CAPABILITIES, PROCLIST,
                PROCSTAT, TAILDATA, CHECKSUM, ASSIGNS, PROTECT,
-               VERSION, ENV, PORTS, SYSINFO, UPTIME
+               VERSION, ENV, PORTS, SYSINFO, UPTIME,
+               DBGSTOP, DBGRUNNING, DBGDETACHED, BPINFO, BPLIST,
+               DBGREGS, DBGBT, DBGSTATE
 Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                LISTTASKS, LISTLIBS, LISTDEVS, LISTDIR, READFILE,
                WRITEFILE, FILEINFO, DELETEFILE, MAKEDIR, LAUNCH,
@@ -23,7 +25,10 @@ Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
                PROCSTAT, SIGNAL, TAIL, STOPTAIL, CHECKSUM, ASSIGNS,
                ASSIGN, PROTECT, RENAME, SETCOMMENT, COPY, APPEND,
                GETENV, SETENV, SETDATE, VOLUMES, PORTS, SYSINFO,
-               UPTIME, VERSION, REBOOT
+               UPTIME, VERSION, REBOOT,
+               DBGATTACH, DBGDETACH, BPSET, BPCLEAR, BPLIST,
+               DBGSTEP, DBGNEXT, DBGCONT, DBGREGS, DBGSETREG,
+               DBGBT, DBGSTATUS
 """
 
 from __future__ import annotations
@@ -386,6 +391,94 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "hstart": _int(parts[4]),
             "attached": _int(parts[5]) != 0,
             "hexData": parts[6],
+        }
+
+    # ---- Debugger messages ----
+
+    if msg_type == "DBGSTOP":
+        # Format: DBGSTOP|reason|pc_hex|sr_hex|D0:D1:...:D7|A0:A1:...:A7[|WARN:...]
+        warnings = [p for p in parts[5:] if p.startswith("WARN:")]
+        return {
+            "type": "DBGSTOP",
+            "reason": parts[1] if len(parts) > 1 else "unknown",
+            "pc": int(parts[2], 16) if len(parts) > 2 else 0,
+            "sr": int(parts[3], 16) if len(parts) > 3 else 0,
+            "dataRegs": [int(x, 16) for x in parts[4].split(":")] if len(parts) > 4 else [],
+            "addrRegs": [int(x, 16) for x in parts[5].split(":")] if len(parts) > 5 and not parts[5].startswith("WARN:") else [],
+            "warnings": [w[5:] for w in warnings],
+            "timestamp": now,
+        }
+
+    if msg_type == "DBGRUNNING":
+        return {"type": "DBGRUNNING", "timestamp": now}
+
+    if msg_type == "DBGDETACHED":
+        return {"type": "DBGDETACHED", "timestamp": now}
+
+    if msg_type == "BPINFO":
+        # Format: BPINFO|id|address|enabled|original_word
+        return {
+            "type": "BPINFO",
+            "id": _int(parts[1]) if len(parts) > 1 else 0,
+            "address": int(parts[2], 16) if len(parts) > 2 else 0,
+            "enabled": _int(parts[3]) != 0 if len(parts) > 3 else False,
+            "originalWord": int(parts[4], 16) if len(parts) > 4 else 0,
+        }
+
+    if msg_type == "BPLIST":
+        # Format: BPLIST|count|id:addr:enabled:orig,...
+        count = _int(parts[1]) if len(parts) > 1 else 0
+        bps: list[dict[str, Any]] = []
+        if len(parts) > 2 and parts[2]:
+            for entry in parts[2].split(","):
+                fields = entry.split(":")
+                if len(fields) >= 4:
+                    bps.append({
+                        "id": _int(fields[0]),
+                        "address": int(fields[1], 16),
+                        "enabled": _int(fields[2]) != 0,
+                        "originalWord": int(fields[3], 16),
+                    })
+        return {"type": "BPLIST", "count": count, "breakpoints": bps}
+
+    if msg_type == "DBGREGS":
+        # Format: DBGREGS|D0:D1:...:D7|A0:A1:...:A7|PC|SR
+        return {
+            "type": "DBGREGS",
+            "dataRegs": [int(x, 16) for x in parts[1].split(":")] if len(parts) > 1 else [],
+            "addrRegs": [int(x, 16) for x in parts[2].split(":")] if len(parts) > 2 else [],
+            "pc": int(parts[3], 16) if len(parts) > 3 else 0,
+            "sr": int(parts[4], 16) if len(parts) > 4 else 0,
+        }
+
+    if msg_type == "DBGBT":
+        # Format: DBGBT|depth|pc0|pc1|...
+        depth = _int(parts[1]) if len(parts) > 1 else 0
+        frames = []
+        for i in range(2, min(len(parts), depth + 2)):
+            try:
+                frames.append({"pc": int(parts[i], 16)})
+            except ValueError:
+                pass
+        return {"type": "DBGBT", "depth": depth, "frames": frames}
+
+    if msg_type == "DBGSTATE":
+        # Format: DBGSTATE|attached|stopped|target_name|pc|bp_count[|BASE:hexaddr]
+        code_base = 0
+        for p in parts[5:]:
+            if p.startswith("BASE:"):
+                try:
+                    code_base = int(p[5:], 16)
+                except ValueError:
+                    pass
+        return {
+            "type": "DBGSTATE",
+            "attached": _int(parts[1]) != 0 if len(parts) > 1 else False,
+            "stopped": _int(parts[2]) != 0 if len(parts) > 2 else False,
+            "targetName": parts[3] if len(parts) > 3 else "",
+            "pc": int(parts[4], 16) if len(parts) > 4 else 0,
+            "bpCount": _int(parts[5]) if len(parts) > 5 else 0,
+            "codeBase": code_base,
         }
 
     if msg_type == "CRASH":
@@ -1159,6 +1252,33 @@ def format_command(cmd: dict[str, Any]) -> str:
         return "VERSION"
     if t == "REBOOT":
         return "REBOOT"
+    # Debugger commands
+    if t == "DBGATTACH":
+        return f"DBGATTACH|{cmd['target']}"
+    if t == "DBGDETACH":
+        return "DBGDETACH"
+    if t == "BPSET":
+        return f"BPSET|{cmd['address']}"
+    if t == "BPCLEAR":
+        return f"BPCLEAR|{cmd['id']}"
+    if t == "BPLIST":
+        return "BPLIST"
+    if t == "DBGSTEP":
+        return "DBGSTEP"
+    if t == "DBGNEXT":
+        return "DBGNEXT"
+    if t == "DBGCONT":
+        return "DBGCONT"
+    if t == "DBGREGS":
+        return "DBGREGS"
+    if t == "DBGSETREG":
+        return f"DBGSETREG|{cmd['reg']}|{cmd['value']}"
+    if t == "DBGBT":
+        return "DBGBT"
+    if t == "DBGSTATUS":
+        return "DBGSTATUS"
+    if t == "DBGBREAK":
+        return "DBGBREAK"
     raise ValueError(f"Unknown command type: {t}")
 
 

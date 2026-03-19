@@ -372,6 +372,32 @@ void protocol_parse_line(const char *line)
         handle_uptime();
     } else if (strcmp(cmd, "REBOOT") == 0) {
         handle_reboot();
+    } else if (strcmp(cmd, "DBGATTACH") == 0) {
+        dbg_handle_attach(args);
+    } else if (strcmp(cmd, "DBGDETACH") == 0) {
+        dbg_handle_detach();
+    } else if (strcmp(cmd, "BPSET") == 0) {
+        dbg_handle_bpset(args);
+    } else if (strcmp(cmd, "BPCLEAR") == 0) {
+        dbg_handle_bpclear(args);
+    } else if (strcmp(cmd, "BPLIST") == 0) {
+        dbg_handle_bplist();
+    } else if (strcmp(cmd, "DBGSTEP") == 0) {
+        dbg_handle_step();
+    } else if (strcmp(cmd, "DBGNEXT") == 0) {
+        dbg_handle_next();
+    } else if (strcmp(cmd, "DBGCONT") == 0) {
+        dbg_handle_continue();
+    } else if (strcmp(cmd, "DBGREGS") == 0) {
+        dbg_handle_regs();
+    } else if (strcmp(cmd, "DBGSETREG") == 0) {
+        dbg_handle_setreg(args);
+    } else if (strcmp(cmd, "DBGBT") == 0) {
+        dbg_handle_backtrace();
+    } else if (strcmp(cmd, "DBGBREAK") == 0) {
+        dbg_handle_break();
+    } else if (strcmp(cmd, "DBGSTATUS") == 0) {
+        dbg_handle_status();
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
         g_shutdown_requested = TRUE;

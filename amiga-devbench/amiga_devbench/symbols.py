@@ -133,6 +133,12 @@ class SymbolTable:
 _tables: dict[str, SymbolTable] = {}
 
 
+_DEPLOY_CANDIDATES = [
+    "/Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/Dropbox/Dev",
+    os.path.expanduser("~/AmiKit/Dropbox/Dev"),
+]
+
+
 def _find_binary(project: str) -> str | None:
     """Find the binary path for a project."""
     candidates = [
@@ -141,6 +147,10 @@ def _find_binary(project: str) -> str | None:
     ]
     if project == "amiga-bridge":
         candidates.append(f"{PROJECT_ROOT}/amiga-bridge/amiga-bridge")
+
+    # Also check deploy directories (binaries deployed to AmiKit shared folder)
+    for deploy_dir in _DEPLOY_CANDIDATES:
+        candidates.append(f"{deploy_dir}/{project}")
 
     for path in candidates:
         if os.path.exists(path):
@@ -392,8 +402,40 @@ def _simplify_type(type_str: str, type_map: dict[str, str] | None = None) -> str
     return f"type({type_str})"
 
 
+async def _run_native_tool(binary_path: str, tool: str, *args: str) -> tuple[int, str, str]:
+    """Run a cross-tools binary natively (no Docker). Returns (returncode, stdout, stderr)."""
+    cmd = [tool, *args, binary_path]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return proc.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+    except FileNotFoundError:
+        return -1, "", f"{tool} not found"
+
+
+async def _run_tool(binary_path: str, tool: str, *args: str) -> tuple[int, str, str]:
+    """Run a cross-tools binary, trying native first then Docker."""
+    # Try native first (faster, no Docker dependency)
+    rc, out, err = await _run_native_tool(binary_path, tool, *args)
+    if rc == 0:
+        return rc, out, err
+
+    # Fall back to Docker
+    try:
+        return await _run_docker_tool(binary_path, tool, *args)
+    except Exception as e:
+        return -1, "", f"Both native and Docker failed: {err}; Docker: {e}"
+
+
 async def load_symbols(project: str) -> SymbolTable:
-    """Load symbols from a compiled binary using Docker nm + objdump --stabs."""
+    """Load symbols from a compiled binary using nm + objdump --stabs.
+
+    Tries native cross-tools first, falls back to Docker.
+    """
     binary_path = _find_binary(project)
     if not binary_path:
         logger.warning("Binary not found for project %s", project)
@@ -403,8 +445,8 @@ async def load_symbols(project: str) -> SymbolTable:
 
     try:
         # Run nm and objdump --stabs in parallel
-        nm_task = _run_docker_tool(binary_path, "m68k-amigaos-nm", "-n")
-        stabs_task = _run_docker_tool(binary_path, "m68k-amigaos-objdump", "--stabs")
+        nm_task = _run_tool(binary_path, "m68k-amigaos-nm", "-n")
+        stabs_task = _run_tool(binary_path, "m68k-amigaos-objdump", "--stabs")
 
         (nm_rc, nm_out, nm_err), (stabs_rc, stabs_out, stabs_err) = await asyncio.gather(
             nm_task, stabs_task

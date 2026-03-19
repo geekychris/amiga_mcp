@@ -251,6 +251,23 @@ int sys_list_assigns(char *buf, int bufSize);
 void sys_handle_assign(const char *args);
 void sys_handle_capabilities(void);
 
+/* ---- debugger.c ---- */
+void dbg_handle_attach(const char *args);
+void dbg_handle_detach(void);
+void dbg_handle_bpset(const char *args);
+void dbg_handle_bpclear(const char *args);
+void dbg_handle_bplist(void);
+void dbg_handle_step(void);
+void dbg_handle_next(void);
+void dbg_handle_continue(void);
+void dbg_handle_regs(void);
+void dbg_handle_setreg(const char *args);
+void dbg_handle_backtrace(void);
+void dbg_poll(void);
+void dbg_handle_break(void);
+void dbg_handle_status(void);
+void dbg_cleanup(void);
+
 /* Tail file streaming */
 extern BOOL g_tail_active;
 extern char g_tail_path[256];

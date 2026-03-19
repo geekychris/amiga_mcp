@@ -31,6 +31,8 @@
 #define ABMSG_HOOK_CALL    24
 #define ABMSG_GET_RESOURCES 25
 #define ABMSG_GET_PERF      26
+#define ABMSG_DEBUG_PAUSE   27   /* Debugger: pause in ab_poll() */
+#define ABMSG_DEBUG_RESUME  28   /* Debugger: resume from pause */
 
 /* Log levels */
 #define AB_DEBUG 0

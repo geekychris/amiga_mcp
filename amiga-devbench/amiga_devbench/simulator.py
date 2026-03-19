@@ -28,6 +28,20 @@ class AmigaSimulator:
         self._free_fast = 1048576
         self._running = True
 
+        # Debugger state
+        self._dbg_attached = False
+        self._dbg_stopped = False
+        self._dbg_paused = False
+        self._dbg_target = ""
+        self._dbg_breakpoints: dict[int, dict] = {}  # id -> {address, original}
+        self._next_bp_id = 0
+        self._dbg_pc = 0x000000d8  # _start
+        # Will be populated from real binary's source line addresses if available
+        self._dbg_code_addrs: list[int] = []
+        self._dbg_code_idx = 0
+        self._send_line = None  # set when client connects
+        self._load_code_addrs()
+
         # Variable registry
         self._vars: dict[str, dict] = {
             "ball_x": {"type": "i32", "get": lambda: str(self._ball_x),
@@ -42,6 +56,54 @@ class AmigaSimulator:
             "free_chip": {"type": "u32", "get": lambda: str(self._free_chip)},
             "free_fast": {"type": "u32", "get": lambda: str(self._free_fast)},
         }
+
+    def _load_code_addrs(self) -> None:
+        """Load code addresses from the real bouncing_ball binary if available."""
+        import subprocess, os
+        # Find the binary
+        candidates = [
+            "/Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/Dropbox/Dev/bouncing_ball",
+            os.path.join(os.getcwd(), "examples/bouncing_ball/bouncing_ball"),
+        ]
+        binary = None
+        for c in candidates:
+            if os.path.isfile(c):
+                binary = c
+                break
+
+        if binary:
+            try:
+                # Extract source line addresses using objdump --stabs
+                result = subprocess.run(
+                    ["m68k-amigaos-objdump", "--stabs", binary],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    addrs = set()
+                    for line in result.stdout.splitlines():
+                        parts = line.split()
+                        # SLINE entries: "N  SLINE  0  linenum  addr  ..."
+                        if len(parts) >= 5 and "SLINE" in line:
+                            try:
+                                addr = int(parts[4], 16)
+                                if addr > 0:
+                                    addrs.add(addr)
+                            except ValueError:
+                                pass
+                    if addrs:
+                        self._dbg_code_addrs = sorted(addrs)
+                        self._dbg_pc = self._dbg_code_addrs[0]
+                        logger.info("Simulator loaded %d code addresses from %s (0x%X-0x%X)",
+                                    len(self._dbg_code_addrs), binary,
+                                    self._dbg_code_addrs[0], self._dbg_code_addrs[-1])
+                        return
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        # Fallback: generate addresses in the typical range
+        logger.info("Simulator using fallback code addresses (no binary found)")
+        self._dbg_code_addrs = [0xd8 + i * 0x10 for i in range(64)]
+        self._dbg_pc = self._dbg_code_addrs[0]
 
     def _get_memory(self, addr: int, size: int) -> str:
         """Generate fake memory contents."""
@@ -117,11 +179,52 @@ class AmigaSimulator:
                 pass
             logger.info("MCP host disconnected")
 
+    def _make_regs_str(self) -> tuple[str, str]:
+        """Generate simulated register strings for DBGSTOP/DBGREGS."""
+        d_regs = ":".join(f"{(self._ball_x + i * 0x100) & 0xFFFFFFFF:08x}" for i in range(8))
+        a_regs = ":".join(f"{0x00200000 + i * 0x1000:08x}" for i in range(8))
+        return d_regs, a_regs
+
+    def _check_breakpoints(self, send_line) -> bool:
+        """Check if current PC hits a breakpoint. Returns True if stopped."""
+        if not self._dbg_attached or self._dbg_paused:
+            return False
+        for bp_id, bp in self._dbg_breakpoints.items():
+            if bp["address"] == self._dbg_pc:
+                self._dbg_stopped = True
+                self._dbg_paused = True
+                d_regs, a_regs = self._make_regs_str()
+                send_line(f"DBGSTOP|breakpoint|{self._dbg_pc:08x}|0000|{d_regs}|{a_regs}")
+                return True
+        return False
+
+    def _advance_pc(self) -> None:
+        """Advance the simulated PC to the next instruction."""
+        self._dbg_code_idx = (self._dbg_code_idx + 1) % len(self._dbg_code_addrs)
+        self._dbg_pc = self._dbg_code_addrs[self._dbg_code_idx]
+
     async def _simulation_loop(self, send_line) -> None:
         """Run the bouncing ball simulation at ~20fps."""
+        self._send_line = send_line
         try:
             while self._running:
                 await asyncio.sleep(0.05)  # ~20fps
+
+                # Pause when debugger has stopped us
+                if self._dbg_paused:
+                    continue
+
+                # Advance simulated PC through many instructions per tick
+                # (a real CPU executes thousands per frame)
+                if self._dbg_attached:
+                    hit = False
+                    for _ in range(len(self._dbg_code_addrs)):
+                        self._advance_pc()
+                        if self._check_breakpoints(send_line):
+                            hit = True
+                            break
+                    if hit:
+                        continue  # stopped on breakpoint
 
                 # Update ball
                 self._ball_x += self._ball_dx
@@ -324,6 +427,136 @@ class AmigaSimulator:
 
         elif cmd == "LISTVOLUMES":
             send_line("VOLUMES|3|System:,Work:,Ram Disk:")
+
+        elif cmd == "DBGATTACH" and len(parts) >= 2:
+            target = parts[1]
+            # Only bouncing_ball is a real bridge client in the simulator
+            if target != "bouncing_ball":
+                send_line(f"ERR|DBGATTACH|task not found: {target}")
+                return
+            self._dbg_attached = True
+            self._dbg_stopped = False
+            self._dbg_paused = False
+            self._dbg_target = target
+            self._dbg_pc = self._dbg_code_addrs[self._dbg_code_idx]
+            send_line(f"DBGSTATE|1|0|{target}|{self._dbg_pc:08x}|0")
+
+        elif cmd == "DBGDETACH":
+            self._dbg_attached = False
+            self._dbg_stopped = False
+            self._dbg_paused = False
+            self._dbg_target = ""
+            send_line("DBGDETACHED")
+
+        elif cmd == "BPSET" and len(parts) >= 2:
+            addr_str = parts[1]
+            try:
+                addr_int = int(addr_str, 16)
+            except ValueError:
+                send_line(f"ERR|BPSET|invalid address: {addr_str}")
+                return
+            bp_id = self._next_bp_id
+            self._next_bp_id += 1
+            self._dbg_breakpoints[bp_id] = {"address": addr_int, "original": 0x4E71}
+            send_line(f"BPINFO|{bp_id}|{addr_int:08x}|1|4E71")
+
+        elif cmd == "BPCLEAR" and len(parts) >= 2:
+            arg = parts[1]
+            # Try as BP id first
+            try:
+                bp_id = int(arg)
+                if bp_id in self._dbg_breakpoints:
+                    del self._dbg_breakpoints[bp_id]
+                    send_line(f"OK|BPCLEAR|{bp_id}")
+                    return
+            except ValueError:
+                pass
+            # Try as address
+            try:
+                addr = int(arg, 16)
+                for bid, bp in list(self._dbg_breakpoints.items()):
+                    if bp["address"] == addr:
+                        del self._dbg_breakpoints[bid]
+                        send_line(f"OK|BPCLEAR|{bid}")
+                        return
+            except ValueError:
+                pass
+            send_line(f"ERR|BPCLEAR|not found: {arg}")
+
+        elif cmd == "BPLIST":
+            count = len(self._dbg_breakpoints)
+            entries = ",".join(
+                f"{bid}:{bp['address']:08x}:1:{bp['original']:04x}"
+                for bid, bp in self._dbg_breakpoints.items()
+            )
+            send_line(f"BPLIST|{count}|{entries}")
+
+        elif cmd == "DBGSTEP":
+            if not self._dbg_attached:
+                send_line("ERR|DBGSTEP|not attached")
+                return
+            # Advance one instruction, run one ball physics cycle
+            self._advance_pc()
+            self._ball_x += self._ball_dx
+            self._ball_y += self._ball_dy
+            if self._ball_x <= 5 or self._ball_x >= 307:
+                self._ball_dx = -self._ball_dx
+            if self._ball_y <= 5 or self._ball_y >= 173:
+                self._ball_dy = -self._ball_dy
+            self._frame_count += 1
+            self._dbg_stopped = True
+            self._dbg_paused = True
+            d_regs, a_regs = self._make_regs_str()
+            send_line(f"DBGSTOP|step|{self._dbg_pc:08x}|0000|{d_regs}|{a_regs}")
+
+        elif cmd == "DBGNEXT":
+            if not self._dbg_attached:
+                send_line("ERR|DBGNEXT|not attached")
+                return
+            for _ in range(3):
+                self._advance_pc()
+            self._dbg_stopped = True
+            self._dbg_paused = True
+            d_regs, a_regs = self._make_regs_str()
+            send_line(f"DBGSTOP|step|{self._dbg_pc:08x}|0000|{d_regs}|{a_regs}")
+
+        elif cmd == "DBGCONT":
+            if not self._dbg_attached:
+                send_line("ERR|DBGCONT|not attached")
+                return
+            self._dbg_stopped = False
+            self._dbg_paused = False
+            send_line("DBGRUNNING")
+
+        elif cmd == "DBGREGS":
+            if not self._dbg_attached:
+                send_line("ERR|DBGREGS|not attached")
+                return
+            d_regs, a_regs = self._make_regs_str()
+            send_line(f"DBGREGS|{d_regs}|{a_regs}|{self._dbg_pc:08x}|0000")
+
+        elif cmd == "DBGSETREG" and len(parts) >= 3:
+            reg = parts[1]
+            val = parts[2]
+            send_line(f"OK|DBGSETREG|{reg}={val}")
+
+        elif cmd == "DBGBT":
+            pc = self._dbg_pc
+            send_line(f"DBGBT| 3|{pc:08x}|{(pc - 0x20) & 0xFFFFFFFF:08x}|{0x000000d8:08x}")
+
+        elif cmd == "DBGBREAK":
+            if not self._dbg_attached:
+                send_line("ERR|DBGBREAK|not attached")
+                return
+            self._dbg_stopped = True
+            self._dbg_paused = True
+            d_regs, a_regs = self._make_regs_str()
+            send_line(f"DBGSTOP|break|{self._dbg_pc:08x}|0000|{d_regs}|{a_regs}")
+
+        elif cmd == "DBGSTATUS":
+            attached = 1 if self._dbg_attached else 0
+            stopped = 1 if self._dbg_stopped else 0
+            send_line(f"DBGSTATE|{attached}|{stopped}|{self._dbg_target}|{self._dbg_pc:08x}|{len(self._dbg_breakpoints)}")
 
         elif cmd == "SHUTDOWN":
             send_line("OK|SHUTDOWN|bye")

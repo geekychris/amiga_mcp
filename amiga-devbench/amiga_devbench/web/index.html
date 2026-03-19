@@ -95,6 +95,8 @@
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
   .tab {
     padding: 8px 20px;
@@ -104,6 +106,8 @@
     border-bottom: 2px solid transparent;
     transition: all 0.2s;
     user-select: none;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }
   .tab.active {
@@ -662,6 +666,7 @@
     <div class="tab" data-tab="transfer">Transfer</div>
     <div class="tab" data-tab="config">Config</div>
     <div class="tab" data-tab="traffic">Traffic</div>
+    <div class="tab" data-tab="debugger">Debugger</div>
   </div>
 
   <!-- Content -->
@@ -1684,6 +1689,77 @@
       </div>
     </div>
 
+    <!-- Debugger -->
+    <div class="tab-panel" id="panel-debugger">
+      <!-- Row 1: Attach + Load Symbols -->
+      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;">
+        <input id="dbgTarget" type="text" placeholder="Task name or hex address" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:180px;">
+        <button class="btn" id="dbgAttachBtn" onclick="dbgAttach()">Attach</button>
+        <button class="btn" id="dbgDetachBtn" onclick="dbgDetach()" disabled>Detach</button>
+        <div style="border-left:1px solid var(--border);height:20px;margin:0 4px;"></div>
+        <input id="dbgSymProject" type="text" placeholder="Project (e.g. bouncing_ball)" value="bouncing_ball" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:160px;">
+        <button class="btn" onclick="dbgLoadSymbols()">Load Symbols</button>
+        <span id="dbgSymStatus" style="font-size:11px;color:var(--text-dim);"></span>
+      </div>
+      <!-- Row 2: Run controls -->
+      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+        <button class="btn" id="dbgContBtn" onclick="dbgContinue()" disabled title="F5">&#9654; Continue</button>
+        <button class="btn" id="dbgBreakBtn" onclick="dbgBreak()" disabled title="F9">&#9632; Break</button>
+        <button class="btn" id="dbgStepBtn" onclick="dbgStep()" disabled title="F11">&#8615; Step Into</button>
+        <button class="btn" id="dbgNextBtn" onclick="dbgNext()" disabled title="F10">&#8618; Step Over</button>
+        <div style="margin-left:auto;font-size:12px;">
+          <span id="dbgStatus" style="color:var(--text-dim);">Detached</span>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;height:calc(100vh - 195px);">
+        <!-- Left: Source viewer -->
+        <div style="flex:0 0 55%;display:flex;flex-direction:column;overflow:hidden;">
+          <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+            <select id="dbgSourceFile" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:3px 6px;font-size:11px;flex:1;" onchange="dbgLoadSourceFile()">
+              <option value="">(load symbols to see source files)</option>
+            </select>
+          </div>
+          <div id="dbgSourceView" style="flex:1;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;font-family:monospace;font-size:12px;line-height:1.5;padding:0;cursor:default;">
+            <div style="padding:20px;color:var(--text-dim);text-align:center;">Load symbols for a project to view source files.<br>Click line numbers in the gutter to set breakpoints.</div>
+          </div>
+        </div>
+
+        <!-- Right panels -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px;overflow:hidden;">
+          <!-- Registers -->
+          <div style="flex:0 0 auto;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;">
+            <div style="font-size:11px;font-weight:bold;color:var(--text-dim);margin-bottom:4px;">REGISTERS</div>
+            <div id="dbgRegs" style="font-family:monospace;font-size:11px;line-height:1.5;">
+              <div style="color:var(--text-dim);">Attach and break to view registers</div>
+            </div>
+          </div>
+
+          <!-- Call Stack -->
+          <div style="flex:0 0 auto;max-height:25%;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;">
+            <div style="font-size:11px;font-weight:bold;color:var(--text-dim);margin-bottom:4px;">CALL STACK</div>
+            <div id="dbgCallStack" style="font-family:monospace;font-size:11px;line-height:1.5;color:var(--text-dim);">Not available</div>
+          </div>
+
+          <!-- Variables -->
+          <div style="flex:0 0 auto;max-height:30%;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;">
+            <div style="font-size:11px;font-weight:bold;color:var(--text-dim);margin-bottom:4px;">VARIABLES</div>
+            <div id="dbgVars" style="font-family:monospace;font-size:11px;color:var(--text-dim);">Break to inspect variables</div>
+          </div>
+
+          <!-- Breakpoints -->
+          <div style="flex:1;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:8px;">
+            <div style="font-size:11px;font-weight:bold;color:var(--text-dim);margin-bottom:4px;">BREAKPOINTS</div>
+            <div style="margin-bottom:6px;display:flex;gap:4px;">
+              <input id="dbgBpAddr" type="text" placeholder="Address or function name" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:3px 6px;font-size:11px;flex:1;">
+              <button class="btn" onclick="dbgAddBp()" style="font-size:11px;padding:3px 8px;">Add</button>
+            </div>
+            <div id="dbgBpList" style="font-family:monospace;font-size:11px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 <script>
@@ -1840,6 +1916,17 @@ function connectSSE() {
     const msgEl = document.getElementById('portConflictMsg');
     banner.style.display = 'block';
     msgEl.textContent = data.message;
+  });
+
+  // Debugger events
+  eventSource.addEventListener('dbg_stop', (e) => {
+    dbgHandleSSE('dbg_stop', JSON.parse(e.data));
+  });
+  eventSource.addEventListener('dbg_running', (e) => {
+    dbgHandleSSE('dbg_running', JSON.parse(e.data));
+  });
+  eventSource.addEventListener('dbg_detached', (e) => {
+    dbgHandleSSE('dbg_detached', JSON.parse(e.data));
   });
 
   eventSource.onerror = () => {
@@ -5586,6 +5673,484 @@ function showAbout() {
     </div>
   `;
   document.body.appendChild(overlay);
+}
+
+// ─── Debugger ───
+const dbgState = { attached: false, stopped: false, targetName: '', regs: null, breakpoints: [], backtrace: [], sourceFile: '', sourceLines: [], bpLines: {}, gutterBps: new Set() };
+
+function dbgSetButtons(attached, stopped) {
+  document.getElementById('dbgAttachBtn').disabled = attached;
+  document.getElementById('dbgDetachBtn').disabled = !attached;
+  document.getElementById('dbgContBtn').disabled = !(attached && stopped);
+  document.getElementById('dbgBreakBtn').disabled = !(attached && !stopped);
+  document.getElementById('dbgStepBtn').disabled = !(attached && stopped);
+  document.getElementById('dbgNextBtn').disabled = !(attached && stopped);
+  document.getElementById('dbgTarget').disabled = attached;
+}
+
+async function dbgAttach() {
+  const target = document.getElementById('dbgTarget').value.trim();
+  if (!target) return;
+  try {
+    const r = await api('/debugger/attach', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({target}) });
+    if (r.error) { alert('Attach failed: ' + r.error); return; }
+    dbgState.attached = r.attached;
+    dbgState.targetName = r.targetName || target;
+    dbgSetButtons(true, false);
+    document.getElementById('dbgStatus').textContent = 'Running: ' + dbgState.targetName;
+    document.getElementById('dbgStatus').style.color = 'var(--accent-green)';
+    // Send any pending gutter breakpoints (best-effort)
+    for (const lineNum of dbgState.gutterBps) {
+      const addr = dbgState.bpLines[String(lineNum)];
+      if (addr) {
+        const addrHex = addr.toString(16).padStart(8, '0');
+        try {
+          await api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) });
+        } catch(e) { console.warn('Failed to send BP:', e); }
+      }
+    }
+    dbgRefreshBpList();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function dbgDetach() {
+  try {
+    await api('/debugger/detach', { method: 'POST' });
+    dbgState.attached = false;
+    dbgState.stopped = false;
+    dbgSetButtons(false, false);
+    document.getElementById('dbgStatus').textContent = 'Detached';
+    document.getElementById('dbgStatus').style.color = 'var(--text-dim)';
+    document.getElementById('dbgRegs').innerHTML = '<div style="color:var(--text-dim);">Attach and break to view registers</div>';
+    document.getElementById('dbgCallStack').innerHTML = '<div style="color:var(--text-dim);">Not available</div>';
+    document.getElementById('dbgBpList').innerHTML = '';
+  } catch(e) { console.error(e); }
+}
+
+async function dbgBreak() {
+  document.getElementById('dbgStatus').textContent = 'Breaking...';
+  document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
+  try {
+    const r = await api('/debugger/break', { method: 'POST' });
+    if (r.error) { alert('Break failed: ' + r.error); return; }
+    if (r.stopped) dbgOnStop(r);
+  } catch(e) { console.error(e); }
+}
+
+async function dbgStep() {
+  dbgSetButtons(true, false);
+  document.getElementById('dbgStatus').textContent = 'Stepping...';
+  document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
+  try {
+    const r = await api('/debugger/step', { method: 'POST' });
+    if (r.stopped) dbgOnStop(r);
+  } catch(e) { console.error(e); }
+}
+
+async function dbgNext() {
+  dbgSetButtons(true, false);
+  document.getElementById('dbgStatus').textContent = 'Stepping over...';
+  document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
+  try {
+    const r = await api('/debugger/next', { method: 'POST' });
+    if (r.stopped) dbgOnStop(r);
+  } catch(e) { console.error(e); }
+}
+
+async function dbgContinue() {
+  dbgSetButtons(true, false);
+  document.getElementById('dbgStatus').textContent = 'Running';
+  document.getElementById('dbgStatus').style.color = 'var(--accent-green)';
+  try { await api('/debugger/continue', { method: 'POST' }); } catch(e) { console.error(e); }
+}
+
+async function dbgLoadSymbols() {
+  const project = document.getElementById('dbgSymProject').value.trim();
+  if (!project) return;
+  document.getElementById('dbgSymStatus').textContent = 'Loading...';
+
+  // Try to load debug symbols via Docker (needs cross-tools)
+  let symbolsLoaded = false;
+  try {
+    const r = await api('/symbols/load', { method: 'POST', body: JSON.stringify({ project }) });
+    if (!r.error) {
+      document.getElementById('dbgSymStatus').textContent = `${r.functions} funcs, ${r.sourceLines} src lines`;
+      document.getElementById('dbgSymStatus').style.color = 'var(--accent-green)';
+      symbolsLoaded = true;
+    }
+  } catch(e) { /* Docker not available */ }
+
+  // Always populate source file list (falls back to scanning disk)
+  try {
+    const srcR = await api(`/debugger/sources?project=${encodeURIComponent(project)}`);
+    const sel = document.getElementById('dbgSourceFile');
+    sel.innerHTML = '<option value="">(select source file)</option>';
+    if (srcR.sources && srcR.sources.length > 0) {
+      srcR.sources.forEach(s => {
+        const basename = s.file.split('/').pop();
+        sel.innerHTML += `<option value="${s.file}">${basename} (${s.mappedLines} lines)</option>`;
+      });
+      if (!symbolsLoaded) {
+        document.getElementById('dbgSymStatus').textContent = `${srcR.sources.length} source file(s) found (no debug symbols - Docker needed)`;
+        document.getElementById('dbgSymStatus').style.color = 'var(--accent-orange)';
+      }
+    } else {
+      document.getElementById('dbgSymStatus').textContent = 'No source files found for project "' + project + '"';
+      document.getElementById('dbgSymStatus').style.color = '#ff6b6b';
+    }
+  } catch(e) {
+    if (!symbolsLoaded) {
+      document.getElementById('dbgSymStatus').textContent = 'Error: ' + e.message;
+      document.getElementById('dbgSymStatus').style.color = '#ff6b6b';
+    }
+  }
+}
+
+async function dbgLoadSourceFile() {
+  const file = document.getElementById('dbgSourceFile').value;
+  if (!file) return;
+  const project = document.getElementById('dbgSymProject').value.trim();
+  try {
+    const r = await api(`/debugger/source/file?file=${encodeURIComponent(file)}&project=${encodeURIComponent(project)}`);
+    if (r.error) {
+      document.getElementById('dbgSourceView').innerHTML = `<div style="padding:20px;color:var(--text-dim);text-align:center;">${r.error}</div>`;
+      return;
+    }
+    dbgState.sourceFile = file;
+    dbgState.sourceLines = r.lines || [];
+    dbgState.bpLines = r.breakpointLines || {};
+    dbgRenderSource(0);
+  } catch(e) { console.error(e); }
+}
+
+function dbgRenderSource(highlightLine) {
+  const lines = dbgState.sourceLines;
+  if (!lines.length) return;
+  const bpLines = dbgState.bpLines;
+  const bpCount = Object.keys(bpLines).length;
+  console.log('[DBG] Rendering source:', lines.length, 'lines,', bpCount, 'breakpoint-able lines');
+  let html = `<div style="padding:4px 8px;background:var(--bg-primary);border-bottom:1px solid var(--border);color:var(--accent-blue);font-size:11px;">${dbgState.sourceFile}</div>`;
+  lines.forEach((line, idx) => {
+    const lineNum = idx + 1;
+    const isCurrent = lineNum === highlightLine;
+    const bg = isCurrent ? 'background:rgba(224,112,32,0.2);' : '';
+    const hasBpAddr = bpLines[String(lineNum)];
+    const hasBp = dbgState.gutterBps.has(lineNum);
+    // Gutter: red dot if BP set, gray dot if BP-able, empty otherwise
+    let gutter;
+    if (hasBp) {
+      gutter = `<span class="dbg-gutter" data-line="${lineNum}" style="color:#e03030;cursor:pointer;" onclick="dbgToggleGutterBp(${lineNum})">\u25CF</span>`;
+    } else if (hasBpAddr) {
+      gutter = `<span class="dbg-gutter" data-line="${lineNum}" style="color:#666;cursor:pointer;" onclick="dbgToggleGutterBp(${lineNum})" title="Click to set breakpoint">\u25CB</span>`;
+    } else {
+      gutter = `<span style="display:inline-block;width:12px;"> </span>`;
+    }
+    const marker = isCurrent ? `<span style="color:var(--accent-orange);">\u25B6</span>` : ' ';
+    const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    html += `<div id="dbg-line-${lineNum}" style="${bg}padding:0 8px;white-space:pre;">${gutter}<span style="color:var(--text-dim);display:inline-block;width:36px;text-align:right;margin-right:6px;">${lineNum}</span>${marker} ${escaped}</div>`;
+  });
+  document.getElementById('dbgSourceView').innerHTML = html;
+  // Scroll to highlighted line
+  if (highlightLine > 0) {
+    const el = document.getElementById('dbg-line-' + highlightLine);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
+async function dbgToggleGutterBp(lineNum) {
+  const addr = dbgState.bpLines[String(lineNum)];
+  if (!addr) return;
+  const addrHex = addr.toString(16).padStart(8, '0');
+  if (dbgState.gutterBps.has(lineNum)) {
+    // Remove BP
+    if (dbgState.attached) {
+      await api('/debugger/breakpoints/clear', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id: addrHex}) });
+    }
+    dbgState.gutterBps.delete(lineNum);
+  } else {
+    // Set BP - track locally first, send to bridge if attached
+    dbgState.gutterBps.add(lineNum);
+    if (dbgState.attached) {
+      const r = await api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) });
+      if (r.error) {
+        console.warn('BP set error:', r.error, '(keeping local marker)');
+      }
+    }
+  }
+  dbgRenderSource(0);
+  dbgRefreshBpList();
+}
+
+function dbgOnStop(data) {
+  dbgState.stopped = true;
+  dbgState.regs = data.regs;
+  if (data.codeBase) dbgState.codeBase = data.codeBase;
+  dbgSetButtons(true, true);
+
+  const pc = data.pc || (data.regs && data.regs.pc) || 0;
+  const codeBase = dbgState.codeBase || data.codeBase || 0;
+  const relPC = codeBase > 0 && pc >= codeBase ? pc - codeBase : pc;
+  const reason = data.stopReason || 'stopped';
+
+  // Find which source line this PC corresponds to
+  let lineInfo = '';
+  let hitLine = 0;
+  if (dbgState.bpLines) {
+    // Find closest line at or before the PC
+    let bestLine = 0, bestAddr = 0;
+    for (const [line, addr] of Object.entries(dbgState.bpLines)) {
+      if (addr <= relPC && addr > bestAddr) { bestAddr = addr; bestLine = parseInt(line); }
+    }
+    if (bestLine > 0 && (relPC - bestAddr) < 16) {
+      lineInfo = ` (line ${bestLine})`;
+      hitLine = bestLine;
+    }
+    // Check if it's an exact BP hit
+    if (dbgState.gutterBps.has(hitLine)) {
+      lineInfo += ' \u25CF';  // dot marker for BP hit
+    }
+  }
+  dbgState.hitLine = hitLine;
+
+  document.getElementById('dbgStatus').textContent = `Stopped: ${reason} at 0x${relPC.toString(16).toUpperCase().padStart(4,'0')}${lineInfo}`;
+  document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
+
+  // Update registers
+  if (data.regs) dbgRenderRegs(data);
+
+  // Show source at PC
+  dbgLoadSourceForPC(pc);
+  // Load backtrace
+  dbgLoadBacktrace();
+  // Refresh BP list
+  dbgRefreshBpList();
+  // Load variables
+  dbgLoadVariables();
+}
+
+function dbgRenderRegs(data) {
+  const changed = new Set(data.changedRegs || []);
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 12px;">';
+  for (let i = 0; i < 8; i++) {
+    const dv = (data.regs.data[i] || 0).toString(16).toUpperCase().padStart(8, '0');
+    const av = (data.regs.addr[i] || 0).toString(16).toUpperCase().padStart(8, '0');
+    const dc = changed.has(i) ? 'color:var(--accent-orange);font-weight:bold;' : '';
+    const ac = changed.has(8+i) ? 'color:var(--accent-orange);font-weight:bold;' : '';
+    html += `<div><span style="color:var(--text-dim);">D${i}</span> <span style="${dc}">${dv}</span></div>`;
+    html += `<div><span style="color:var(--text-dim);">A${i}</span> <span style="${ac}">${av}</span></div>`;
+  }
+  html += '</div>';
+  const pcv = (data.regs.pc || 0).toString(16).toUpperCase().padStart(8, '0');
+  const srv = (data.regs.sr || 0).toString(16).toUpperCase().padStart(4, '0');
+  const pcc = changed.has(16) ? 'color:var(--accent-orange);font-weight:bold;' : '';
+  const src2 = changed.has(17) ? 'color:var(--accent-orange);font-weight:bold;' : '';
+  const flags = dbgDecodeSR(data.regs.sr || 0);
+  html += `<div style="margin-top:3px;border-top:1px solid var(--border);padding-top:3px;">`;
+  html += `<span style="color:var(--text-dim);">PC</span> <span style="${pcc}">${pcv}</span>  `;
+  html += `<span style="color:var(--text-dim);">SR</span> <span style="${src2}">${srv}</span>  `;
+  html += `<span style="color:var(--text-dim);font-size:10px;">[${flags}]</span></div>`;
+  if (data.warnings && data.warnings.length > 0) {
+    html += `<div style="margin-top:3px;color:#ff6b6b;font-size:10px;">${data.warnings.join(', ')}</div>`;
+  }
+  document.getElementById('dbgRegs').innerHTML = html;
+}
+
+function dbgDecodeSR(sr) {
+  const bits = [[15,'T'],[13,'S'],[12,'M'],[4,'X'],[3,'N'],[2,'Z'],[1,'V'],[0,'C']];
+  return bits.map(([bit, name]) => (sr & (1 << bit)) ? name : '-').join(' ');
+}
+
+async function dbgLoadSourceForPC(pc) {
+  if (!pc) return;
+  const project = document.getElementById('dbgSymProject').value.trim();
+  try {
+    const r = await api(`/debugger/source?pc=${pc.toString(16)}&context=200&project=${encodeURIComponent(project)}`);
+    if (r.lines && r.file) {
+      // Load the full file if not already loaded, then highlight the line
+      if (r.file !== dbgState.sourceFile) {
+        const fileR = await api(`/debugger/source/file?file=${encodeURIComponent(r.file)}&project=${encodeURIComponent(project)}`);
+        if (fileR.lines) {
+          dbgState.sourceFile = r.file;
+          dbgState.sourceLines = fileR.lines;
+          dbgState.bpLines = fileR.breakpointLines || {};
+          // Update dropdown
+          const sel = document.getElementById('dbgSourceFile');
+          let found = false;
+          for (const opt of sel.options) { if (opt.value === r.file) { found = true; sel.value = r.file; break; } }
+          if (!found) {
+            const basename = r.file.split('/').pop();
+            sel.innerHTML += `<option value="${r.file}">${basename}</option>`;
+            sel.value = r.file;
+          }
+        }
+      }
+      dbgRenderSource(r.line);
+    }
+  } catch(e) { /* no source mapping, that's ok */ }
+}
+
+async function dbgLoadBacktrace() {
+  try {
+    const r = await api('/debugger/backtrace');
+    if (r.frames && r.frames.length > 0) {
+      let html = '';
+      r.frames.forEach(f => {
+        const sym = f.symbol ? ` <span style="color:var(--accent-blue);">&lt;${f.symbol}&gt;</span>` : '';
+        const src = f.file ? ` <span style="color:var(--text-dim);font-size:10px;">${f.file.split('/').pop()}:${f.line}</span>` : '';
+        const style = f.depth === 0 ? 'color:var(--accent-orange);font-weight:bold;' : '';
+        html += `<div style="${style}cursor:pointer;padding:1px 0;" onclick="dbgLoadSourceForPC(0x${f.pcHex})">#${f.depth} 0x${f.pcHex}${sym}${src}</div>`;
+      });
+      document.getElementById('dbgCallStack').innerHTML = html;
+    } else {
+      document.getElementById('dbgCallStack').innerHTML = '<div style="color:var(--text-dim);">No frames</div>';
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function dbgAddBp() {
+  const addr = document.getElementById('dbgBpAddr').value.trim();
+  if (!addr) return;
+  try {
+    const r = await api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addr}) });
+    if (r.error) { alert(r.error); return; }
+    document.getElementById('dbgBpAddr').value = '';
+    dbgRefreshBpList();
+  } catch(e) { alert(e.message); }
+}
+
+async function dbgRemoveBp(id) {
+  try {
+    await api('/debugger/breakpoints/clear', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id}) });
+    dbgRefreshBpList();
+  } catch(e) { console.error(e); }
+}
+
+async function dbgRefreshBpList() {
+  const localBps = [];
+  for (const lineNum of dbgState.gutterBps) {
+    const addr = dbgState.bpLines[String(lineNum)];
+    if (addr) localBps.push({ lineNum, addr });
+  }
+
+  if (localBps.length === 0) {
+    document.getElementById('dbgBpList').innerHTML = '<div style="color:var(--text-dim);font-size:11px;">Click line numbers in source to set breakpoints</div>';
+    return;
+  }
+
+  const hitLine = dbgState.hitLine || 0;
+
+  let html = '';
+  localBps.forEach(bp => {
+    const addrHex = bp.addr.toString(16).toUpperCase().padStart(4, '0');
+    const isHit = dbgState.stopped && bp.lineNum === hitLine;
+    const hitStyle = isHit ? 'background:rgba(224,112,32,0.15);font-weight:bold;' : '';
+    const hitMarker = isHit ? ' \u25C0 HIT' : '';
+    html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:3px;${hitStyle}">
+      <span style="color:#e07020;">\u25CF</span>
+      <span>Line ${bp.lineNum}</span>
+      <span style="color:var(--text-dim);">0x${addrHex}</span>
+      <span style="color:var(--accent-orange);">${hitMarker}</span>
+      <button class="btn" onclick="dbgToggleGutterBp(${bp.lineNum})" style="font-size:10px;padding:1px 6px;margin-left:auto;">x</button>
+    </div>`;
+  });
+  document.getElementById('dbgBpList').innerHTML = html;
+}
+
+// Keyboard shortcuts for debugger
+document.addEventListener('keydown', (e) => {
+  const panel = document.getElementById('panel-debugger');
+  if (!panel || !panel.classList.contains('active')) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  if (e.key === 'F5') { e.preventDefault(); if (dbgState.stopped) dbgContinue(); }
+  if (e.key === 'F9') { e.preventDefault(); if (dbgState.attached && !dbgState.stopped) dbgBreak(); }
+  if (e.key === 'F10') { e.preventDefault(); if (dbgState.stopped) dbgNext(); }
+  if (e.key === 'F11') { e.preventDefault(); if (dbgState.stopped) dbgStep(); }
+});
+
+// Load registered variables when stopped - fetch LIVE values via GETVAR
+async function dbgLoadVariables() {
+  const el = document.getElementById('dbgVars');
+  if (!dbgState.attached || !dbgState.stopped) {
+    el.innerHTML = '<div style="color:var(--text-dim);">Break to inspect variables</div>';
+    return;
+  }
+
+  el.innerHTML = '<div style="color:var(--text-dim);">Reading variables...</div>';
+
+  try {
+    // Get cached var list to know the names
+    const cached = await api('/vars');
+    const varList = (cached && cached.vars) ? cached.vars : [];
+
+    // Extract unique short names (strip "client." prefix)
+    const names = [];
+    for (const v of varList) {
+      let name = v.name || '';
+      // Strip client prefix like "bouncing_ball."
+      const dot = name.indexOf('.');
+      if (dot >= 0) name = name.substring(dot + 1);
+      if (name && !names.includes(name)) names.push(name);
+    }
+
+    if (names.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-dim);">No variables registered</div>';
+      return;
+    }
+
+    // Fetch fresh values via GETVAR for each variable
+    let html = '';
+    const prevVals = dbgState.prevVarValues || {};
+    const newVals = {};
+
+    for (const name of names) {
+      try {
+        // Send raw GETVAR and wait for response
+        const r = await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `GETVAR|${name}`}) });
+        const resp = r.response || '';
+        // Parse: [VAR] {"type":"VAR","name":"...","varType":"...","value":"..."}
+        const m = resp.match(/"value":\s*"([^"]*)"/);
+        const val = m ? m[1] : '?';
+        const tm = resp.match(/"varType":\s*"([^"]*)"/);
+        const type = tm ? tm[1] : '';
+        newVals[name] = val;
+
+        const changed = prevVals[name] !== undefined && prevVals[name] !== val;
+        const valStyle = changed ? 'color:var(--accent-orange);font-weight:bold;' : 'color:var(--text-primary);';
+        html += `<div style="padding:1px 0;">
+          <span style="color:var(--accent-blue);">${name}</span>
+          <span style="color:var(--text-dim);font-size:10px;"> ${type}</span>
+          <span style="color:var(--text-dim);"> = </span>
+          <span style="${valStyle}">${val}</span>
+        </div>`;
+      } catch(e) {
+        html += `<div style="padding:1px 0;"><span style="color:var(--accent-blue);">${name}</span> <span style="color:var(--text-dim);">= ?</span></div>`;
+      }
+    }
+
+    dbgState.prevVarValues = newVals;
+    el.innerHTML = html || '<div style="color:var(--text-dim);">No variables</div>';
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--text-dim);">Error: ' + e.message + '</div>';
+  }
+}
+
+// SSE event handlers for debugger
+function dbgHandleSSE(event, data) {
+  if (event === 'dbg_stop') {
+    dbgOnStop(data);
+  } else if (event === 'dbg_running') {
+    dbgState.stopped = false;
+    dbgSetButtons(true, false);
+    document.getElementById('dbgStatus').textContent = 'Running';
+    document.getElementById('dbgStatus').style.color = 'var(--accent-green)';
+  } else if (event === 'dbg_detached') {
+    dbgState.attached = false;
+    dbgState.stopped = false;
+    dbgSetButtons(false, false);
+    document.getElementById('dbgStatus').textContent = 'Detached';
+    document.getElementById('dbgStatus').style.color = 'var(--text-dim)';
+  }
 }
 </script>
 </body>

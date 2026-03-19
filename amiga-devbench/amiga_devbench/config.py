@@ -43,6 +43,9 @@ class DevBenchConfig:
     # Bridge options
     crash_handler_auto_enable: bool = True
 
+    # GDB RSP server
+    gdb_port: int = 2159
+
     # Simulator mode
     simulator: bool = False
 

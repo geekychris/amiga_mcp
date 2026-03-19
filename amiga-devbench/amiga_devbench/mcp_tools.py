@@ -11,6 +11,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .protocol import format_hex_dump, level_name
+from .debugger import DebuggerState, annotate_with_symbols
 from .disasm import disassemble_hex, format_listing
 from .state import AmigaState, EventBus
 from .serial_conn import SerialConnection
@@ -29,6 +30,7 @@ _state: AmigaState | None = None
 _builder: Builder | None = None
 _deployer: Deployer | None = None
 _event_bus: EventBus | None = None
+_dbg_state: DebuggerState | None = None
 
 mcp = FastMCP("amiga-dev")
 
@@ -2272,3 +2274,298 @@ async def amiga_shutdown() -> str:
     if ok:
         return "AmigaBridge daemon shutting down"
     return "Shutdown command sent (no confirmation)"
+
+
+# ─── Debugger Tools ───
+
+def _require_dbg() -> DebuggerState:
+    global _dbg_state
+    if _dbg_state is None:
+        _dbg_state = DebuggerState()
+    return _dbg_state
+
+
+@mcp.tool()
+async def amiga_debug_attach(target: str) -> str:
+    """Attach the remote debugger to an Amiga task by name or hex address.
+
+    Args:
+        target: Task name (e.g. 'bouncing_ball') or hex address (e.g. '0x00207a00')
+    """
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    # Subscribe before sending to avoid race
+    async with bus.subscribe("dbg_state", "err") as queue:
+        conn.send({"type": "DBGATTACH", "target": target})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "DBGATTACH" in data.get("context", ""):
+                    return f"Attach failed: {data.get('message', '?')}"
+                if evt == "dbg_state":
+                    dbg.update_from_state(data)
+                    return f"Attached to '{dbg.target_name}' — debugger ready"
+            except asyncio.TimeoutError:
+                break
+
+    return "Attach sent (no confirmation received)"
+
+
+@mcp.tool()
+async def amiga_debug_detach() -> str:
+    """Detach the remote debugger, restoring all breakpoints and resuming the target."""
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    async with bus.subscribe("dbg_detached") as queue:
+        conn.send({"type": "DBGDETACH"})
+        try:
+            await asyncio.wait_for(queue.get(), timeout=5.0)
+            msg = True
+        except asyncio.TimeoutError:
+            msg = False
+    dbg.reset()
+    return "Debugger detached" if msg else "Detach sent"
+
+
+@mcp.tool()
+async def amiga_set_breakpoint(address: str, project: str | None = None) -> str:
+    """Set a breakpoint at a hex address or symbol name.
+
+    Args:
+        address: Hex address (e.g. '00207a00') or function name to resolve via symbols
+        project: Project name for symbol resolution (optional)
+    """
+    conn, state, bus = _require_connected()
+
+    # Try to resolve symbol name to address
+    resolved_addr = address
+    if not all(c in "0123456789abcdefABCDEF" for c in address):
+        try:
+            from .symbols import _loaded_tables
+            for proj_name, sym_table in _loaded_tables.items():
+                if project and proj_name != project:
+                    continue
+                for sym in sym_table.symbols:
+                    if sym.name == address:
+                        resolved_addr = f"{sym.address:08x}"
+                        break
+                if resolved_addr != address:
+                    break
+        except Exception:
+            pass
+        if resolved_addr == address:
+            return f"Symbol '{address}' not found. Use hex address or load symbols first."
+
+    async with bus.subscribe("dbg_bpinfo", "err") as queue:
+        conn.send({"type": "BPSET", "address": resolved_addr})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "err" and "BPSET" in data.get("context", ""):
+                    return f"Failed: {data.get('message', '?')}"
+                if evt == "dbg_bpinfo":
+                    addr = data.get("address", 0)
+                    bp_id = data.get("id", 0)
+                    sym_info = ""
+                    if resolved_addr != address:
+                        sym_info = f" ({address})"
+                    return f"Breakpoint #{bp_id} set at 0x{addr:08X}{sym_info}"
+            except asyncio.TimeoutError:
+                break
+
+    return "Breakpoint command sent (no confirmation)"
+
+
+@mcp.tool()
+async def amiga_clear_breakpoint(id_or_address: str) -> str:
+    """Remove a breakpoint by ID number or hex address.
+
+    Args:
+        id_or_address: Breakpoint ID (e.g. '0') or hex address (e.g. '00207a00')
+    """
+    conn, state, bus = _require_connected()
+    async with bus.subscribe("ok", "err") as queue:
+        conn.send({"type": "BPCLEAR", "id": id_or_address})
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "ok" and "BPCLEAR" in data.get("context", ""):
+                    return "Breakpoint cleared"
+                if evt == "err" and "BPCLEAR" in data.get("context", ""):
+                    return f"Failed: {data.get('message', '?')}"
+            except asyncio.TimeoutError:
+                break
+    return "Clear command sent"
+
+
+@mcp.tool()
+async def amiga_list_breakpoints() -> str:
+    """List all active breakpoints."""
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    msg = None
+    async with bus.subscribe("dbg_bplist") as queue:
+        conn.send({"type": "BPLIST"})
+        try:
+            _, msg = await asyncio.wait_for(queue.get(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pass
+    if msg:
+        bps = msg.get("breakpoints", [])
+        if not bps:
+            return "No breakpoints set"
+        lines = [f"Breakpoints ({len(bps)}):"]
+        for bp in bps:
+            addr = bp.get("address", 0)
+            bp_id = bp.get("id", 0)
+            enabled = "enabled" if bp.get("enabled") else "disabled"
+            lines.append(f"  #{bp_id}  0x{addr:08X}  [{enabled}]  orig=0x{bp.get('originalWord', 0):04X}")
+        return "\n".join(lines)
+    return "No response"
+
+
+@mcp.tool()
+async def amiga_step() -> str:
+    """Single-step one instruction. Returns registers and source location after step."""
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    msg = None
+    async with bus.subscribe("dbg_stop") as queue:
+        conn.send({"type": "DBGSTEP"})
+        try:
+            _, msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+        except asyncio.TimeoutError:
+            pass
+    if msg:
+        dbg.update_from_stop(msg)
+        result = f"Stopped: {dbg.stop_reason} at PC=0x{dbg.pc:08X}\n\n"
+        result += dbg.format_regs()
+        # Try source annotation
+        try:
+            from .symbols import _loaded_tables
+            if _loaded_tables:
+                sym_table = list(_loaded_tables.values())[0]
+                sym = sym_table.lookup_address(dbg.pc)
+                src = sym_table.lookup_source_line(dbg.pc)
+                if sym:
+                    result += f"\n\nSymbol: {sym}"
+                if src:
+                    result += f"\nSource: {src[0]}:{src[1]}"
+        except Exception:
+            pass
+        if dbg.warnings:
+            result += "\n\nWarnings: " + ", ".join(dbg.warnings)
+        return result
+    return "Step sent (no stop received — target may still be running)"
+
+
+@mcp.tool()
+async def amiga_next() -> str:
+    """Step over a function call. Returns registers and source location."""
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    msg = None
+    async with bus.subscribe("dbg_stop") as queue:
+        conn.send({"type": "DBGNEXT"})
+        try:
+            _, msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+        except asyncio.TimeoutError:
+            pass
+    if msg:
+        dbg.update_from_stop(msg)
+        result = f"Stopped: {dbg.stop_reason} at PC=0x{dbg.pc:08X}\n\n"
+        result += dbg.format_regs()
+        try:
+            from .symbols import _loaded_tables
+            if _loaded_tables:
+                sym_table = list(_loaded_tables.values())[0]
+                sym = sym_table.lookup_address(dbg.pc)
+                src = sym_table.lookup_source_line(dbg.pc)
+                if sym:
+                    result += f"\n\nSymbol: {sym}"
+                if src:
+                    result += f"\nSource: {src[0]}:{src[1]}"
+        except Exception:
+            pass
+        if dbg.warnings:
+            result += "\n\nWarnings: " + ", ".join(dbg.warnings)
+        return result
+    return "Next sent (no stop received)"
+
+
+@mcp.tool()
+async def amiga_continue() -> str:
+    """Resume execution until the next breakpoint is hit."""
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    # Subscribe before sending to avoid race
+    async with bus.subscribe("dbg_running", "dbg_stop") as queue:
+        conn.send({"type": "DBGCONT"})
+        deadline = asyncio.get_event_loop().time() + 2.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                if evt == "dbg_running":
+                    dbg.stopped = False
+                    return "Target resumed — will notify on breakpoint hit"
+                if evt == "dbg_stop":
+                    dbg.update_from_stop(data)
+                    return f"Immediately stopped: {dbg.stop_reason} at PC=0x{dbg.pc:08X}\n\n{dbg.format_regs()}"
+            except asyncio.TimeoutError:
+                break
+
+    return "Continue sent"
+
+
+@mcp.tool()
+async def amiga_backtrace(project: str | None = None) -> str:
+    """Get an annotated call stack backtrace.
+
+    Args:
+        project: Project name for symbol resolution (optional)
+    """
+    conn, state, bus = _require_connected()
+    dbg = _require_dbg()
+
+    msg = None
+    async with bus.subscribe("dbg_bt") as queue:
+        conn.send({"type": "DBGBT"})
+        try:
+            _, msg = await asyncio.wait_for(queue.get(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pass
+    if msg:
+        dbg.update_backtrace(msg.get("frames", []))
+        # Annotate with symbols
+        try:
+            from .symbols import _loaded_tables
+            for proj_name, sym_table in _loaded_tables.items():
+                if project and proj_name != project:
+                    continue
+                annotate_with_symbols(dbg, sym_table)
+                break
+        except Exception:
+            pass
+        return f"Backtrace ({msg.get('depth', 0)} frames):\n{dbg.format_backtrace()}"
+    return "No backtrace response"

@@ -3,7 +3,7 @@
 [serial]
 mode = "tcp"
 host = "127.0.0.1"
-port = 1234
+port = 2345
 pty_path = "/tmp/amiga-serial"
 
 [emulator]
