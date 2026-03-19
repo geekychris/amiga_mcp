@@ -6008,9 +6008,12 @@ async function dbgLoadSourceForPC(pc) {
   const project = document.getElementById('dbgSymProject').value.trim();
   try {
     const r = await api(`/debugger/source?pc=${pc.toString(16)}&context=200&project=${encodeURIComponent(project)}`);
-    if (r.lines && r.file) {
+    if (r.file) {
       // Load the full file if not already loaded, then highlight the line
-      if (r.file !== dbgState.sourceFile) {
+      // Compare basenames since STABS uses relative paths
+      const rBase = r.file.split('/').pop();
+      const sBase = (dbgState.sourceFile || '').split('/').pop();
+      if (rBase !== sBase || !dbgState.sourceLines.length) {
         const fileR = await api(`/debugger/source/file?file=${encodeURIComponent(r.file)}&project=${encodeURIComponent(project)}`);
         if (fileR.lines) {
           dbgState.sourceFile = r.file;
@@ -6037,12 +6040,19 @@ async function dbgLoadBacktrace() {
     const r = await api('/debugger/backtrace');
     if (r.frames && r.frames.length > 0) {
       let html = '';
-      r.frames.forEach(f => {
-        const sym = f.symbol ? ` <span style="color:var(--accent-blue);">&lt;${f.symbol}&gt;</span>` : '';
-        const src = f.file ? ` <span style="color:var(--text-dim);font-size:10px;">${f.file.split('/').pop()}:${f.line}</span>` : '';
+      for (const f of r.frames) {
+        const sym = f.symbol ? `<span style="color:var(--accent-blue);">${f.symbol}</span>` : `0x${f.pcHex}`;
+        const src = f.file ? `<span style="color:var(--text-dim);font-size:10px;">${f.file.split('/').pop()}:${f.line}</span>` : '';
         const style = f.depth === 0 ? 'color:var(--accent-orange);font-weight:bold;' : '';
-        html += `<div style="${style}cursor:pointer;padding:1px 0;" onclick="dbgLoadSourceForPC(0x${f.pcHex})">#${f.depth} 0x${f.pcHex}${sym}${src}</div>`;
-      });
+        // Get source line text if we have it loaded
+        let snippet = '';
+        if (f.line && dbgState.sourceLines && dbgState.sourceLines[f.line - 1]) {
+          snippet = `<div style="color:var(--text-dim);font-size:10px;padding-left:16px;white-space:pre;overflow:hidden;text-overflow:ellipsis;">${dbgState.sourceLines[f.line - 1].trim().substring(0, 60).replace(/</g,'&lt;')}</div>`;
+        }
+        html += `<div style="${style}cursor:pointer;padding:2px 0;border-bottom:1px solid var(--border);" onclick="dbgLoadSourceForPC(0x${f.pcHex})">
+          <span>#${f.depth}</span> ${sym} ${src}${snippet}
+        </div>`;
+      }
       document.getElementById('dbgCallStack').innerHTML = html;
     } else {
       document.getElementById('dbgCallStack').innerHTML = '<div style="color:var(--text-dim);">No frames</div>';
@@ -6088,12 +6098,20 @@ async function dbgRefreshBpList() {
     const isHit = dbgState.stopped && bp.lineNum === hitLine;
     const hitStyle = isHit ? 'background:rgba(224,112,32,0.15);font-weight:bold;' : '';
     const hitMarker = isHit ? ' \u25C0 HIT' : '';
-    html += `<div style="display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:3px;${hitStyle}">
-      <span style="color:#e07020;">\u25CF</span>
-      <span>Line ${bp.lineNum}</span>
-      <span style="color:var(--text-dim);">0x${addrHex}</span>
-      <span style="color:var(--accent-orange);">${hitMarker}</span>
-      <button class="btn" onclick="dbgToggleGutterBp(${bp.lineNum})" style="font-size:10px;padding:1px 6px;margin-left:auto;">x</button>
+    // Get source line text
+    let srcText = '';
+    if (dbgState.sourceLines && dbgState.sourceLines[bp.lineNum - 1]) {
+      srcText = dbgState.sourceLines[bp.lineNum - 1].trim().substring(0, 40).replace(/</g,'&lt;');
+    }
+    html += `<div style="padding:2px 4px;border-radius:3px;${hitStyle}">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="color:#e07020;">\u25CF</span>
+        <span>:${bp.lineNum}</span>
+        <span style="color:var(--text-dim);font-size:10px;">0x${addrHex}</span>
+        <span style="color:var(--accent-orange);">${hitMarker}</span>
+        <button class="btn" onclick="dbgToggleGutterBp(${bp.lineNum})" style="font-size:10px;padding:1px 6px;margin-left:auto;">x</button>
+      </div>
+      ${srcText ? `<div style="color:var(--text-dim);font-size:10px;padding-left:20px;white-space:pre;overflow:hidden;text-overflow:ellipsis;">${srcText}</div>` : ''}
     </div>`;
   });
   document.getElementById('dbgBpList').innerHTML = html;

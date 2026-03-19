@@ -3849,6 +3849,12 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 src = sym_table.lookup_source_line(lookup_pc)
                 if src:
                     file_path, line_num = src
+                    # Resolve relative paths to project directory
+                    if not os.path.isabs(file_path):
+                        proj_dir = os.path.join(os.getcwd(), "examples", project or proj_name)
+                        candidate = os.path.join(proj_dir, file_path)
+                        if os.path.isfile(candidate):
+                            file_path = candidate
                     # Read source file from host filesystem
                     try:
                         with open(file_path) as f:
