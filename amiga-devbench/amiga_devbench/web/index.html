@@ -5676,7 +5676,7 @@ function showAbout() {
 }
 
 // ─── Debugger ───
-const dbgState = { attached: false, stopped: false, targetName: '', regs: null, breakpoints: [], backtrace: [], sourceFile: '', sourceLines: [], bpLines: {}, gutterBps: new Set() };
+const dbgState = { attached: false, stopped: false, targetName: '', regs: null, breakpoints: [], backtrace: [], sourceFile: '', sourceLines: [], bpLines: {}, gutterBps: new Set(), bpsDirty: false, codeBase: 0, hitLine: 0, prevVarValues: {} };
 
 function dbgSetButtons(attached, stopped) {
   document.getElementById('dbgAttachBtn').disabled = attached;
@@ -5699,16 +5699,9 @@ async function dbgAttach() {
     dbgSetButtons(true, false);
     document.getElementById('dbgStatus').textContent = 'Running: ' + dbgState.targetName;
     document.getElementById('dbgStatus').style.color = 'var(--accent-green)';
-    // Send any pending gutter breakpoints (best-effort)
-    for (const lineNum of dbgState.gutterBps) {
-      const addr = dbgState.bpLines[String(lineNum)];
-      if (addr) {
-        const addrHex = addr.toString(16).padStart(8, '0');
-        try {
-          await api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) });
-        } catch(e) { console.warn('Failed to send BP:', e); }
-      }
-    }
+    // Sync breakpoints to the bridge
+    dbgState.bpsDirty = true;
+    await dbgSyncBreakpoints();
     dbgRefreshBpList();
   } catch(e) { alert('Error: ' + e.message); }
 }
@@ -5742,6 +5735,7 @@ async function dbgStep() {
   document.getElementById('dbgStatus').textContent = 'Stepping...';
   document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
   try {
+    await dbgSyncBreakpoints();
     const r = await api('/debugger/step', { method: 'POST' });
     if (r.stopped) dbgOnStop(r);
   } catch(e) { console.error(e); }
@@ -5752,6 +5746,7 @@ async function dbgNext() {
   document.getElementById('dbgStatus').textContent = 'Stepping over...';
   document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
   try {
+    await dbgSyncBreakpoints();
     const r = await api('/debugger/next', { method: 'POST' });
     if (r.stopped) dbgOnStop(r);
   } catch(e) { console.error(e); }
@@ -5761,7 +5756,10 @@ async function dbgContinue() {
   dbgSetButtons(true, false);
   document.getElementById('dbgStatus').textContent = 'Running';
   document.getElementById('dbgStatus').style.color = 'var(--accent-green)';
-  try { await api('/debugger/continue', { method: 'POST' }); } catch(e) { console.error(e); }
+  try {
+    await dbgSyncBreakpoints();
+    await api('/debugger/continue', { method: 'POST' });
+  } catch(e) { console.error(e); }
 }
 
 async function dbgLoadSymbols() {
@@ -5857,27 +5855,17 @@ function dbgRenderSource(highlightLine) {
   }
 }
 
-async function dbgToggleGutterBp(lineNum) {
+function dbgToggleGutterBp(lineNum) {
   const addr = dbgState.bpLines[String(lineNum)];
   if (!addr) return;
-  const addrHex = addr.toString(16).padStart(8, '0');
+  // Pure local toggle — no server calls. BPs synced on continue/attach.
   if (dbgState.gutterBps.has(lineNum)) {
-    // Remove BP
-    if (dbgState.attached) {
-      await api('/debugger/breakpoints/clear', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id: addrHex}) });
-    }
     dbgState.gutterBps.delete(lineNum);
   } else {
-    // Set BP - track locally first, send to bridge if attached
     dbgState.gutterBps.add(lineNum);
-    if (dbgState.attached) {
-      const r = await api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) });
-      if (r.error) {
-        console.warn('BP set error:', r.error, '(keeping local marker)');
-      }
-    }
   }
-  dbgRenderSource(0);
+  dbgState.bpsDirty = true;
+  dbgRenderSource(dbgState.hitLine || 0);
   dbgRefreshBpList();
 }
 
@@ -6068,7 +6056,27 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'F11') { e.preventDefault(); if (dbgState.stopped) dbgStep(); }
 });
 
-// Load registered variables when stopped - fetch LIVE values via GETVAR
+// Sync local breakpoint set to the bridge (called before continue/step)
+async function dbgSyncBreakpoints() {
+  if (!dbgState.attached || !dbgState.bpsDirty) return;
+  dbgState.bpsDirty = false;
+
+  // Send all gutter BPs in parallel (BPSET is idempotent)
+  const promises = [];
+  for (const lineNum of dbgState.gutterBps) {
+    const addr = dbgState.bpLines[String(lineNum)];
+    if (addr) {
+      const addrHex = addr.toString(16).padStart(8, '0');
+      promises.push(
+        api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) })
+      );
+    }
+  }
+  await Promise.all(promises);
+}
+
+// Load registered variables when stopped - uses CACHED values only
+// (GETVAR can't work while target is paused in Wait)
 async function dbgLoadVariables() {
   const el = document.getElementById('dbgVars');
   if (!dbgState.attached || !dbgState.stopped) {
@@ -6076,56 +6084,35 @@ async function dbgLoadVariables() {
     return;
   }
 
-  el.innerHTML = '<div style="color:var(--text-dim);">Reading variables...</div>';
-
   try {
-    // Get cached var list to know the names
     const cached = await api('/vars');
     const varList = (cached && cached.vars) ? cached.vars : [];
 
-    // Extract unique short names (strip "client." prefix)
-    const names = [];
-    for (const v of varList) {
-      let name = v.name || '';
-      // Strip client prefix like "bouncing_ball."
-      const dot = name.indexOf('.');
-      if (dot >= 0) name = name.substring(dot + 1);
-      if (name && !names.includes(name)) names.push(name);
-    }
-
-    if (names.length === 0) {
-      el.innerHTML = '<div style="color:var(--text-dim);">No variables registered</div>';
+    if (varList.length === 0) {
+      el.innerHTML = '<div style="color:var(--text-dim);">No variables cached yet</div>';
       return;
     }
 
-    // Fetch fresh values via GETVAR for each variable
     let html = '';
     const prevVals = dbgState.prevVarValues || {};
     const newVals = {};
 
-    for (const name of names) {
-      try {
-        // Send raw GETVAR and wait for response
-        const r = await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `GETVAR|${name}`}) });
-        const resp = r.response || '';
-        // Parse: [VAR] {"type":"VAR","name":"...","varType":"...","value":"..."}
-        const m = resp.match(/"value":\s*"([^"]*)"/);
-        const val = m ? m[1] : '?';
-        const tm = resp.match(/"varType":\s*"([^"]*)"/);
-        const type = tm ? tm[1] : '';
-        newVals[name] = val;
+    for (const v of varList) {
+      let name = v.name || '';
+      const dot = name.indexOf('.');
+      if (dot >= 0) name = name.substring(dot + 1);
+      const val = v.value || '?';
+      const type = v.varType || '';
+      newVals[name] = val;
 
-        const changed = prevVals[name] !== undefined && prevVals[name] !== val;
-        const valStyle = changed ? 'color:var(--accent-orange);font-weight:bold;' : 'color:var(--text-primary);';
-        html += `<div style="padding:1px 0;">
-          <span style="color:var(--accent-blue);">${name}</span>
-          <span style="color:var(--text-dim);font-size:10px;"> ${type}</span>
-          <span style="color:var(--text-dim);"> = </span>
-          <span style="${valStyle}">${val}</span>
-        </div>`;
-      } catch(e) {
-        html += `<div style="padding:1px 0;"><span style="color:var(--accent-blue);">${name}</span> <span style="color:var(--text-dim);">= ?</span></div>`;
-      }
+      const changed = prevVals[name] !== undefined && prevVals[name] !== val;
+      const valStyle = changed ? 'color:var(--accent-orange);font-weight:bold;' : 'color:var(--text-primary);';
+      html += `<div style="padding:1px 0;">
+        <span style="color:var(--accent-blue);">${name}</span>
+        <span style="color:var(--text-dim);font-size:10px;"> ${type}</span>
+        <span style="color:var(--text-dim);"> = </span>
+        <span style="${valStyle}">${val}</span>
+      </div>`;
     }
 
     dbgState.prevVarValues = newVals;

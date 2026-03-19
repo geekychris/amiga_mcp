@@ -263,6 +263,7 @@ void dbg_handle_continue(void);
 void dbg_handle_regs(void);
 void dbg_handle_setreg(const char *args);
 void dbg_handle_backtrace(void);
+void dbg_handle_clearall(void);
 void dbg_poll(void);
 void dbg_handle_break(void);
 void dbg_handle_status(void);

@@ -77,6 +77,20 @@ class SymbolTable:
     # Function-to-source mapping
     func_source: dict[str, tuple[str, int]] = field(default_factory=dict)  # name -> (file, line)
 
+    # Local variables per function from STABS (PSYM/LSYM inside FUN scope)
+    # func_name -> [{name, type, offset, kind}]  kind: "param"/"local"/"register"
+    func_locals: dict[str, list[dict]] = field(default_factory=dict)
+
+    def get_locals_at(self, addr: int) -> tuple[str, list[dict]]:
+        """Get the function name and local variables for an address.
+        Returns (func_name, [locals]) or ("", [])."""
+        sym = self.lookup_address(addr)
+        if not sym:
+            return "", []
+        func_name = sym.split("+")[0]  # Strip "+offset"
+        locals_list = self.func_locals.get(func_name, [])
+        return func_name, locals_list
+
     def lookup_address(self, addr: int) -> str | None:
         """Find the nearest symbol at or before addr. Returns 'name+offset' or None."""
         if not self._sorted_addrs:
@@ -208,6 +222,7 @@ def _parse_stabs_output(output: str, table: SymbolTable) -> None:
     """Parse objdump --stabs output for source lines and type info."""
     current_file = ""
     type_defs: dict[str, str] = {}  # type_num -> type_name (e.g. "579" -> "Vec2")
+    current_func: str = ""  # Track which function we're inside for local vars
 
     # Pre-process: join continuation lines (ending with backslash)
     raw_lines = output.splitlines()
@@ -274,6 +289,7 @@ def _parse_stabs_output(output: str, table: SymbolTable) -> None:
                 # Strip leading underscore
                 if func_name.startswith("_"):
                     func_name = func_name[1:]
+                current_func = func_name
                 if current_file:
                     table.func_source[func_name] = (current_file, n_desc)
 
@@ -293,12 +309,46 @@ def _parse_stabs_output(output: str, table: SymbolTable) -> None:
                 # Note: in a.out format, SLINE addresses are already absolute
                 # No fix-up needed (unlike ELF STABS where they're relative)
 
+        elif stab_type == "PSYM":
+            # Function parameter on stack: "name:p<type>" n_value = offset from FP
+            if string_val and current_func and ":p" in string_val:
+                pname = string_val.split(":")[0]
+                if pname.startswith("_"):
+                    pname = pname[1:]
+                # Extract type
+                ptype_str = string_val.split(":p", 1)[1] if ":p" in string_val else ""
+                ptype = _simplify_type(ptype_str.split("=")[0], type_defs) if ptype_str else "?"
+                if current_func not in table.func_locals:
+                    table.func_locals[current_func] = []
+                # n_value is offset from frame pointer (positive = params)
+                offset = n_value if n_value < 0x80000000 else n_value - 0x100000000
+                table.func_locals[current_func].append({
+                    "name": pname, "type": ptype, "offset": offset,
+                    "kind": "param", "size": 4,
+                })
+
         elif stab_type in ("LSYM", "GSYM"):
+            # First check: local variable inside a function (non-type-def LSYM)
+            # These have format "name:<type_ref>" and n_value = offset from FP
+            if (string_val and current_func and ":" in string_val
+                    and ":T" not in string_val and ":t" not in string_val
+                    and n_value != 0 and not string_val.startswith("_")):
+                lname = string_val.split(":")[0]
+                ltype_str = string_val.split(":", 1)[1]
+                ltype = _simplify_type(ltype_str.split("=")[0], type_defs) if ltype_str else "?"
+                if current_func not in table.func_locals:
+                    table.func_locals[current_func] = []
+                # n_value is offset from frame pointer (negative = locals)
+                offset = n_value if n_value < 0x80000000 else n_value - 0x100000000
+                table.func_locals[current_func].append({
+                    "name": lname, "type": ltype, "offset": offset,
+                    "kind": "local", "size": 4,
+                })
+
             # Type/struct definitions
             # Format: "name:T(type_num)=s<size><field_defs>" or "name:t<num>=..."
             if string_val and (":T" in string_val or ":t" in string_val):
                 # Extract type number -> name mapping
-                # e.g. "Vec2:t579=580=s8..." -> type_defs["579"] = "Vec2"
                 name_part = string_val.split(":")[0]
                 if name_part.startswith("_"):
                     name_part = name_part[1:]

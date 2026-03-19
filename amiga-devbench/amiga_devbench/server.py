@@ -3951,6 +3951,45 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         result = [{"file": f, "mappedLines": c} for f, c in sorted(files.items())]
         return JSONResponse({"sources": result})
 
+    async def api_debugger_locals(request: Request) -> JSONResponse:
+        """Get local variables for the current stopped PC."""
+        assert _dbg_state is not None
+        if not _dbg_state.stopped:
+            return JSONResponse({"locals": [], "func": ""})
+
+        pc = _dbg_state.pc
+        code_base = _dbg_state.code_base
+        rel_pc = pc - code_base if code_base > 0 and pc >= code_base else pc
+
+        # Get A5 (frame pointer) from saved registers
+        a5 = _dbg_state.regs[13] if len(_dbg_state.regs) > 13 else 0
+
+        func_name = ""
+        locals_info: list[dict] = []
+
+        try:
+            from . import symbols as sym_mod
+            tables = sym_mod.get_all_tables()
+            for proj_name, sym_table in tables.items():
+                fn, local_vars = sym_table.get_locals_at(rel_pc)
+                if fn and local_vars:
+                    func_name = fn
+                    for lv in local_vars:
+                        entry: dict = {
+                            "name": lv["name"],
+                            "type": lv["type"],
+                            "kind": lv["kind"],
+                            "offset": lv["offset"],
+                        }
+                        # Note: can't read memory via INSPECT while target is paused
+                        # in Wait(). Would need to read tc_SPReg-based stack frame.
+                        locals_info.append(entry)
+                    break
+        except Exception:
+            pass
+
+        return JSONResponse({"func": func_name, "a5": a5, "locals": locals_info})
+
     async def api_debugger_break(request: Request) -> JSONResponse:
         """Break (stop) the running target."""
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
@@ -4175,6 +4214,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/debugger/registers", api_debugger_regs, methods=["GET"]),
         Route("/api/debugger/registers/set", api_debugger_setreg, methods=["POST"]),
         Route("/api/debugger/backtrace", api_debugger_backtrace, methods=["GET"]),
+        Route("/api/debugger/locals", api_debugger_locals, methods=["GET"]),
         Route("/api/debugger/break", api_debugger_break, methods=["POST"]),
         Route("/api/debugger/source", api_debugger_source, methods=["GET"]),
         Route("/api/debugger/source/file", api_debugger_source_file, methods=["GET"]),

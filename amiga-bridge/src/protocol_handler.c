@@ -396,6 +396,8 @@ void protocol_parse_line(const char *line)
         dbg_handle_backtrace();
     } else if (strcmp(cmd, "DBGBREAK") == 0) {
         dbg_handle_break();
+    } else if (strcmp(cmd, "DBGCLEARALLBP") == 0) {
+        dbg_handle_clearall();
     } else if (strcmp(cmd, "DBGSTATUS") == 0) {
         dbg_handle_status();
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {

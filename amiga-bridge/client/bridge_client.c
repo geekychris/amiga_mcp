@@ -789,6 +789,19 @@ void ab_poll(void)
 
     if (!connected || !reply_port) return;
 
+    /* Check for debugger pause signal (SIGBREAKF_CTRL_E).
+     * If set, enter a wait loop until CTRL_F resumes us. */
+    if (SetSignal(0L, SIGBREAKF_CTRL_E) & SIGBREAKF_CTRL_E) {
+        /* CTRL_E was set and is now cleared.
+         * Check if CTRL_F already arrived (race: resume before we pause) */
+        if (!(SetSignal(0L, 0L) & SIGBREAKF_CTRL_F)) {
+            /* No CTRL_F yet — wait for it */
+            Wait(SIGBREAKF_CTRL_F);
+        }
+        /* Clear CTRL_F */
+        SetSignal(0L, SIGBREAKF_CTRL_F);
+    }
+
     /* Check for daemon-initiated messages */
     while ((msg = GetMsg(reply_port)) != NULL) {
         process_daemon_msg(msg);

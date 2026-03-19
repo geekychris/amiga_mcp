@@ -26,6 +26,7 @@
 #include <exec/execbase.h>
 #include <exec/tasks.h>
 #include <exec/nodes.h>
+#include <dos/dos.h>
 #include <dos/dosextens.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -65,11 +66,18 @@ static BOOL dbg_attached = FALSE;
 static int  dbg_bp_count = 0;
 static ULONG dbg_code_base = 0;  /* Code segment load address */
 
-/* TRAP #15 vector management */
+/* Exception vector management */
 static APTR orig_trap15 = NULL;
+static APTR orig_trace = NULL;
 static BOOL trap_installed = FALSE;
 static volatile BOOL dbg_trap_hit = FALSE;
 static volatile ULONG dbg_trap_pc = 0;
+static volatile ULONG dbg_resume_pc = 0;  /* Where to resume after pause stub */
+
+/* Step mode: 0=none, 1=step-past-BP (internal), 2=single-step (user) */
+static volatile WORD dbg_step_mode = 0;
+#define STEP_PAST_BP  1
+#define STEP_SINGLE   2
 
 /* Static buffer for responses */
 static char dbg_buf[BRIDGE_MAX_LINE];
@@ -85,7 +93,7 @@ static void dbg_patch_bp(int idx);
 static void dbg_unpatch_bp(int idx);
 static void dbg_unpatch_all(void);
 static void dbg_repatch_all(void);
-static void dbg_send_ipc_quick(struct MsgPort *port, UWORD type, ULONG clientId);
+void dbg_repatch_all_from_trace(void);
 
 /* ---- VBR access via Supervisor() ---- */
 
@@ -133,6 +141,7 @@ static ULONG get_vbr(void)
  * mode or modifying the exception return to a suspend stub.
  */
 static void __attribute__((used)) trap15_handler(void);
+static void __attribute__((used)) trace_handler(void);
 
 /* Pure asm handler - must be careful not to use any stack-allocated C vars */
 __asm(
@@ -140,53 +149,169 @@ __asm(
     ".even\n"
     ".global _trap15_handler\n"
     "_trap15_handler:\n"
-    /* Check if this is our target task */
+    /* First: check if this is our target (use only a0, preserve stack) */
     "    move.l  _SysBase, %a0\n"
     "    move.l  276(%a0), %a0\n"          /* a0 = SysBase->ThisTask */
     "    cmp.l   _dbg_target, %a0\n"
     "    bne     .Lnot_ours\n"
-    /* Our target hit a TRAP. Get the TRAP address. */
-    "    move.l  2(%sp), %a1\n"            /* a1 = return PC (after TRAP) */
+
+    /* === It's our target. Save ALL registers for inspection === */
+    "    movem.l %d0-%d7/%a0-%a6, _dbg_saved_regs\n"  /* D0-D7 at +0, A0-A6 at +32 */
+    "    move.l  %usp, %a0\n"
+    "    move.l  %a0, _dbg_saved_regs+60\n"  /* A7 = USP */
+    /* Save SR from exception frame */
+    "    move.w  (%sp), %d0\n"
+    "    and.l   #0xFFFF, %d0\n"
+    "    move.l  %d0, _dbg_saved_regs+68\n"  /* regs[17] = SR */
+
+    /* Get the TRAP address (PC in frame points after TRAP) */
+    "    move.l  2(%sp), %a1\n"
     "    subq.l  #2, %a1\n"               /* a1 = TRAP address */
+    "    move.l  %a1, _dbg_saved_regs+64\n"  /* regs[16] = PC */
+
     /* Find the BP entry and restore original instruction */
-    "    move.l  %a1, %d0\n"              /* d0 = TRAP address */
+    "    move.l  %a1, %d0\n"
     "    lea     _bp_table, %a0\n"
-    /* struct Breakpoint: 0:addr(4) 4:orig(2) 6:enabled(2) 8:temp(2) 10:used(2) = 12 bytes */
+    /* struct: 0:addr(4) 4:orig(2) 6:enabled(2) 8:temp(2) 10:used(2) = 12 bytes */
     "    moveq   #31, %d1\n"
     ".Lfind_bp:\n"
-    "    tst.w   10(%a0)\n"               /* bp.used? */
+    "    tst.w   10(%a0)\n"
     "    beq     .Lnext_bp\n"
-    "    cmp.l   (%a0), %d0\n"            /* bp.address == trap addr? */
+    "    cmp.l   (%a0), %d0\n"
     "    bne     .Lnext_bp\n"
-    /* Found — restore original instruction */
-    "    move.w  4(%a0), (%a1)\n"          /* *addr = bp.original */
-    "    clr.w   6(%a0)\n"                /* bp.enabled = FALSE */
+    "    move.w  4(%a0), (%a1)\n"          /* restore original instruction */
+    "    clr.w   6(%a0)\n"                /* enabled = FALSE */
     "    bra     .Lfound_bp\n"
     ".Lnext_bp:\n"
     "    lea     12(%a0), %a0\n"
     "    dbf     %d1, .Lfind_bp\n"
     ".Lfound_bp:\n"
-    /* Save the TRAP address only if this is the FIRST hit.
-     * If flag already set, a previous BP fired in this timeslice
-     * and we keep that one (first-hit-wins). */
+    /* Save PC and set flag (first hit wins) */
     "    tst.w   _dbg_trap_hit\n"
     "    bne     .Lskip_save\n"
     "    move.l  %a1, _dbg_trap_pc\n"
     "    move.w  #1, _dbg_trap_hit\n"
     ".Lskip_save:\n"
-    /* Set return PC to the (now restored) original instruction */
-    "    move.l  %a1, 2(%sp)\n"
-    /* Flush cache at this address */
-    "    move.l  %a1, %a0\n"
-    "    move.l  #2, %d0\n"
-    "    move.l  #0x0808, %d1\n"           /* CACRF_ClearI | CACRF_ClearD */
+
+    /* Flush caches */
     "    move.l  _SysBase, %a6\n"
-    "    jsr     -0x282(%a6)\n"            /* CacheClearE */
+    "    jsr     -0x27c(%a6)\n"            /* CacheClearU */
+
+    /* Set T1 (Trace) bit in saved SR so the Trace exception fires
+     * after executing the restored original instruction.
+     * The Trace handler will repatch all BPs. */
+    "    move.w  (%sp), %d0\n"
+    "    or.w    #0x8000, %d0\n"           /* Set T1 bit (bit 15) */
+    "    move.w  %d0, (%sp)\n"
+
+    /* Set step mode to STEP_PAST_BP */
+    "    move.w  #1, _dbg_step_mode\n"     /* STEP_PAST_BP */
+
+    /* RTE to the original instruction (with T1 set).
+     * Target executes ONE instruction, then Trace fires. */
+    "    move.l  %a1, 2(%sp)\n"
     "    rte\n"
-    /* Not our target - jump to original handler */
+
+    /* Not our target */
     ".Lnot_ours:\n"
     "    move.l  _orig_trap15, -(%sp)\n"
-    "    rts\n"                            /* Jump to original handler */
+    "    rts\n"
+);
+
+/*
+ * Trace exception handler (vector 9).
+ * Fires after one instruction when T1 bit is set in SR.
+ */
+__asm(
+    ".text\n"
+    ".even\n"
+    ".global _trace_handler\n"
+    "_trace_handler:\n"
+    "    move.l  _SysBase, %a0\n"
+    "    move.l  276(%a0), %a0\n"
+    "    cmp.l   _dbg_target, %a0\n"
+    "    bne     .Ltrace_not_ours\n"
+
+    /* Clear T1 bit in saved SR */
+    "    move.w  (%sp), %d0\n"
+    "    and.w   #0x7FFF, %d0\n"
+    "    move.w  %d0, (%sp)\n"
+
+    /* Check step mode */
+    "    move.w  _dbg_step_mode, %d0\n"
+    "    cmp.w   #1, %d0\n"
+    "    beq     .Ltrace_repatch\n"
+    "    cmp.w   #2, %d0\n"
+    "    beq     .Ltrace_single\n"
+    "    rte\n"
+
+    ".Ltrace_repatch:\n"
+    /* Step-past-BP: repatch all BPs, then pause in stub.
+     * Save the resume PC (next instruction after the BP). */
+    "    clr.w   _dbg_step_mode\n"
+    "    move.l  2(%sp), _dbg_resume_pc\n"  /* Save where to resume */
+    "    jsr     _dbg_repatch_all_from_trace\n"
+    /* RTE to pause stub — target stops immediately */
+    "    move.l  #_dbg_pause_stub, 2(%sp)\n"
+    "    rte\n"
+
+    ".Ltrace_single:\n"
+    /* Single-step: save new PC, save regs, repatch, pause in stub */
+    "    clr.w   _dbg_step_mode\n"
+    "    move.l  2(%sp), _dbg_trap_pc\n"
+    "    move.l  2(%sp), _dbg_resume_pc\n"
+    "    movem.l %d0-%d7/%a0-%a6, _dbg_saved_regs\n"
+    "    move.l  %usp, %a0\n"
+    "    move.l  %a0, _dbg_saved_regs+60\n"
+    "    move.l  2(%sp), _dbg_saved_regs+64\n"
+    "    move.w  (%sp), %d0\n"
+    "    and.l   #0xFFFF, %d0\n"
+    "    move.l  %d0, _dbg_saved_regs+68\n"
+    "    move.w  #1, _dbg_trap_hit\n"
+    "    jsr     _dbg_repatch_all_from_trace\n"
+    /* RTE to pause stub */
+    "    move.l  #_dbg_pause_stub, 2(%sp)\n"
+    "    rte\n"
+
+    ".Ltrace_not_ours:\n"
+    "    move.l  _orig_trace, -(%sp)\n"
+    "    rts\n"
+);
+
+/* C function called from Trace handler to repatch BPs */
+void dbg_repatch_all_from_trace(void)
+{
+    int i;
+    for (i = 0; i < MAX_BREAKPOINTS; i++) {
+        if (bp_table[i].used && !bp_table[i].temporary) {
+            *(UWORD *)bp_table[i].address = TRAP15_OPCODE;
+            bp_table[i].enabled = TRUE;
+        }
+    }
+    CacheClearU();
+}
+
+/*
+ * Pause stub. The Trace handler RTEs here after stepping past a BP.
+ * Runs in user mode on the target's stack. Calls Wait(CTRL_F) to
+ * freeze the target, then jumps to dbg_resume_pc (the instruction
+ * AFTER the BP, set by the Trace handler).
+ */
+static void __attribute__((used)) dbg_pause_stub(void);
+__asm(
+    ".text\n"
+    ".even\n"
+    ".global _dbg_pause_stub\n"
+    "_dbg_pause_stub:\n"
+    "    movem.l %d0-%d7/%a0-%a6, -(%sp)\n"
+    /* Wait for CTRL_F (resume signal from daemon) */
+    "    move.l  #0x2000, %d0\n"           /* SIGBREAKF_CTRL_F = 1<<13 = 0x2000 */
+    "    move.l  _SysBase, %a6\n"
+    "    jsr     -0x13e(%a6)\n"            /* Wait() */
+    "    movem.l (%sp)+, %d0-%d7/%a0-%a6\n"
+    /* Jump to the instruction AFTER the BP (not the BP address) */
+    "    move.l  _dbg_resume_pc, -(%sp)\n"
+    "    rts\n"
 );
 
 /* ---- Vector installation ---- */
@@ -204,11 +329,13 @@ static void dbg_install_trap(void)
     Disable();
     orig_trap15 = vectors[47];  /* TRAP #15 = vector 47 */
     vectors[47] = (APTR)trap15_handler;
+    orig_trace = vectors[9];   /* Trace = vector 9 */
+    vectors[9] = (APTR)trace_handler;
     Enable();
 
     CacheClearU();
     trap_installed = TRUE;
-    printf("  Debugger: TRAP #15 handler installed (VBR=%08lx)\n",
+    printf("  Debugger: TRAP #15 + Trace handlers installed (VBR=%08lx)\n",
            (unsigned long)vbr);
 }
 
@@ -225,6 +352,8 @@ static void dbg_remove_trap(void)
     Disable();
     vectors[47] = orig_trap15;
     orig_trap15 = NULL;
+    vectors[9] = orig_trace;
+    orig_trace = NULL;
     Enable();
 
     CacheClearU();
@@ -241,8 +370,11 @@ static void dbg_remove_trap(void)
  */
 static void dbg_flush_cache(APTR addr, ULONG len)
 {
-    /* CacheClearE(addr, len, CACRF_ClearI | CACRF_ClearD) */
-    CacheClearE(addr, len, 0x0808);
+    /* Use CacheClearU() for maximum compatibility across all 68k CPUs.
+     * CacheClearE with specific flags may not work on all FS-UAE configs. */
+    (void)addr;
+    (void)len;
+    CacheClearU();
 }
 
 static void dbg_patch_bp(int idx)
@@ -303,95 +435,12 @@ static void dbg_repatch_all(void)
         }
     }
     Enable();
-    for (i = 0; i < MAX_BREAKPOINTS; i++) {
-        if (bp_table[i].used) {
-            dbg_flush_cache((APTR)bp_table[i].address, 2);
-        }
-    }
+    CacheClearU();
 }
 
 /* ---- IPC helpers ---- */
 
-/* Send an IPC message with a short wait for reply (~200ms max).
- * Much faster than ipc_send_to_client which waits up to 2s. */
-static void dbg_send_ipc_quick(struct MsgPort *port, UWORD type, ULONG clientId)
-{
-    struct MsgPort *tmpPort;
-    struct BridgeMsg *bm;
-    int retries;
-    struct Message *reply;
 
-    tmpPort = CreateMsgPort();
-    bm = (struct BridgeMsg *)AllocMem(sizeof(struct BridgeMsg),
-                                       MEMF_CLEAR | MEMF_PUBLIC);
-    if (!bm || !tmpPort) {
-        if (bm) FreeMem(bm, sizeof(struct BridgeMsg));
-        if (tmpPort) DeleteMsgPort(tmpPort);
-        return;
-    }
-
-    bm->msg.mn_Length = sizeof(struct BridgeMsg);
-    bm->msg.mn_ReplyPort = tmpPort;
-    bm->type = type;
-    bm->clientId = clientId;
-    bm->dataLen = 0;
-    PutMsg(port, (struct Message *)bm);
-
-    /* Wait briefly — client should reply within one task switch */
-    for (retries = 10; retries > 0; retries--) {
-        reply = GetMsg(tmpPort);
-        if (reply) {
-            FreeMem(bm, sizeof(struct BridgeMsg));
-            DeleteMsgPort(tmpPort);
-            return;
-        }
-        Delay(1); /* ~20ms */
-    }
-    /* Timed out — leak to avoid crash */
-}
-
-/* Send RESUME without blocking the main loop.
- * Each call allocates a fresh message+port (small leak per continue,
- * but safe — no reuse of in-flight messages). */
-static void dbg_send_resume(struct MsgPort *port, ULONG clientId)
-{
-    struct MsgPort *tmpPort;
-    struct BridgeMsg *bm;
-
-    tmpPort = CreateMsgPort();
-    bm = (struct BridgeMsg *)AllocMem(sizeof(struct BridgeMsg),
-                                       MEMF_CLEAR | MEMF_PUBLIC);
-    if (!bm || !tmpPort) {
-        if (bm) FreeMem(bm, sizeof(struct BridgeMsg));
-        if (tmpPort) DeleteMsgPort(tmpPort);
-        return;
-    }
-
-    bm->msg.mn_Length = sizeof(struct BridgeMsg);
-    bm->msg.mn_ReplyPort = tmpPort;
-    bm->type = ABMSG_DEBUG_RESUME;
-    bm->clientId = clientId;
-    bm->dataLen = 0;
-    PutMsg(port, (struct Message *)bm);
-
-    /* Wait briefly for reply (client replies immediately on RESUME).
-     * 10 retries x Delay(1) = ~200ms max. */
-    {
-        int retries = 10;
-        struct Message *reply;
-        while (retries-- > 0) {
-            reply = GetMsg(tmpPort);
-            if (reply) {
-                /* Got reply — safe to free */
-                FreeMem(bm, sizeof(struct BridgeMsg));
-                DeleteMsgPort(tmpPort);
-                return;
-            }
-            Delay(1);
-        }
-        /* Timed out — leak message+port to avoid crash */
-    }
-}
 
 /* ---- Task finding ---- */
 
@@ -618,27 +667,16 @@ static ULONG dbg_get_seglist_base(struct Task *task)
  */
 void dbg_poll(void)
 {
-    struct ClientEntry *ce;
-
     if (!dbg_attached || !dbg_trap_hit) return;
 
     dbg_trap_hit = FALSE;
     dbg_stopped = TRUE;
-
-    /* The trap PC was saved by the asm handler */
     dbg_saved_regs[16] = dbg_trap_pc;
 
-    /* Send DBGSTOP notification to host FIRST (before IPC blocks) */
+    /* Target is already paused in the stub's Wait(CTRL_F).
+     * Just send DBGSTOP notification to host. */
     dbg_send_stop("breakpoint");
     ui_add_log("DBG: breakpoint hit");
-
-    /* Now send IPC PAUSE to freeze the target in ab_poll().
-     * This blocks until the client replies, which is fine since
-     * the DBGSTOP response was already sent over serial. */
-    ce = client_find_by_name(dbg_target_name);
-    if (ce && ce->replyPort) {
-        dbg_send_ipc_quick(ce->replyPort, ABMSG_DEBUG_PAUSE, ce->clientId);
-    }
 }
 
 /* ---- Protocol command handlers ---- */
@@ -710,11 +748,15 @@ void dbg_handle_detach(void)
     dbg_unpatch_all();
 
     /* Resume if stopped */
-    if (dbg_stopped) {
-        ce = client_find_by_name(dbg_target_name);
-        if (ce && ce->replyPort) {
-            dbg_send_resume(ce->replyPort, ce->clientId);
-        }
+    if (dbg_stopped && dbg_target) {
+        /* Clear trap flag so dbg_poll doesn't re-send CTRL_E */
+        dbg_trap_hit = FALSE;
+        /* Send CTRL_F to wake target from Wait(CTRL_F) */
+        Signal(dbg_target, SIGBREAKF_CTRL_F);
+        Delay(5);
+        /* Send again in case target re-paused from stale CTRL_E */
+        Signal(dbg_target, SIGBREAKF_CTRL_F);
+        Delay(5);
     }
 
     /* Remove TRAP handler */
@@ -755,14 +797,8 @@ void dbg_handle_break(void)
         return;
     }
 
-    ce = client_find_by_name(dbg_target_name);
-    if (!ce || !ce->replyPort) {
-        protocol_send_raw("ERR|DBGBREAK|target not a bridge client");
-        return;
-    }
-
-    /* Send IPC PAUSE fire-and-forget */
-    dbg_send_ipc_quick(ce->replyPort, ABMSG_DEBUG_PAUSE, ce->clientId);
+    /* Signal the target to pause at next ab_poll() */
+    Signal(dbg_target, SIGBREAKF_CTRL_E);
 
     dbg_stopped = TRUE;
     dbg_send_stop("break");
@@ -920,8 +956,13 @@ void dbg_handle_step(void)
         return;
     }
 
-    /* For now, step = continue (will stop at next breakpoint).
-     * True single-step requires Trace bit support (Phase 3). */
+    /* Set single-step mode. When the target resumes and hits a BP,
+     * the TRAP handler sets T1. The Trace handler sees STEP_SINGLE
+     * mode, saves the new PC, and lets dbg_poll() report it.
+     * If the target is NOT at a BP, we need to set T1 directly...
+     * but we can't modify the target's SR from here.
+     * For now, step = continue to next BP. */
+    dbg_step_mode = STEP_SINGLE;
     dbg_handle_continue();
 }
 
@@ -953,18 +994,15 @@ void dbg_handle_continue(void)
         return;
     }
 
-    /* Re-patch all breakpoints before resuming */
-    dbg_repatch_all();
-
-    /* Send DBGRUNNING response FIRST (before IPC blocks the main loop) */
+    /* BPs are already repatched by the Trace handler.
+     * Signal the target to resume from the pause stub's Wait(CTRL_F).
+     * The stub jumps to dbg_resume_pc (instruction AFTER the BP). */
     dbg_stopped = FALSE;
     protocol_send_raw("DBGRUNNING");
     ui_add_log("DBG: continue");
 
-    /* Now send IPC RESUME to unblock the client */
-    ce = client_find_by_name(dbg_target_name);
-    if (ce && ce->replyPort) {
-        dbg_send_resume(ce->replyPort, ce->clientId);
+    if (dbg_target) {
+        Signal(dbg_target, SIGBREAKF_CTRL_F);
     }
 }
 
@@ -991,6 +1029,26 @@ void dbg_handle_backtrace(void)
     dbg_send_backtrace();
 }
 
+void dbg_handle_clearall(void)
+{
+    int i;
+
+    if (!dbg_attached) {
+        protocol_send_raw("ERR|DBGCLEARALLBP|not attached");
+        return;
+    }
+
+    /* Unpatch all breakpoints */
+    dbg_unpatch_all();
+
+    for (i = 0; i < MAX_BREAKPOINTS; i++) {
+        bp_table[i].used = FALSE;
+    }
+    dbg_bp_count = 0;
+
+    protocol_send_raw("OK|DBGCLEARALLBP|cleared");
+}
+
 void dbg_handle_status(void)
 {
     sprintf(dbg_buf, "DBGSTATE|%ld|%ld|%s|%08lx|%ld",
@@ -1009,12 +1067,9 @@ void dbg_cleanup(void)
     if (dbg_attached) {
         dbg_unpatch_all();
         dbg_remove_trap();
-        /* Try to resume if stopped */
-        if (dbg_stopped) {
-            struct ClientEntry *ce = client_find_by_name(dbg_target_name);
-            if (ce && ce->replyPort) {
-                dbg_send_resume(ce->replyPort, ce->clientId);
-            }
+        /* Resume if stopped */
+        if (dbg_stopped && dbg_target) {
+            Signal(dbg_target, SIGBREAKF_CTRL_F);
         }
         dbg_attached = FALSE;
         dbg_stopped = FALSE;

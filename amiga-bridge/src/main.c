@@ -372,6 +372,13 @@ int main(int argc, char **argv)
             ipc_process();
         }
 
+        /* Poll debugger for TRAP hits — check on EVERY iteration,
+         * not just timer ticks, so we catch the first BP hit before
+         * the target runs past additional breakpoints. */
+        if (g_serial_connected) {
+            dbg_poll();
+        }
+
         /* Check ARexx reply */
         if (arexxSig && (received & arexxSig)) {
             arexx_poll();
@@ -398,11 +405,6 @@ int main(int argc, char **argv)
             /* Poll tail file streaming */
             if (g_serial_connected) {
                 tail_poll();
-            }
-
-            /* Poll debugger for TRAP hits */
-            if (g_serial_connected) {
-                dbg_poll();
             }
 
             /* Heartbeat (every ~5 seconds = 25 timer ticks) */
