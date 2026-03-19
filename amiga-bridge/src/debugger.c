@@ -756,22 +756,19 @@ void dbg_handle_detach(void)
         return;
     }
 
-    /* Unpatch all breakpoints first */
-    dbg_unpatch_all();
-
-    /* Resume if stopped */
+    /* Resume target FIRST (before unpatching), then unpatch + cleanup */
     if (dbg_stopped && dbg_target) {
-        /* Clear trap flag so dbg_poll doesn't re-send CTRL_E */
         dbg_trap_hit = FALSE;
-        /* Send CTRL_F to wake target from Wait(CTRL_F) */
+        /* Unpatch BPs so target won't hit TRAPs after resume */
+        dbg_unpatch_all();
+        /* Signal CTRL_F to wake from pause stub */
         Signal(dbg_target, SIGBREAKF_CTRL_F);
-        Delay(5);
-        /* Send again in case target re-paused from stale CTRL_E */
-        Signal(dbg_target, SIGBREAKF_CTRL_F);
-        Delay(5);
+        Delay(10);  /* Give target time to resume and run past BP area */
+    } else {
+        dbg_unpatch_all();
     }
 
-    /* Remove TRAP handler */
+    /* Remove TRAP + Trace handlers */
     dbg_remove_trap();
 
     for (i = 0; i < MAX_BREAKPOINTS; i++) {
