@@ -3779,13 +3779,20 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 # No source info — just return after one step
                 return JSONResponse(_dbg_state.to_dict())
 
+            # If PC jumped far (>4KB from start), we entered a function
+            if abs(new_pc - start_pc) > 4096:
+                return JSONResponse(_dbg_state.to_dict())
+
             if code_base > 0 and new_pc >= code_base:
                 try:
                     from . import symbols as sym_mod
                     tables = sym_mod.get_all_tables()
                     for proj_name, sym_table in tables.items():
                         new_src = sym_table.lookup_source_line(new_pc - code_base)
-                        if new_src and new_src != start_line:
+                        if new_src is None:
+                            # PC outside known source — entered a different function
+                            return JSONResponse(_dbg_state.to_dict())
+                        if new_src != start_line:
                             # Source line changed — we've stepped to a new line
                             return JSONResponse(_dbg_state.to_dict())
                         break
@@ -3793,7 +3800,6 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                     pass
 
             # Same source line — continue stepping
-            # (need to send continue first since target is paused)
             _dbg_state.stopped = False
             continue
 
