@@ -3790,9 +3790,6 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
-        # When target is paused, can't send DBGBT — return empty
-        if _dbg_state and _dbg_state.stopped:
-            return JSONResponse({"depth": 0, "frames": []})
         msg = None
         async with _event_bus.subscribe("dbg_bt") as queue:
             _conn.send({"type": "DBGBT"})

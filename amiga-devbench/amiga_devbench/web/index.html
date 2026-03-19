@@ -5940,11 +5940,13 @@ function dbgOnStop(data) {
   // Update registers
   if (data.regs) dbgRenderRegs(data);
 
-  // Show source at PC (symbol lookup only, no serial)
+  // Show source at PC
   dbgLoadSourceForPC(pc);
-  // Refresh BP list (local only)
+  // Load backtrace (bridge can respond while target is in pause stub)
+  dbgLoadBacktrace();
+  // Refresh BP list
   dbgRefreshBpList();
-  // Load cached variables (no serial)
+  // Load cached variables
   dbgLoadVariables();
 }
 
@@ -5956,8 +5958,8 @@ function dbgRenderRegs(data) {
     const av = (data.regs.addr[i] || 0).toString(16).toUpperCase().padStart(8, '0');
     const dc = changed.has(i) ? 'color:var(--accent-orange);font-weight:bold;' : '';
     const ac = changed.has(8+i) ? 'color:var(--accent-orange);font-weight:bold;' : '';
-    html += `<div><span style="color:var(--text-dim);">D${i}</span> <span style="${dc}">${dv}</span></div>`;
-    html += `<div><span style="color:var(--text-dim);">A${i}</span> <span style="${ac}">${av}</span></div>`;
+    html += `<div><span style="color:var(--text-dim);">D${i}</span> <span style="${dc}cursor:pointer;" onclick="dbgEditReg('D${i}','${dv}')" title="Click to edit">${dv}</span></div>`;
+    html += `<div><span style="color:var(--text-dim);">A${i}</span> <span style="${ac}cursor:pointer;" onclick="dbgEditReg('A${i}','${av}')" title="Click to edit">${av}</span></div>`;
   }
   html += '</div>';
   const pcv = (data.regs.pc || 0).toString(16).toUpperCase().padStart(8, '0');
@@ -5966,13 +5968,34 @@ function dbgRenderRegs(data) {
   const src2 = changed.has(17) ? 'color:var(--accent-orange);font-weight:bold;' : '';
   const flags = dbgDecodeSR(data.regs.sr || 0);
   html += `<div style="margin-top:3px;border-top:1px solid var(--border);padding-top:3px;">`;
-  html += `<span style="color:var(--text-dim);">PC</span> <span style="${pcc}">${pcv}</span>  `;
+  html += `<span style="color:var(--text-dim);">PC</span> <span style="${pcc}cursor:pointer;" onclick="dbgEditReg('PC','${pcv}')" title="Click to edit">${pcv}</span>  `;
   html += `<span style="color:var(--text-dim);">SR</span> <span style="${src2}">${srv}</span>  `;
   html += `<span style="color:var(--text-dim);font-size:10px;">[${flags}]</span></div>`;
   if (data.warnings && data.warnings.length > 0) {
     html += `<div style="margin-top:3px;color:#ff6b6b;font-size:10px;">${data.warnings.join(', ')}</div>`;
   }
   document.getElementById('dbgRegs').innerHTML = html;
+}
+
+async function dbgEditVar(name, currentVal) {
+  const newVal = prompt(`Set ${name}:`, currentVal);
+  if (newVal === null || newVal === currentVal) return;
+  try {
+    await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `SETVAR|${name}|${newVal}`}) });
+    dbgLoadVariables();
+  } catch(e) { console.warn('Set var failed:', e); }
+}
+
+async function dbgEditReg(name, currentVal) {
+  const newVal = prompt(`Set ${name} (hex):`, currentVal);
+  if (newVal === null || newVal === currentVal) return;
+  try {
+    await api('/debugger/registers/set', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({reg: name, value: newVal})
+    });
+  } catch(e) { console.warn('Set reg failed:', e); }
 }
 
 function dbgDecodeSR(sr) {
@@ -6154,7 +6177,7 @@ async function dbgLoadVariables() {
         <span style="color:var(--accent-blue);">${name}</span>
         <span style="color:var(--text-dim);font-size:10px;"> ${type}</span>
         <span style="color:var(--text-dim);"> = </span>
-        <span style="${valStyle}">${val}</span>
+        <span style="${valStyle}cursor:pointer;" onclick="dbgEditVar('${name}','${val}')" title="Click to edit">${val}</span>
       </div>`;
     }
 
