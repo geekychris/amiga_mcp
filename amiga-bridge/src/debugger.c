@@ -79,6 +79,12 @@ static volatile WORD dbg_step_mode = 0;
 #define STEP_PAST_BP  1
 #define STEP_SINGLE   2
 
+/* Step request from daemon to pause stub: 0=continue, 1=step-into */
+static volatile WORD dbg_step_request = 0;
+
+/* Original TRAP #14 vector (used for step-into) */
+static APTR orig_trap14 = NULL;
+
 /* Static buffer for responses */
 static char dbg_buf[BRIDGE_MAX_LINE];
 
@@ -302,6 +308,29 @@ void dbg_repatch_all_from_trace(void)
 }
 
 /*
+ * TRAP #14 handler — used by the pause stub for single-step.
+ * Sets T1 bit in saved SR so the next instruction triggers a Trace.
+ * Exception frame: [SP+0] SR, [SP+2] PC (after TRAP #14)
+ * We set T1 and adjust PC to dbg_resume_pc (the instruction to step).
+ */
+static void __attribute__((used)) trap14_handler(void);
+__asm(
+    ".text\n"
+    ".even\n"
+    ".global _trap14_handler\n"
+    "_trap14_handler:\n"
+    /* Set T1 bit in saved SR */
+    "    move.w  (%sp), %d0\n"
+    "    or.w    #0x8000, %d0\n"
+    "    move.w  %d0, (%sp)\n"
+    /* Set step mode for Trace handler */
+    "    move.w  #2, _dbg_step_mode\n"     /* STEP_SINGLE */
+    /* Set return PC to the instruction we want to step */
+    "    move.l  _dbg_resume_pc, 2(%sp)\n"
+    "    rte\n"
+);
+
+/*
  * Pause stub. The Trace handler RTEs here after stepping past a BP.
  * Runs in user mode on the target's stack. Calls Wait(CTRL_F) to
  * freeze the target, then jumps to dbg_resume_pc (the instruction
@@ -317,13 +346,19 @@ __asm(
     "    move.l  #0x8000, %d0\n"           /* SIGBREAKF_CTRL_F = 1<<15 = 0x8000 */
     "    move.l  _SysBase, %a6\n"
     "    jsr     -0x13e(%a6)\n"            /* Wait() */
-    /* Restore registers from the static array saved by the TRAP handler.
-     * This is critical because the Trace handler trashed registers
-     * during repatch before RTE'ing here. */
+    /* Restore registers from the static array saved by the TRAP handler. */
     "    movem.l _dbg_saved_regs, %d0-%d7/%a0-%a6\n"
-    /* Jump to the instruction AFTER the BP */
+    /* Check if single-step was requested */
+    "    tst.w   _dbg_step_request\n"
+    "    bne     .Lstub_step\n"
+    /* Normal continue: jump directly to resume PC */
     "    move.l  _dbg_resume_pc, -(%sp)\n"
     "    rts\n"
+    ".Lstub_step:\n"
+    /* Single-step: clear request flag, then TRAP #14 enters supervisor,
+     * sets T1, RTEs to dbg_resume_pc. One instruction executes, Trace fires. */
+    "    clr.w   _dbg_step_request\n"
+    "    trap    #14\n"
 );
 
 /* ---- Vector installation ---- */
@@ -341,6 +376,8 @@ static void dbg_install_trap(void)
     Disable();
     orig_trap15 = vectors[47];  /* TRAP #15 = vector 47 */
     vectors[47] = (APTR)trap15_handler;
+    orig_trap14 = vectors[46];  /* TRAP #14 = vector 46 */
+    vectors[46] = (APTR)trap14_handler;
     orig_trace = vectors[9];   /* Trace = vector 9 */
     vectors[9] = (APTR)trace_handler;
     Enable();
@@ -364,6 +401,8 @@ static void dbg_remove_trap(void)
     Disable();
     vectors[47] = orig_trap15;
     orig_trap15 = NULL;
+    vectors[46] = orig_trap14;
+    orig_trap14 = NULL;
     vectors[9] = orig_trace;
     orig_trace = NULL;
     Enable();
@@ -679,11 +718,23 @@ static ULONG dbg_get_seglist_base(struct Task *task)
  */
 void dbg_poll(void)
 {
+    int i;
+
     if (!dbg_attached || !dbg_trap_hit) return;
 
     dbg_trap_hit = FALSE;
     dbg_stopped = TRUE;
     dbg_saved_regs[16] = dbg_trap_pc;
+
+    /* Clean up any temporary breakpoints that fired */
+    for (i = 0; i < MAX_BREAKPOINTS; i++) {
+        if (bp_table[i].used && bp_table[i].temporary) {
+            /* Temp BP was already unpatched by the TRAP handler.
+             * Just remove the table entry. */
+            bp_table[i].used = FALSE;
+            dbg_bp_count--;
+        }
+    }
 
     /* Target is already paused in the stub's Wait(CTRL_F).
      * Just send DBGSTOP to the host. */
@@ -965,18 +1016,64 @@ void dbg_handle_step(void)
         return;
     }
 
-    /* Set single-step mode. When the target resumes and hits a BP,
-     * the TRAP handler sets T1. The Trace handler sees STEP_SINGLE
-     * mode, saves the new PC, and lets dbg_poll() report it.
-     * If the target is NOT at a BP, we need to set T1 directly...
-     * but we can't modify the target's SR from here.
-     * For now, step = continue to next BP. */
-    dbg_step_mode = STEP_SINGLE;
-    dbg_handle_continue();
+    /* Set step request flag. The pause stub will see this,
+     * use TRAP #14 to set T1 in supervisor mode, and RTE
+     * to dbg_resume_pc. One instruction executes, Trace fires,
+     * STEP_SINGLE mode saves new PC and pauses again. */
+    dbg_step_request = 1;
+    dbg_stopped = FALSE;
+    protocol_send_raw("DBGRUNNING");
+
+    if (dbg_target) {
+        Signal(dbg_target, SIGBREAKF_CTRL_F);
+    }
+}
+
+/*
+ * Check if instruction at addr is a subroutine call (JSR/BSR).
+ * Returns the address of the next instruction if it IS a call,
+ * or 0 if it's not a call.
+ */
+static ULONG dbg_next_after_call(ULONG addr)
+{
+    UWORD opcode;
+    if (!TypeOfMem((APTR)addr)) return 0;
+    opcode = *(UWORD *)addr;
+
+    /* BSR.B/W/L */
+    if ((opcode & 0xFF00) == 0x6100) {
+        UBYTE disp = opcode & 0xFF;
+        if (disp == 0x00) return addr + 4;      /* BSR.W */
+        else if (disp == 0xFF) return addr + 6;  /* BSR.L */
+        else return addr + 2;                    /* BSR.B */
+    }
+
+    /* JSR */
+    if ((opcode & 0xFFC0) == 0x4E80) {
+        UWORD ea_mode = (opcode >> 3) & 0x07;
+        UWORD ea_reg = opcode & 0x07;
+        switch (ea_mode) {
+        case 2: return addr + 2;           /* (An) */
+        case 5: return addr + 4;           /* d16(An) */
+        case 6: return addr + 4;           /* d8(An,Xn) */
+        case 7:
+            switch (ea_reg) {
+            case 0: return addr + 4;       /* (xxx).W */
+            case 1: return addr + 6;       /* (xxx).L */
+            case 2: return addr + 4;       /* d16(PC) */
+            case 3: return addr + 4;       /* d8(PC,Xn) */
+            }
+        }
+        return addr + 2;
+    }
+
+    return 0;  /* Not a call */
 }
 
 void dbg_handle_next(void)
 {
+    ULONG next_addr;
+
     if (!dbg_attached) {
         protocol_send_raw("ERR|DBGNEXT|not attached");
         return;
@@ -986,7 +1083,27 @@ void dbg_handle_next(void)
         return;
     }
 
-    dbg_handle_continue();
+    /* Check if the current instruction is a call (JSR/BSR).
+     * If so, set a temporary breakpoint after it and continue.
+     * If not, just single-step. */
+    next_addr = dbg_next_after_call(dbg_resume_pc);
+    if (next_addr > 0) {
+        /* It's a call — set temp BP after the call and continue */
+        int idx = dbg_find_free_bp();
+        if (idx >= 0 && TypeOfMem((APTR)next_addr)) {
+            bp_table[idx].address = next_addr;
+            bp_table[idx].original = *(UWORD *)next_addr;
+            bp_table[idx].temporary = TRUE;
+            bp_table[idx].used = TRUE;
+            bp_table[idx].enabled = FALSE;
+            dbg_bp_count++;
+            dbg_patch_bp(idx);
+        }
+        dbg_handle_continue();
+    } else {
+        /* Not a call — single step */
+        dbg_handle_step();
+    }
 }
 
 void dbg_handle_continue(void)

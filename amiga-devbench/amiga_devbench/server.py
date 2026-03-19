@@ -3715,28 +3715,53 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
-        async with _event_bus.subscribe("dbg_stop") as queue:
-            _conn.send({"type": "DBGSTEP"})
-            try:
-                evt, msg = await asyncio.wait_for(queue.get(), timeout=30.0)
-                _dbg_state.update_from_stop(msg)
+        _conn.send_raw("DBGSTEP")
+        # Poll for stop (same pattern as break)
+        for attempt in range(10):
+            await asyncio.sleep(0.3)
+            if _dbg_state.stopped:
                 return JSONResponse(_dbg_state.to_dict())
-            except asyncio.TimeoutError:
-                pass
+            async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
+                _conn.send_raw("DBGSTATUS")
+                try:
+                    evt, msg = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    if evt == "dbg_state":
+                        _dbg_state.update_from_state(msg)
+                        if _dbg_state.stopped:
+                            return JSONResponse(_dbg_state.to_dict())
+                    elif evt == "dbg_stop":
+                        _dbg_state.update_from_stop(msg)
+                        return JSONResponse(_dbg_state.to_dict())
+                except asyncio.TimeoutError:
+                    pass
+        if _dbg_state.stopped:
+            return JSONResponse(_dbg_state.to_dict())
         return JSONResponse({"error": "timeout"}, status_code=504)
 
     async def api_debugger_next(request: Request) -> JSONResponse:
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
-        async with _event_bus.subscribe("dbg_stop") as queue:
-            _conn.send({"type": "DBGNEXT"})
-            try:
-                evt, msg = await asyncio.wait_for(queue.get(), timeout=30.0)
-                _dbg_state.update_from_stop(msg)
+        _conn.send_raw("DBGNEXT")
+        for attempt in range(10):
+            await asyncio.sleep(0.3)
+            if _dbg_state.stopped:
                 return JSONResponse(_dbg_state.to_dict())
-            except asyncio.TimeoutError:
-                pass
+            async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
+                _conn.send_raw("DBGSTATUS")
+                try:
+                    evt, msg = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    if evt == "dbg_state":
+                        _dbg_state.update_from_state(msg)
+                        if _dbg_state.stopped:
+                            return JSONResponse(_dbg_state.to_dict())
+                    elif evt == "dbg_stop":
+                        _dbg_state.update_from_stop(msg)
+                        return JSONResponse(_dbg_state.to_dict())
+                except asyncio.TimeoutError:
+                    pass
+        if _dbg_state.stopped:
+            return JSONResponse(_dbg_state.to_dict())
         return JSONResponse({"error": "timeout"}, status_code=504)
 
     async def api_debugger_continue(request: Request) -> JSONResponse:
