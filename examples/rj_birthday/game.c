@@ -943,7 +943,7 @@ static void update_bayarea(GameState *gs, InputState *inp)
     /* Spawn scooters (obstacles) */
     if ((gs->party_clock % (40 - gs->wave * 2)) == 0) {
         WORD dir = rng() & 1;
-        spawn_item(gs, ITEM_FAVOR, /* reuse type for scooter obstacle */
+        spawn_item(gs, ITEM_SCOOTER,
                    dir ? room_x - 10 : room_x + 330,
                    FLOOR_Y - 20,
                    dir ? 5 : -5, 0, ROOM_BAYAREA);
@@ -962,7 +962,7 @@ static void update_bayarea(GameState *gs, InputState *inp)
         Item *it = &gs->items[i];
         if (!it->active || it->room != ROOM_BAYAREA) continue;
 
-        if (it->vx != 0) {
+        if (it->type == ITEM_SCOOTER) {
             /* Moving obstacle (scooter) */
             it->x += it->vx;
 

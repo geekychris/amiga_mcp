@@ -366,13 +366,16 @@ void draw_items(struct RastPort *rp, GameState *gs)
                 RectFill(rp, sx + 1, sy - 4, sx + 6, sy - 1);
                 break;
             case ITEM_FAVOR:
-                /* Diamond shape */
+                /* Party favor - gift bag */
                 SetAPen(rp, COL_YELLOW);
-                Move(rp, sx + 3, sy - 6);
-                Draw(rp, sx + 6, sy - 3);
-                Draw(rp, sx + 3, sy);
-                Draw(rp, sx, sy - 3);
-                Draw(rp, sx + 3, sy - 6);
+                RectFill(rp, sx, sy - 8, sx + 8, sy);
+                SetAPen(rp, COL_ORANGE);
+                RectFill(rp, sx + 1, sy - 7, sx + 7, sy - 1);
+                /* Ribbon */
+                SetAPen(rp, COL_RED);
+                Move(rp, sx + 4, sy - 10);
+                Draw(rp, sx + 4, sy - 8);
+                RectFill(rp, sx + 2, sy - 10, sx + 6, sy - 9);
                 break;
             case ITEM_CAKE:
                 /* Slice of cake */
@@ -383,6 +386,22 @@ void draw_items(struct RastPort *rp, GameState *gs)
                 /* Cherry on top */
                 SetAPen(rp, COL_RED);
                 RectFill(rp, sx + 3, sy - 9, sx + 5, sy - 7);
+                break;
+            case ITEM_SCOOTER:
+                /* Electric scooter */
+                SetAPen(rp, COL_GREY);
+                RectFill(rp, sx, sy - 10, sx + 2, sy - 2);   /* handlebar post */
+                RectFill(rp, sx - 1, sy - 11, sx + 3, sy - 10); /* handlebar */
+                RectFill(rp, sx, sy - 2, sx + 10, sy - 1);   /* deck */
+                /* Wheels */
+                SetAPen(rp, COL_BG);
+                RectFill(rp, sx - 1, sy - 1, sx + 1, sy + 1);   /* front wheel */
+                RectFill(rp, sx + 9, sy - 1, sx + 11, sy + 1);  /* rear wheel */
+                /* Rider silhouette */
+                SetAPen(rp, COL_DKBROWN);
+                RectFill(rp, sx + 3, sy - 16, sx + 7, sy - 4);  /* body */
+                SetAPen(rp, COL_TAN);
+                RectFill(rp, sx + 4, sy - 19, sx + 6, sy - 16); /* head */
                 break;
             case ITEM_PLANT:
                 /* Cannabis leaf - green star shape */
@@ -1009,21 +1028,40 @@ void draw_guest_edit(struct RastPort *rp, GameState *gs)
 {
     WORD i, y;
     WORD max_visible = 10;
+    WORD scroll_top;  /* First visible index */
+    WORD total = gs->name_count + 1;  /* +1 for "Add new" slot */
+    char countbuf[16];
+
+    /* Scroll so cursor is always visible */
+    scroll_top = gs->edit_cursor - max_visible / 2;
+    if (scroll_top < 0) scroll_top = 0;
+    if (scroll_top > total - max_visible) scroll_top = total - max_visible;
+    if (scroll_top < 0) scroll_top = 0;
 
     SetRast(rp, COL_BG);
 
     SetAPen(rp, COL_BTYELLOW);
     draw_text(rp, 60, 30, "GUEST LIST EDITOR");
 
+    /* Guest count */
+    sprintf(countbuf, "%ld GUESTS", (long)gs->name_count);
+    SetAPen(rp, COL_GREY);
+    draw_text(rp, 200, 30, countbuf);
+
     SetAPen(rp, COL_GREY);
     RectFill(rp, 40, 35, 280, 35);
 
+    /* Scroll indicator - up arrow */
+    if (scroll_top > 0) {
+        SetAPen(rp, COL_ORANGE);
+        draw_text(rp, 285, 50, "\x18");  /* up arrow */
+    }
+
     y = 50;
-    for (i = 0; i < gs->name_count && i < max_visible; i++) {
+    for (i = scroll_top; i < gs->name_count && i < scroll_top + max_visible; i++) {
         WORD selected = (i == gs->edit_cursor);
 
         if (selected) {
-            /* Highlight bar */
             SetAPen(rp, COL_DKBROWN);
             RectFill(rp, 42, y - 9, 278, y + 2);
         }
@@ -1031,16 +1069,36 @@ void draw_guest_edit(struct RastPort *rp, GameState *gs)
         SetAPen(rp, selected ? COL_BTYELLOW : COL_WHITE);
         draw_text(rp, 50, y, gs->names[i]);
 
+        /* Show index number */
+        {
+            char numbuf[6];
+            sprintf(numbuf, "%ld.", (long)(i + 1));
+            SetAPen(rp, COL_GREY);
+            draw_text(rp, 42, y, numbuf);
+            /* Redraw name after number */
+            SetAPen(rp, selected ? COL_BTYELLOW : COL_WHITE);
+            draw_text(rp, 66, y, gs->names[i]);
+        }
+
         y += 16;
     }
 
-    /* "Add new" slot at bottom */
-    if (gs->edit_cursor >= gs->name_count) {
-        SetAPen(rp, COL_DKBROWN);
-        RectFill(rp, 42, y - 9, 278, y + 2);
+    /* "Add new" slot */
+    if (gs->name_count >= scroll_top && gs->name_count < scroll_top + max_visible) {
+        WORD add_selected = (gs->edit_cursor >= gs->name_count);
+        if (add_selected) {
+            SetAPen(rp, COL_DKBROWN);
+            RectFill(rp, 42, y - 9, 278, y + 2);
+        }
+        SetAPen(rp, add_selected ? COL_LTGREEN : COL_GREEN);
+        draw_text(rp, 50, y, "+ ADD NEW GUEST");
     }
-    SetAPen(rp, (gs->edit_cursor >= gs->name_count) ? COL_LTGREEN : COL_GREEN);
-    draw_text(rp, 50, y, "+ ADD NEW GUEST");
+
+    /* Scroll indicator - down arrow */
+    if (scroll_top + max_visible < total) {
+        SetAPen(rp, COL_ORANGE);
+        draw_text(rp, 285, 50 + (max_visible - 1) * 16, "\x19"); /* down arrow */
+    }
 
     /* Instructions */
     y = 220;

@@ -89,6 +89,7 @@
 #define ITEM_DEMO       7
 #define ITEM_PLANT      8
 #define ITEM_CAKE       9
+#define ITEM_SCOOTER    10
 
 /* Pot Police */
 #define MAX_COPS        3
