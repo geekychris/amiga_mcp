@@ -3779,16 +3779,17 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 # No source info — just return after one step
                 return JSONResponse(_dbg_state.to_dict())
 
-            # If PC jumped far (>4KB from start), we entered a function
-            if abs(new_pc - start_pc) > 4096:
+            # If PC jumped far (>256 bytes from start), likely entered a function
+            if abs(new_pc - start_pc) > 256:
                 return JSONResponse(_dbg_state.to_dict())
 
-            if code_base > 0 and new_pc >= code_base:
+            if code_base > 0:
                 try:
                     from . import symbols as sym_mod
                     tables = sym_mod.get_all_tables()
+                    rel_new = new_pc - code_base if new_pc >= code_base else new_pc
                     for proj_name, sym_table in tables.items():
-                        new_src = sym_table.lookup_source_line(new_pc - code_base)
+                        new_src = sym_table.lookup_source_line(rel_new)
                         if new_src is None:
                             # PC outside known source — entered a different function
                             return JSONResponse(_dbg_state.to_dict())
