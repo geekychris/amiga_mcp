@@ -94,6 +94,7 @@ static void dbg_unpatch_bp(int idx);
 static void dbg_unpatch_all(void);
 static void dbg_repatch_all(void);
 void dbg_repatch_all_from_trace(void);
+void dbg_signal_self_pause(void);
 
 /* ---- VBR access via Supervisor() ---- */
 
@@ -246,9 +247,14 @@ __asm(
     "    rte\n"
 
     ".Ltrace_repatch:\n"
-    /* Step-past-BP: repatch all BPs and let target continue */
+    /* Step-past-BP: repatch all BPs, save resume PC, RTE to pause stub.
+     * The stub does Wait(CTRL_F) then jumps to resume_pc.
+     * This stops the target IMMEDIATELY after stepping past one BP,
+     * so the next BP in execution order will fire on continue. */
     "    clr.w   _dbg_step_mode\n"
+    "    move.l  2(%sp), _dbg_resume_pc\n"
     "    jsr     _dbg_repatch_all_from_trace\n"
+    "    move.l  #_dbg_pause_stub, 2(%sp)\n"
     "    rte\n"
 
     ".Ltrace_single:\n"
@@ -271,6 +277,16 @@ __asm(
     "    move.l  _orig_trace, -(%sp)\n"
     "    rts\n"
 );
+
+/* C function called from Trace handler to signal self with CTRL_E.
+ * This runs on the TARGET task's context. After RTE, the target will
+ * check CTRL_E in ab_poll() and immediately pause. This means the
+ * target stops at the FIRST BP it hits, before reaching any others. */
+void dbg_signal_self_pause(void)
+{
+    struct Task *me = SysBase->ThisTask;
+    Signal(me, SIGBREAKF_CTRL_E);
+}
 
 /* C function called from Trace handler to repatch BPs */
 void dbg_repatch_all_from_trace(void)
@@ -667,13 +683,10 @@ void dbg_poll(void)
     dbg_stopped = TRUE;
     dbg_saved_regs[16] = dbg_trap_pc;
 
-    /* Send DBGSTOP then signal target to pause at next ab_poll() */
+    /* Target is already paused in the stub's Wait(CTRL_F).
+     * Just send DBGSTOP to the host. */
     dbg_send_stop("breakpoint");
     ui_add_log("DBG: breakpoint hit");
-
-    if (dbg_target) {
-        Signal(dbg_target, SIGBREAKF_CTRL_E);
-    }
 }
 
 /* ---- Protocol command handlers ---- */
