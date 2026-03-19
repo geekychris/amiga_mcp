@@ -277,6 +277,8 @@ __asm(
     "    move.l  %d0, _dbg_saved_regs+68\n"
     "    move.w  #1, _dbg_trap_hit\n"
     "    jsr     _dbg_repatch_all_from_trace\n"
+    /* RTE to pause stub — target stops after one instruction */
+    "    move.l  #_dbg_pause_stub, 2(%sp)\n"
     "    rte\n"
 
     ".Ltrace_not_ours:\n"
@@ -1016,10 +1018,12 @@ void dbg_handle_step(void)
         return;
     }
 
-    /* Set step request flag. The pause stub will see this,
-     * use TRAP #14 to set T1 in supervisor mode, and RTE
-     * to dbg_resume_pc. One instruction executes, Trace fires,
-     * STEP_SINGLE mode saves new PC and pauses again. */
+    /* Step into: execute one instruction from where we stopped.
+     * Set resume_pc to the BP address (dbg_trap_pc) so the stub
+     * re-executes the original instruction there (which was already
+     * restored by the TRAP handler). For calls (JSR/BSR), this means
+     * we execute the call and Trace fires inside the function. */
+    dbg_resume_pc = dbg_trap_pc;
     dbg_step_request = 1;
     dbg_stopped = FALSE;
     protocol_send_raw("DBGRUNNING");
@@ -1083,26 +1087,35 @@ void dbg_handle_next(void)
         return;
     }
 
-    /* Check if the current instruction is a call (JSR/BSR).
-     * If so, set a temporary breakpoint after it and continue.
-     * If not, just single-step. */
-    next_addr = dbg_next_after_call(dbg_resume_pc);
-    if (next_addr > 0) {
-        /* It's a call — set temp BP after the call and continue */
-        int idx = dbg_find_free_bp();
-        if (idx >= 0 && TypeOfMem((APTR)next_addr)) {
-            bp_table[idx].address = next_addr;
-            bp_table[idx].original = *(UWORD *)next_addr;
-            bp_table[idx].temporary = TRUE;
-            bp_table[idx].used = TRUE;
-            bp_table[idx].enabled = FALSE;
-            dbg_bp_count++;
-            dbg_patch_bp(idx);
+    /* Step Over = "run to next source line or next BP".
+     * Find the next BP in the table that has a higher address than
+     * where we stopped, and continue to it. This effectively steps
+     * over function calls since the next BP is on the next line.
+     * If no suitable BP exists, just single-step one instruction. */
+    {
+        ULONG current_pc = dbg_trap_pc;
+        ULONG best_addr = 0xFFFFFFFF;
+        int found = 0;
+        int i2;
+
+        /* Find the lowest BP address above current_pc */
+        for (i2 = 0; i2 < MAX_BREAKPOINTS; i2++) {
+            if (bp_table[i2].used && !bp_table[i2].temporary) {
+                if (bp_table[i2].address > current_pc &&
+                    bp_table[i2].address < best_addr) {
+                    best_addr = bp_table[i2].address;
+                    found = 1;
+                }
+            }
         }
-        dbg_handle_continue();
-    } else {
-        /* Not a call — single step */
-        dbg_handle_step();
+
+        if (found) {
+            /* Continue to the next BP */
+            dbg_handle_continue();
+        } else {
+            /* No higher BP — single step */
+            dbg_handle_step();
+        }
     }
 }
 
