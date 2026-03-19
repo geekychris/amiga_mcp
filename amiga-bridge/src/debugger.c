@@ -313,13 +313,15 @@ __asm(
     ".even\n"
     ".global _dbg_pause_stub\n"
     "_dbg_pause_stub:\n"
-    "    movem.l %d0-%d7/%a0-%a6, -(%sp)\n"
     /* Wait for CTRL_F (resume signal from daemon) */
-    "    move.l  #0x2000, %d0\n"           /* SIGBREAKF_CTRL_F = 1<<13 = 0x2000 */
+    "    move.l  #0x8000, %d0\n"           /* SIGBREAKF_CTRL_F = 1<<15 = 0x8000 */
     "    move.l  _SysBase, %a6\n"
     "    jsr     -0x13e(%a6)\n"            /* Wait() */
-    "    movem.l (%sp)+, %d0-%d7/%a0-%a6\n"
-    /* Jump to the instruction AFTER the BP (not the BP address) */
+    /* Restore registers from the static array saved by the TRAP handler.
+     * This is critical because the Trace handler trashed registers
+     * during repatch before RTE'ing here. */
+    "    movem.l _dbg_saved_regs, %d0-%d7/%a0-%a6\n"
+    /* Jump to the instruction AFTER the BP */
     "    move.l  _dbg_resume_pc, -(%sp)\n"
     "    rts\n"
 );
