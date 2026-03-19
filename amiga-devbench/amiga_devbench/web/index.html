@@ -1694,6 +1694,7 @@
       <!-- Row 1: Attach + Load Symbols -->
       <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;">
         <input id="dbgTarget" type="text" placeholder="Task name or hex address" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:180px;">
+        <button class="btn" onclick="dbgLaunch()" title="Launch app on Amiga">Launch</button>
         <button class="btn" id="dbgAttachBtn" onclick="dbgAttach()">Attach</button>
         <button class="btn" id="dbgDetachBtn" onclick="dbgDetach()" disabled>Detach</button>
         <div style="border-left:1px solid var(--border);height:20px;margin:0 4px;"></div>
@@ -5688,6 +5689,39 @@ function dbgSetButtons(attached, stopped) {
   document.getElementById('dbgTarget').disabled = attached;
 }
 
+async function dbgLaunch() {
+  const target = document.getElementById('dbgTarget').value.trim() ||
+                 document.getElementById('dbgSymProject').value.trim();
+  if (!target) return;
+  document.getElementById('dbgStatus').textContent = 'Launching ' + target + '...';
+  document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
+  try {
+    // Kill any existing instance first
+    await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `STOP|${target}`}) });
+    await new Promise(r => setTimeout(r, 1000));
+    // Launch via SCRIPT (Run >NIL: runs in background)
+    const r = await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `SCRIPT|1|Run >NIL: DH2:Dev/${target}`}) });
+    document.getElementById('dbgStatus').textContent = 'Launched ' + target + ' — waiting for registration...';
+    // Wait for it to register as a client
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const cl = await api('/command/raw', { method: 'POST', body: JSON.stringify({line: 'LISTCLIENTS'}) });
+      if (cl.response && cl.response.includes(target)) {
+        document.getElementById('dbgStatus').textContent = target + ' running — ready to attach';
+        document.getElementById('dbgStatus').style.color = 'var(--accent-green)';
+        // Auto-fill target name
+        document.getElementById('dbgTarget').value = target;
+        return;
+      }
+    }
+    document.getElementById('dbgStatus').textContent = target + ' launched but not registered as bridge client';
+    document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
+  } catch(e) {
+    document.getElementById('dbgStatus').textContent = 'Launch failed: ' + e.message;
+    document.getElementById('dbgStatus').style.color = '#ff6b6b';
+  }
+}
+
 async function dbgAttach() {
   const target = document.getElementById('dbgTarget').value.trim();
   if (!target) return;
@@ -5906,13 +5940,11 @@ function dbgOnStop(data) {
   // Update registers
   if (data.regs) dbgRenderRegs(data);
 
-  // Show source at PC
+  // Show source at PC (symbol lookup only, no serial)
   dbgLoadSourceForPC(pc);
-  // Load backtrace
-  dbgLoadBacktrace();
-  // Refresh BP list
+  // Refresh BP list (local only)
   dbgRefreshBpList();
-  // Load variables
+  // Load cached variables (no serial)
   dbgLoadVariables();
 }
 
@@ -6061,18 +6093,29 @@ async function dbgSyncBreakpoints() {
   if (!dbgState.attached || !dbgState.bpsDirty) return;
   dbgState.bpsDirty = false;
 
-  // Send all gutter BPs in parallel (BPSET is idempotent)
-  const promises = [];
+  // Clear all bridge BPs first, then set current ones
+  try {
+    // Use fetch directly with a short timeout to avoid 3s raw command wait
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 500);
+    await fetch('/api/command/raw', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({line: 'DBGCLEARALLBP'}),
+      signal: ctrl.signal
+    }).catch(() => {});
+    await new Promise(r => setTimeout(r, 200));
+  } catch(e) {}
+
+  // Set current gutter BPs sequentially (serial can't handle parallel)
   for (const lineNum of dbgState.gutterBps) {
     const addr = dbgState.bpLines[String(lineNum)];
     if (addr) {
       const addrHex = addr.toString(16).padStart(8, '0');
-      promises.push(
-        api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) })
-      );
+      try {
+        await api('/debugger/breakpoints/set', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({address: addrHex}) });
+      } catch(e) {}
     }
   }
-  await Promise.all(promises);
 }
 
 // Load registered variables when stopped - uses CACHED values only

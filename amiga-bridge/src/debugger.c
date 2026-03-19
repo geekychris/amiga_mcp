@@ -246,13 +246,9 @@ __asm(
     "    rte\n"
 
     ".Ltrace_repatch:\n"
-    /* Step-past-BP: repatch all BPs, then pause in stub.
-     * Save the resume PC (next instruction after the BP). */
+    /* Step-past-BP: repatch all BPs and let target continue */
     "    clr.w   _dbg_step_mode\n"
-    "    move.l  2(%sp), _dbg_resume_pc\n"  /* Save where to resume */
     "    jsr     _dbg_repatch_all_from_trace\n"
-    /* RTE to pause stub — target stops immediately */
-    "    move.l  #_dbg_pause_stub, 2(%sp)\n"
     "    rte\n"
 
     ".Ltrace_single:\n"
@@ -269,8 +265,6 @@ __asm(
     "    move.l  %d0, _dbg_saved_regs+68\n"
     "    move.w  #1, _dbg_trap_hit\n"
     "    jsr     _dbg_repatch_all_from_trace\n"
-    /* RTE to pause stub */
-    "    move.l  #_dbg_pause_stub, 2(%sp)\n"
     "    rte\n"
 
     ".Ltrace_not_ours:\n"
@@ -673,10 +667,13 @@ void dbg_poll(void)
     dbg_stopped = TRUE;
     dbg_saved_regs[16] = dbg_trap_pc;
 
-    /* Target is already paused in the stub's Wait(CTRL_F).
-     * Just send DBGSTOP notification to host. */
+    /* Send DBGSTOP then signal target to pause at next ab_poll() */
     dbg_send_stop("breakpoint");
     ui_add_log("DBG: breakpoint hit");
+
+    if (dbg_target) {
+        Signal(dbg_target, SIGBREAKF_CTRL_E);
+    }
 }
 
 /* ---- Protocol command handlers ---- */
