@@ -6,3 +6,5 @@ hello_world
 bouncing_ball
 logs/
 
+__pycache__/
+.DS_Store
