@@ -1,0 +1,29 @@
+# Amiga DevBench Configuration — AmigaOS 4.1 PPC
+# Copy to devbench.toml or use: python3 -m amiga_devbench --config devbench-ppc.toml
+
+[serial]
+mode = "tcp"
+host = "127.0.0.1"
+port = 2346
+pty_path = "/tmp/amiga-serial-ppc"
+
+[emulator]
+# QEMU sam460ex
+binary = "/opt/homebrew/bin/qemu-system-ppc"
+config = "scripts/start-qemu-os4.sh"
+auto_start = false  # Manual start recommended for QEMU
+
+[server]
+port = 3000
+log_level = "INFO"
+
+[build]
+arch = "ppc"
+docker_image = "walkero/amigagccondocker:os4-gcc11-arm64"
+
+[paths]
+# Adjust deploy_dir when OS4 dev HDD mount point is known
+deploy_dir = ""
+
+[bridge]
+crash_handler_auto_enable = true
