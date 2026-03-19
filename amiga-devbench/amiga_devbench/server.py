@@ -2547,9 +2547,20 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if _emulator.is_running:
             return JSONResponse({"status": "already_running", "pid": _emulator.pid})
         ok = await _emulator.start()
-        if ok:
-            return JSONResponse({"status": "started", "pid": _emulator.pid})
-        return JSONResponse({"error": "Failed to start emulator"})
+        if not ok:
+            return JSONResponse({"error": "Failed to start emulator"})
+
+        # Wait for boot and auto-connect
+        pid = _emulator.pid
+        await asyncio.sleep(3.0)
+        if _conn and not _conn.connected:
+            try:
+                await _conn.connect()
+                logger.info("Auto-connected after emulator start")
+            except Exception as e:
+                logger.warning("Auto-connect failed after emulator start: %s", e)
+
+        return JSONResponse({"status": "started", "pid": pid})
 
     async def api_emulator_stop(request: Request) -> JSONResponse:
         if not _emulator:
