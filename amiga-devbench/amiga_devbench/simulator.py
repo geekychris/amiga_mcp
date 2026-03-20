@@ -36,8 +36,9 @@ class AmigaSimulator:
         self._dbg_breakpoints: dict[int, dict] = {}  # id -> {address, original}
         self._next_bp_id = 0
         self._dbg_pc = 0x000000d8  # _start
+        self._dbg_code_base = 0x002F2074  # Simulated LoadSeg base address
         # Will be populated from real binary's source line addresses if available
-        self._dbg_code_addrs: list[int] = []
+        self._dbg_code_addrs: list[int] = []  # symbol-relative offsets
         self._dbg_code_idx = 0
         self._send_line = None  # set when client connects
         self._load_code_addrs()
@@ -92,10 +93,11 @@ class AmigaSimulator:
                                 pass
                     if addrs:
                         self._dbg_code_addrs = sorted(addrs)
-                        self._dbg_pc = self._dbg_code_addrs[0]
-                        logger.info("Simulator loaded %d code addresses from %s (0x%X-0x%X)",
+                        self._dbg_pc = self._dbg_code_base + self._dbg_code_addrs[0]
+                        logger.info("Simulator loaded %d code addresses from %s (0x%X-0x%X), code_base=0x%X",
                                     len(self._dbg_code_addrs), binary,
-                                    self._dbg_code_addrs[0], self._dbg_code_addrs[-1])
+                                    self._dbg_code_addrs[0], self._dbg_code_addrs[-1],
+                                    self._dbg_code_base)
                         return
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
@@ -103,7 +105,7 @@ class AmigaSimulator:
         # Fallback: generate addresses in the typical range
         logger.info("Simulator using fallback code addresses (no binary found)")
         self._dbg_code_addrs = [0xd8 + i * 0x10 for i in range(64)]
-        self._dbg_pc = self._dbg_code_addrs[0]
+        self._dbg_pc = self._dbg_code_base + self._dbg_code_addrs[0]
 
     def _get_memory(self, addr: int, size: int) -> str:
         """Generate fake memory contents."""
@@ -199,9 +201,9 @@ class AmigaSimulator:
         return False
 
     def _advance_pc(self) -> None:
-        """Advance the simulated PC to the next instruction."""
+        """Advance the simulated PC to the next instruction (absolute address)."""
         self._dbg_code_idx = (self._dbg_code_idx + 1) % len(self._dbg_code_addrs)
-        self._dbg_pc = self._dbg_code_addrs[self._dbg_code_idx]
+        self._dbg_pc = self._dbg_code_base + self._dbg_code_addrs[self._dbg_code_idx]
 
     async def _simulation_loop(self, send_line) -> None:
         """Run the bouncing ball simulation at ~20fps."""
@@ -438,8 +440,8 @@ class AmigaSimulator:
             self._dbg_stopped = False
             self._dbg_paused = False
             self._dbg_target = target
-            self._dbg_pc = self._dbg_code_addrs[self._dbg_code_idx]
-            send_line(f"DBGSTATE|1|0|{target}|{self._dbg_pc:08x}|0")
+            self._dbg_pc = self._dbg_code_base + self._dbg_code_addrs[self._dbg_code_idx]
+            send_line(f"DBGSTATE|1|0|{target}|{self._dbg_pc:08x}|0|BASE:{self._dbg_code_base:08x}")
 
         elif cmd == "DBGDETACH":
             self._dbg_attached = False
@@ -556,7 +558,7 @@ class AmigaSimulator:
         elif cmd == "DBGSTATUS":
             attached = 1 if self._dbg_attached else 0
             stopped = 1 if self._dbg_stopped else 0
-            send_line(f"DBGSTATE|{attached}|{stopped}|{self._dbg_target}|{self._dbg_pc:08x}|{len(self._dbg_breakpoints)}")
+            send_line(f"DBGSTATE|{attached}|{stopped}|{self._dbg_target}|{self._dbg_pc:08x}|{len(self._dbg_breakpoints)}|BASE:{self._dbg_code_base:08x}")
 
         elif cmd == "SHUTDOWN":
             send_line("OK|SHUTDOWN|bye")

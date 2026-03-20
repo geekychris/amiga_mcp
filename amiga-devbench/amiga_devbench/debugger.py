@@ -259,18 +259,22 @@ def annotate_with_symbols(state: DebuggerState, symbol_table: Any) -> None:
     if symbol_table is None:
         return
 
+    code_base = state.code_base
+
     for bp in state.breakpoints:
-        sym = symbol_table.lookup_address(bp.address)
+        rel_addr = bp.address - code_base if code_base > 0 and bp.address >= code_base else bp.address
+        sym = symbol_table.lookup_address(rel_addr)
         if sym:
             bp.symbol = sym
-        src = symbol_table.lookup_source_line(bp.address)
+        src = symbol_table.lookup_source_line(rel_addr)
         if src:
             bp.source_file, bp.source_line = src
 
     for frame in state.backtrace:
-        sym = symbol_table.lookup_address(frame.pc)
+        rel_pc = frame.pc - code_base if code_base > 0 and frame.pc >= code_base else frame.pc
+        sym = symbol_table.lookup_address(rel_pc)
         if sym:
             frame.symbol = sym
-        src = symbol_table.lookup_source_line(frame.pc)
+        src = symbol_table.lookup_source_line(rel_pc)
         if src:
             frame.source_file, frame.source_line = src

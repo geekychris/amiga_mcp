@@ -5730,6 +5730,7 @@ async function dbgAttach() {
     if (r.error) { alert('Attach failed: ' + r.error); return; }
     dbgState.attached = r.attached;
     dbgState.targetName = r.targetName || target;
+    if (r.codeBase) dbgState.codeBase = r.codeBase;
     dbgSetButtons(true, false);
     document.getElementById('dbgStatus').textContent = 'Running: ' + dbgState.targetName;
     document.getElementById('dbgStatus').style.color = 'var(--accent-green)';

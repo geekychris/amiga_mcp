@@ -812,11 +812,16 @@ void dbg_handle_detach(void)
     /* Resume target FIRST (before unpatching), then unpatch + cleanup */
     if (dbg_stopped && dbg_target) {
         dbg_trap_hit = FALSE;
+        /* Clear step request so the stub does a normal continue (not TRAP #14) */
+        dbg_step_request = 0;
         /* Unpatch BPs so target won't hit TRAPs after resume */
         dbg_unpatch_all();
-        /* Signal CTRL_F to wake from pause stub */
+        /* Signal CTRL_F to wake from pause stub.
+         * The stub will restore regs and jump to dbg_resume_pc. */
         Signal(dbg_target, SIGBREAKF_CTRL_F);
         Delay(10);  /* Give target time to resume and run past BP area */
+        /* Signal again in case first was consumed by a stale Wait */
+        Signal(dbg_target, SIGBREAKF_CTRL_F);
     } else {
         dbg_unpatch_all();
     }
@@ -1009,6 +1014,8 @@ void dbg_handle_bplist(void)
 
 void dbg_handle_step(void)
 {
+    int idx;
+
     if (!dbg_attached) {
         protocol_send_raw("ERR|DBGSTEP|not attached");
         return;
@@ -1020,9 +1027,18 @@ void dbg_handle_step(void)
 
     /* Step into: execute one instruction from where we stopped.
      * Set resume_pc to the BP address (dbg_trap_pc) so the stub
-     * re-executes the original instruction there (which was already
-     * restored by the TRAP handler). For calls (JSR/BSR), this means
-     * we execute the call and Trace fires inside the function. */
+     * re-executes the original instruction there.
+     *
+     * CRITICAL: Must unpatch the BP at trap_pc first! After a BP hit,
+     * the Trace handler repatches ALL BPs. If we step back to trap_pc
+     * without unpatching, TRAP #15 fires again, overwriting step_mode
+     * from STEP_SINGLE to STEP_PAST_BP, and the Trace handler takes
+     * the wrong path (never reports the new PC). */
+    idx = dbg_find_bp_by_addr(dbg_trap_pc);
+    if (idx >= 0) {
+        dbg_unpatch_bp(idx);
+    }
+
     dbg_resume_pc = dbg_trap_pc;
     dbg_step_request = 1;
     dbg_stopped = FALSE;
@@ -1190,12 +1206,13 @@ void dbg_handle_clearall(void)
 
 void dbg_handle_status(void)
 {
-    sprintf(dbg_buf, "DBGSTATE|%ld|%ld|%s|%08lx|%ld",
+    sprintf(dbg_buf, "DBGSTATE|%ld|%ld|%s|%08lx|%ld|BASE:%08lx",
             (long)dbg_attached,
             (long)dbg_stopped,
             dbg_attached ? dbg_target_name : "",
             dbg_stopped ? (unsigned long)dbg_saved_regs[16] : 0UL,
-            (long)dbg_bp_count);
+            (long)dbg_bp_count,
+            (unsigned long)dbg_code_base);
     protocol_send_raw(dbg_buf);
 }
 
