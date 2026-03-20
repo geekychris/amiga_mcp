@@ -116,29 +116,16 @@ int serial_write(const char *buf, int len)
 
     if (!dev_open || !write_io) return -1;
 
-    /* Write in chunks with SDCMD_QUERY between each chunk.
-     * FS-UAE's serial emulation can lose data on large writes
-     * because the PTY pipe buffer fills up. The query acts as
-     * a small pause to let the host drain the buffer. */
-    while (total < len) {
-        int chunk = len - total;
-        if (chunk > 48) chunk = 48;
-
-        write_io->IOSer.io_Command = CMD_WRITE;
-        write_io->IOSer.io_Data = (APTR)(buf + total);
-        write_io->IOSer.io_Length = chunk;
-        DoIO((struct IORequest *)write_io);
-
-        total += (int)write_io->IOSer.io_Actual;
-        if (write_io->IOSer.io_Actual < (ULONG)chunk) break;
-
-        /* Query serial status between chunks - acts as a small
-         * synchronization point to let FS-UAE process the data */
-        if (total < len) {
-            write_io->IOSer.io_Command = SDCMD_QUERY;
-            DoIO((struct IORequest *)write_io);
-        }
-    }
+    /* Write the entire message in one DoIO call.
+     * Keep it simple — the chunked approach with SDCMD_QUERY pacing
+     * was causing excessive blocking that prevented incoming serial
+     * data from being processed. Single-shot write is faster and
+     * doesn't starve the read side. */
+    write_io->IOSer.io_Command = CMD_WRITE;
+    write_io->IOSer.io_Data = (APTR)buf;
+    write_io->IOSer.io_Length = len;
+    DoIO((struct IORequest *)write_io);
+    total = (int)write_io->IOSer.io_Actual;
 
     return total;
 }

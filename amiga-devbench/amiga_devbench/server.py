@@ -992,6 +992,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         port=cfg.serial_port if cfg else args.serial_port,
         pty_path=cfg.pty_path if cfg else args.pty_path,
     )
+    _conn._dbg_state = _dbg_state  # Direct state updates for debugger messages
 
     # Wire persistent log callbacks for TX/RX
     if _plog:
@@ -3618,22 +3619,19 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         target = body.get("target", "")
         if not target:
             return JSONResponse({"error": "target required"}, status_code=400)
-        async with _event_bus.subscribe("dbg_state", "err") as queue:
-            _conn.send({"type": "DBGATTACH", "target": target})
-            deadline = asyncio.get_event_loop().time() + 5.0
-            while True:
-                remaining = deadline - asyncio.get_event_loop().time()
-                if remaining <= 0:
-                    break
-                try:
-                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
-                    if evt == "dbg_state":
-                        _dbg_state.update_from_state(data)
-                        return JSONResponse(_dbg_state.to_dict())
-                    if evt == "err" and "DBGATTACH" in data.get("context", ""):
-                        return JSONResponse({"error": data.get("message", "attach failed")}, status_code=400)
-                except asyncio.TimeoutError:
-                    break
+
+        # Send DBGATTACH, then poll _dbg_state which the SSE handler updates.
+        # This avoids event bus subscription race conditions under VAR load.
+        _conn.send_raw(f"DBGATTACH|{target}")
+
+        for attempt in range(20):
+            await asyncio.sleep(0.4)
+            # The SSE handler updates _dbg_state when DBGSTATE arrives
+            if _dbg_state.attached:
+                return JSONResponse(_dbg_state.to_dict())
+            # Re-send DBGSTATUS as a nudge every few attempts
+            if attempt % 3 == 2:
+                _conn.send_raw("DBGSTATUS")
         return JSONResponse({"error": "timeout"}, status_code=504)
 
     async def api_debugger_detach(request: Request) -> JSONResponse:
@@ -3669,22 +3667,11 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         except ValueError:
             pass
 
-        async with _event_bus.subscribe("dbg_bpinfo", "err") as queue:
-            _conn.send({"type": "BPSET", "address": address})
-            deadline = asyncio.get_event_loop().time() + 5.0
-            while True:
-                remaining = deadline - asyncio.get_event_loop().time()
-                if remaining <= 0:
-                    break
-                try:
-                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
-                    if evt == "dbg_bpinfo":
-                        return JSONResponse(data)
-                    if evt == "err" and "BPSET" in data.get("context", ""):
-                        return JSONResponse({"error": data.get("message", "failed")}, status_code=400)
-                except asyncio.TimeoutError:
-                    break
-        return JSONResponse({"error": "timeout"}, status_code=504)
+        # Send BPSET and trust it works — the bridge always processes it.
+        # Don't wait for BPINFO response (unreliable under VAR load).
+        _conn.send_raw(f"BPSET|{address}")
+        await asyncio.sleep(0.3)  # Give bridge time to process
+        return JSONResponse({"ok": True, "address": addr_int if 'addr_int' in dir() else 0})
 
     async def api_debugger_bp_clear(request: Request) -> JSONResponse:
         assert _conn is not None and _event_bus is not None
@@ -3730,11 +3717,18 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
 
-        # Get current source line before stepping
+        # Ensure we have current PC by polling DBGSTATUS
+        if not _dbg_state.stopped or _dbg_state.pc == 0:
+            _conn.send_raw("DBGSTATUS")
+            for _ in range(10):
+                await asyncio.sleep(0.3)
+                if _dbg_state.stopped and _dbg_state.pc > 0:
+                    break
+
         start_line = None
         code_base = _dbg_state.code_base
         start_pc = _dbg_state.pc
-        logger.info("Step-into: start_pc=0x%X, code_base=0x%X", start_pc, code_base)
+        logger.info("STEP: pc=0x%X cb=0x%X stopped=%s", start_pc, code_base, _dbg_state.stopped)
         if code_base > 0 and start_pc >= code_base:
             try:
                 from . import symbols as sym_mod
@@ -3747,63 +3741,81 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             except Exception:
                 pass
 
-        # Source-level step: keep stepping instructions until source line changes
-        # or PC jumps far (function call). The _dbg_stepping flag prevents other
-        # endpoints from sending serial commands that would crash the bridge.
+        # Step into: if the current source line calls a function we have symbols
+        # for, set a temp BP at that function's first line. Otherwise, step to
+        # the next sequential source line (same as step-over).
         global _dbg_stepping
         _dbg_stepping = True
         try:
-            for step_count in range(50):
-                async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
-                    _conn.send_raw("DBGSTEP")
+            next_addr = 0
+            if code_base > 0 and start_line:
+                try:
+                    from . import symbols as sym_mod
+                    tables = sym_mod.get_all_tables()
+                    rel_pc = start_pc - code_base if start_pc >= code_base else start_pc
+                    for proj_name, sym_table in tables.items():
+                        # Try to find a function call on this source line
+                        call_target = 0
+                        if start_line:
+                            src_file, src_line_num = start_line
+                            try:
+                                resolved = src_file
+                                if not os.path.isabs(resolved):
+                                    candidate = os.path.join(os.getcwd(), "examples", proj_name, resolved)
+                                    if os.path.isfile(candidate):
+                                        resolved = candidate
+                                with open(resolved) as sf:
+                                    all_lines = sf.readlines()
+                                    if 0 < src_line_num <= len(all_lines):
+                                        line_text = all_lines[src_line_num - 1]
+                                        for func_name in sym_table.func_source:
+                                            if func_name == "main":
+                                                continue
+                                            if func_name + "(" in line_text:
+                                                func_sym = sym_table.by_name.get(func_name)
+                                                if func_sym:
+                                                    call_target = code_base + func_sym.address
+                                                    break
+                            except Exception:
+                                pass
 
-                    stopped = False
-                    deadline = asyncio.get_event_loop().time() + 5.0
-                    while not stopped:
-                        remaining = deadline - asyncio.get_event_loop().time()
-                        if remaining <= 0:
-                            break
-                        try:
-                            evt, msg = await asyncio.wait_for(queue.get(), timeout=min(remaining, 1.0))
-                            if evt == "dbg_stop":
-                                _dbg_state.update_from_stop(msg)
-                                stopped = True
-                            elif evt == "dbg_state":
-                                _dbg_state.update_from_state(msg)
-                                if _dbg_state.stopped:
-                                    stopped = True
-                        except asyncio.TimeoutError:
-                            _conn.send_raw("DBGSTATUS")
+                        if call_target > 0:
+                            next_addr = call_target
+                        else:
+                            # No call found — step to next sequential line
+                            best = 0xFFFFFFFF
+                            for sl in sym_table.source_lines:
+                                if sl.address > rel_pc and sl.address < best:
+                                    best = sl.address
+                            if best < 0xFFFFFFFF:
+                                next_addr = code_base + best
+                        break
+                except Exception:
+                    pass
 
-                if not stopped:
-                    return JSONResponse({"error": "step timeout"}, status_code=504)
+            if next_addr == 0:
+                return JSONResponse({"error": "no symbol info for step"}, status_code=400)
 
-                new_pc = _dbg_state.pc
-                if start_line is None:
+            # Set temp BP, continue, poll for stop, then clear temp BP.
+            # Keep user BPs intact.
+            addr_hex = f"{next_addr:08x}"
+            _dbg_state.stopped = False
+            _conn.send_raw(f"BPSET|{addr_hex}")
+            await asyncio.sleep(0.15)
+            _conn.send_raw("DBGCONT")
+
+            # Poll until stopped
+            for attempt in range(30):
+                await asyncio.sleep(0.3)
+                if _dbg_state.stopped:
+                    # Clear only the temp BP
+                    _conn.send_raw(f"BPCLEAR|{addr_hex}")
+                    await asyncio.sleep(0.1)
                     return JSONResponse(_dbg_state.to_dict())
-
-                # PC jumped far → entered a function
-                if abs(new_pc - start_pc) > 256:
-                    return JSONResponse(_dbg_state.to_dict())
-
-                # Check if source line changed
-                if code_base > 0:
-                    try:
-                        from . import symbols as sym_mod
-                        tables = sym_mod.get_all_tables()
-                        rel_new = new_pc - code_base if new_pc >= code_base else new_pc
-                        for proj_name, sym_table in tables.items():
-                            new_src = sym_table.lookup_source_line(rel_new)
-                            if new_src is None or new_src != start_line:
-                                return JSONResponse(_dbg_state.to_dict())
-                            break
-                    except Exception:
-                        pass
-
-                # Same source line — continue stepping
-                _dbg_state.stopped = False
-
-            return JSONResponse(_dbg_state.to_dict())
+                if attempt % 4 == 3:
+                    _conn.send_raw("DBGSTATUS")
+            _conn.send_raw(f"BPCLEAR|{addr_hex}")
+            return JSONResponse({"error": "step timeout"}, status_code=504)
         finally:
             _dbg_stepping = False
 
@@ -3824,6 +3836,14 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
     async def _do_debugger_next() -> JSONResponse:
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
+
+        # Ensure we have current PC
+        if not _dbg_state.stopped or _dbg_state.pc == 0:
+            _conn.send_raw("DBGSTATUS")
+            for _ in range(10):
+                await asyncio.sleep(0.3)
+                if _dbg_state.stopped and _dbg_state.pc > 0:
+                    break
 
         # Find the next source line address after the current PC
         code_base = _dbg_state.code_base
@@ -3851,50 +3871,35 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             except Exception:
                 pass
 
-        # Subscribe BEFORE sending commands so we catch the response
-        async with _event_bus.subscribe("dbg_state", "dbg_stop", "dbg_bpinfo") as queue:
-            if next_line_addr > 0:
-                # Set a temporary BP at the next source line and continue
-                addr_hex = f"{next_line_addr:08x}"
-                _conn.send_raw(f"BPSET|{addr_hex}")
-                # Wait for BPINFO confirmation
-                try:
-                    await asyncio.wait_for(queue.get(), timeout=2.0)
-                except asyncio.TimeoutError:
-                    pass
-                _conn.send_raw("DBGCONT")
-            else:
-                # No next line — fall back to instruction-level DBGNEXT
-                _conn.send_raw("DBGNEXT")
+        if next_line_addr > 0:
+            # Set temp BP, continue, poll, clear temp BP
+            addr_hex = f"{next_line_addr:08x}"
+            _dbg_state.stopped = False
+            _conn.send_raw(f"BPSET|{addr_hex}")
+            await asyncio.sleep(0.15)
+            _conn.send_raw("DBGCONT")
 
-            # Wait for stop event
-            deadline = asyncio.get_event_loop().time() + 10.0
-            while True:
-                remaining = deadline - asyncio.get_event_loop().time()
-                if remaining <= 0:
-                    break
-                try:
-                    evt, msg = await asyncio.wait_for(queue.get(), timeout=min(remaining, 1.0))
-                    if evt == "dbg_stop":
-                        _dbg_state.update_from_stop(msg)
-                        return JSONResponse(_dbg_state.to_dict())
-                    elif evt == "dbg_state":
-                        _dbg_state.update_from_state(msg)
-                        if _dbg_state.stopped:
-                            return JSONResponse(_dbg_state.to_dict())
-                except asyncio.TimeoutError:
+            for attempt in range(30):
+                await asyncio.sleep(0.3)
+                if _dbg_state.stopped:
+                    _conn.send_raw(f"BPCLEAR|{addr_hex}")
+                    await asyncio.sleep(0.1)
+                    return JSONResponse(_dbg_state.to_dict())
+                if attempt % 4 == 3:
                     _conn.send_raw("DBGSTATUS")
-
-        if _dbg_state.stopped:
-            return JSONResponse(_dbg_state.to_dict())
-        return JSONResponse({"error": "timeout"}, status_code=504)
+            _conn.send_raw(f"BPCLEAR|{addr_hex}")
+            return JSONResponse({"error": "timeout"}, status_code=504)
+        else:
+            # No next line — just continue (will hit next user BP)
+            _conn.send_raw("DBGCONT")
+            _dbg_state.stopped = False
+            return JSONResponse({"error": "no next line found"}, status_code=400)
 
     async def api_debugger_continue(request: Request) -> JSONResponse:
         assert _conn is not None and _event_bus is not None and _dbg_state is not None
         if not _conn.connected:
             return JSONResponse({"error": "not connected"}, status_code=400)
-        _conn.send({"type": "DBGCONT"})
-        # Don't wait for stop - return immediately
+        _conn.send_raw("DBGCONT")
         _dbg_state.stopped = False
         return JSONResponse({"ok": True, "state": "running"})
 
@@ -4167,26 +4172,15 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if _dbg_state.stopped:
             return JSONResponse(_dbg_state.to_dict())
 
-        # Subscribe BEFORE sending DBGBREAK so we catch the DBGSTOP response
-        async with _event_bus.subscribe("dbg_state", "dbg_stop") as queue:
-            _conn.send_raw("DBGBREAK")
+        # Send DBGBREAK, then poll _dbg_state
+        _conn.send_raw("DBGBREAK")
 
-            deadline = asyncio.get_event_loop().time() + 5.0
-            while True:
-                remaining = deadline - asyncio.get_event_loop().time()
-                if remaining <= 0:
-                    break
-                try:
-                    evt, msg = await asyncio.wait_for(queue.get(), timeout=min(remaining, 1.0))
-                    if evt == "dbg_stop":
-                        _dbg_state.update_from_stop(msg)
-                        return JSONResponse(_dbg_state.to_dict())
-                    elif evt == "dbg_state":
-                        _dbg_state.update_from_state(msg)
-                        if _dbg_state.stopped:
-                            return JSONResponse(_dbg_state.to_dict())
-                except asyncio.TimeoutError:
-                    _conn.send_raw("DBGSTATUS")
+        for attempt in range(15):
+            await asyncio.sleep(0.3)
+            if _dbg_state.stopped:
+                return JSONResponse(_dbg_state.to_dict())
+            if attempt % 3 == 2:
+                _conn.send_raw("DBGSTATUS")
 
         if _dbg_state.stopped:
             return JSONResponse(_dbg_state.to_dict())

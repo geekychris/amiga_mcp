@@ -131,6 +131,14 @@
   }
   .tab-panel.active { display: block; }
 
+  /* Sub-tabs */
+  .sub-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .sub-tab { padding: 4px 12px; font-size: 11px; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+  .sub-tab.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+  .sub-tab:hover { color: var(--text-primary); }
+  .sub-panel { display: none; }
+  .sub-panel.active { display: block; }
+
   /* Cards */
   .card {
     background: var(--bg-card);
@@ -300,7 +308,7 @@
     gap: 12px;
   }
   .log-line:hover { background: rgba(255,255,255,0.03); }
-  .log-tick { color: var(--text-dim); min-width: 60px; }
+  .log-tick { color: var(--text-dim); min-width: 72px; font-size: 11px; }
   .log-level { min-width: 50px; font-weight: 600; }
   .log-level.D { color: #888; }
   .log-level.I { color: var(--text-primary); }
@@ -655,18 +663,11 @@
     <div class="tab active" data-tab="dashboard">Dashboard</div>
     <div class="tab" data-tab="logs">Logs</div>
     <div class="tab" data-tab="files">Files</div>
-    <div class="tab" data-tab="tasks">Tasks</div>
-    <div class="tab" data-tab="memory">Memory</div>
-    <div class="tab" data-tab="variables">Variables</div>
-    <div class="tab" data-tab="shell">Shell</div>
-    <div class="tab" data-tab="graphics">Graphics</div>
-    <div class="tab" data-tab="system">System</div>
-    <div class="tab" data-tab="debug">Debug</div>
+    <div class="tab" data-tab="tools">Tools</div>
+    <div class="tab" data-tab="inspect">Inspect</div>
     <div class="tab" data-tab="develop">Develop</div>
-    <div class="tab" data-tab="transfer">Transfer</div>
-    <div class="tab" data-tab="config">Config</div>
-    <div class="tab" data-tab="traffic">Traffic</div>
     <div class="tab" data-tab="debugger">Debugger</div>
+    <div class="tab" data-tab="settings">Settings</div>
   </div>
 
   <!-- Content -->
@@ -769,8 +770,13 @@
       <div class="log-container" id="logContainer"></div>
     </div>
 
-    <!-- Files -->
+    <!-- Files (Browser + Transfer) -->
     <div class="tab-panel" id="panel-files">
+      <div class="sub-tabs">
+        <div class="sub-tab active" data-subtab="files-browser">Browser</div>
+        <div class="sub-tab" data-subtab="files-transfer">Transfer</div>
+      </div>
+      <div class="sub-panel active" id="sub-files-browser">
       <div class="file-browser">
         <div class="file-tree" id="fileTree">
           <div class="tree-item" style="color:var(--text-dim);cursor:default;font-size:11px;">Loading volumes...</div>
@@ -785,10 +791,59 @@
           </div>
         </div>
       </div>
+      </div>
+      <div class="sub-panel" id="sub-files-transfer">
+      <div style="max-width:800px;margin:0 auto;padding:16px;">
+        <div class="card" style="padding:16px;margin-bottom:12px;">
+          <h3 style="margin-bottom:10px;">File Transfer <span class="tool-help" title="Transfer files between host and Amiga over serial bridge. For remote setups where shared folders aren't available.">?</span></h3>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px;">MCP: <code>amiga_transfer</code> &middot; Serial bridge required</div>
+          <div style="display:flex;gap:12px;margin-bottom:14px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="xferDir" value="push" checked onchange="xferDirChanged()"> Host &rarr; Amiga
+            </label>
+            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="xferDir" value="pull" onchange="xferDirChanged()"> Amiga &rarr; Host
+            </label>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px;" id="xferSrcLabel">Source (host path or glob pattern)</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="xferSource" placeholder="/path/to/file or /path/*.bin" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;">
+            </div>
+          </div>
+          <div style="margin-bottom:14px;">
+            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px;" id="xferDstLabel">Destination (Amiga path)</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="xferDest" placeholder="DH2:Dev/" value="DH2:Dev/" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn orange" onclick="xferStart()" id="xferBtn">Transfer</button>
+            <span id="xferSpinner" style="display:none;color:var(--text-dim);font-size:12px;">Transferring...</span>
+          </div>
+          <div id="xferResult" style="margin-top:12px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;"></div>
+        </div>
+        <div class="card" style="padding:16px;">
+          <h3 style="margin-bottom:8px;">Transfer History</h3>
+          <div id="xferHistory" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;color:var(--text-secondary);">
+            <span style="color:var(--text-dim);">No transfers yet</span>
+          </div>
+        </div>
+      </div>
+      </div>
     </div>
 
-    <!-- Tasks -->
-    <div class="tab-panel" id="panel-tasks">
+    <!-- Tools (Memory + Variables + Shell + Tasks) -->
+    <div class="tab-panel" id="panel-tools">
+      <div class="sub-tabs">
+        <div class="sub-tab active" data-subtab="tools-memory">Memory</div>
+        <div class="sub-tab" data-subtab="tools-variables">Variables</div>
+        <div class="sub-tab" data-subtab="tools-shell">Shell</div>
+        <div class="sub-tab" data-subtab="tools-tasks">Tasks</div>
+      </div>
+      <div class="sub-panel" id="sub-tools-tasks">
+      <!-- Tasks -->
+      <div id="panel-tasks">
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
         <button class="btn" onclick="refreshTasks()">Refresh</button>
         <div class="toggle-wrap">
@@ -817,10 +872,11 @@
           <span class="empty-state">Click Refresh to load tracked processes</span>
         </div>
       </div>
-    </div>
-
-    <!-- Memory -->
-    <div class="tab-panel" id="panel-memory">
+      </div>
+      </div>
+      <div class="sub-panel active" id="sub-tools-memory">
+      <!-- Memory -->
+      <div id="panel-memory">
       <div class="mem-controls">
         <label style="font-size:12px;color:var(--text-secondary);">Address:</label>
         <input class="mem-input" id="memAddr" placeholder="00DFF000" value="00DFF000" style="width:120px;">
@@ -856,10 +912,11 @@
         <span id="memWriteStatus" style="font-size:11px;color:var(--text-dim);"></span>
       </div>
       <div class="hex-dump" id="hexDump">No data. Enter an address and click Read.</div>
-    </div>
-
-    <!-- Variables -->
-    <div class="tab-panel" id="panel-variables">
+      </div>
+      </div>
+      <div class="sub-panel" id="sub-tools-variables">
+      <!-- Variables -->
+      <div id="panel-variables">
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
         <button class="btn" onclick="refreshVars()">Refresh</button>
         <div class="toggle-wrap">
@@ -878,10 +935,11 @@
           </tbody>
         </table>
       </div>
-    </div>
-
-    <!-- Shell -->
-    <div class="tab-panel" id="panel-shell">
+      </div>
+      </div>
+      <div class="sub-panel" id="sub-tools-shell">
+      <!-- Shell -->
+      <div id="panel-shell">
       <div id="shellNotRunning" style="display:none;">
         <div class="card" style="text-align:center;padding:30px;">
           <p style="margin-bottom:15px;color:var(--text-secondary);">Shell Proxy is not running on the Amiga.</p>
@@ -919,10 +977,20 @@
           <div style="font-size:11px;color:var(--text-dim);">↑↓ history | Tab=complete</div>
         </div>
       </div>
+      </div>
+      </div>
     </div>
 
-    <!-- Graphics (display & visual tools) -->
-    <div class="tab-panel" id="panel-graphics">
+    <!-- Inspect (Graphics + System + Debug) -->
+    <div class="tab-panel" id="panel-inspect">
+      <div class="sub-tabs">
+        <div class="sub-tab active" data-subtab="inspect-graphics">Graphics</div>
+        <div class="sub-tab" data-subtab="inspect-system">System</div>
+        <div class="sub-tab" data-subtab="inspect-debug">Debug</div>
+      </div>
+      <div class="sub-panel active" id="sub-inspect-graphics">
+      <!-- Graphics (display & visual tools) -->
+      <div id="panel-graphics">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <div class="card" style="padding:14px;">
@@ -1004,10 +1072,11 @@
         </div>
 
       </div>
-    </div>
-
-    <!-- System (OS inspection, config & interaction) -->
-    <div class="tab-panel" id="panel-system">
+      </div>
+      </div>
+      <div class="sub-panel" id="sub-inspect-system">
+      <!-- System (OS inspection, config & interaction) -->
+      <div id="panel-system">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <!-- System Info Dashboard -->
@@ -1312,10 +1381,11 @@
         </div>
 
       </div>
-    </div>
-
-    <!-- Debug (runtime debugging, profiling & hardware inspection) -->
-    <div class="tab-panel" id="panel-debug">
+      </div>
+      </div>
+      <div class="sub-panel" id="sub-inspect-debug">
+      <!-- Debug (runtime debugging, profiling & hardware inspection) -->
+      <div id="panel-debug">
       <div class="tool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
 
         <!-- Symbol Table -->
@@ -1512,6 +1582,8 @@
         </div>
 
       </div>
+      </div>
+      </div>
     </div>
 
     <!-- Develop -->
@@ -1559,61 +1631,13 @@
       </div>
     </div>
 
-    <!-- Transfer -->
-    <div class="tab-panel" id="panel-transfer">
-      <div style="max-width:800px;margin:0 auto;padding:16px;">
-        <div class="card" style="padding:16px;margin-bottom:12px;">
-          <h3 style="margin-bottom:10px;">File Transfer <span class="tool-help" title="Transfer files between host and Amiga over serial bridge. For remote setups where shared folders aren't available.">?</span></h3>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px;">MCP: <code>amiga_transfer</code> &middot; Serial bridge required</div>
-
-          <!-- Direction selector -->
-          <div style="display:flex;gap:12px;margin-bottom:14px;align-items:center;">
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
-              <input type="radio" name="xferDir" value="push" checked onchange="xferDirChanged()"> Host &rarr; Amiga
-            </label>
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
-              <input type="radio" name="xferDir" value="pull" onchange="xferDirChanged()"> Amiga &rarr; Host
-            </label>
-          </div>
-
-          <!-- Source -->
-          <div style="margin-bottom:10px;">
-            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px;" id="xferSrcLabel">Source (host path or glob pattern)</label>
-            <div style="display:flex;gap:6px;">
-              <input type="text" id="xferSource" placeholder="/path/to/file or /path/*.bin" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;">
-            </div>
-          </div>
-
-          <!-- Destination -->
-          <div style="margin-bottom:14px;">
-            <label style="font-size:11px;color:var(--text-secondary);display:block;margin-bottom:3px;" id="xferDstLabel">Destination (Amiga path)</label>
-            <div style="display:flex;gap:6px;">
-              <input type="text" id="xferDest" placeholder="DH2:Dev/" value="DH2:Dev/" style="flex:1;background:var(--bg-input);border:1px solid var(--border);color:var(--text-primary);padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:12px;">
-            </div>
-          </div>
-
-          <!-- Transfer button -->
-          <div style="display:flex;gap:8px;align-items:center;">
-            <button class="btn orange" onclick="xferStart()" id="xferBtn">Transfer</button>
-            <span id="xferSpinner" style="display:none;color:var(--text-dim);font-size:12px;">Transferring...</span>
-          </div>
-
-          <!-- Result -->
-          <div id="xferResult" style="margin-top:12px;font-family:var(--mono);font-size:12px;white-space:pre-wrap;"></div>
-        </div>
-
-        <!-- Transfer history -->
-        <div class="card" style="padding:16px;">
-          <h3 style="margin-bottom:8px;">Transfer History</h3>
-          <div id="xferHistory" style="font-family:var(--mono);font-size:11px;max-height:300px;overflow-y:auto;color:var(--text-secondary);">
-            <span style="color:var(--text-dim);">No transfers yet</span>
-          </div>
-        </div>
+    <!-- Settings (Config + Traffic) -->
+    <div class="tab-panel" id="panel-settings">
+      <div class="sub-tabs">
+        <div class="sub-tab active" data-subtab="settings-config">Config</div>
+        <div class="sub-tab" data-subtab="settings-traffic">Traffic</div>
       </div>
-    </div>
-
-    <!-- Config -->
-    <div class="tab-panel" id="panel-config">
+      <div class="sub-panel active" id="sub-settings-config">
       <div class="dash-grid" style="grid-template-columns:1fr 1fr;">
         <div class="card" style="grid-column:span 1;">
           <h3>DevBench Config</h3>
@@ -1650,10 +1674,8 @@
           <div id="emuCfgMsg" style="font-size:11px;color:var(--green);margin-top:6px;"></div>
         </div>
       </div>
-    </div>
-
-    <!-- Traffic Log -->
-    <div class="tab-panel" id="panel-traffic">
+      </div>
+      <div class="sub-panel" id="sub-settings-traffic">
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
         <select id="trafficKind" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;" onchange="trafficLoad()">
           <option value="">All</option>
@@ -1687,18 +1709,22 @@
           <div id="trafficDetail" style="font-size:12px;color:var(--text-dim);">Select an entry to view details</div>
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Debugger -->
     <div class="tab-panel" id="panel-debugger">
-      <!-- Row 1: Attach + Load Symbols -->
+      <!-- Row 1: Target + Attach + Symbols -->
       <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;">
-        <input id="dbgTarget" type="text" placeholder="Task name or hex address" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:180px;">
+        <input id="dbgTarget" type="text" list="dbgTargetList" placeholder="Target (task name)" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:160px;">
+        <datalist id="dbgTargetList"></datalist>
         <button class="btn" onclick="dbgLaunch()" title="Launch app on Amiga">Launch</button>
         <button class="btn" id="dbgAttachBtn" onclick="dbgAttach()">Attach</button>
+        <button class="btn" id="dbgLaunchAttachBtn" onclick="dbgLaunchAndAttach()" title="Launch, attach, and break at start">Launch &amp; Attach</button>
         <button class="btn" id="dbgDetachBtn" onclick="dbgDetach()" disabled>Detach</button>
         <div style="border-left:1px solid var(--border);height:20px;margin:0 4px;"></div>
-        <input id="dbgSymProject" type="text" placeholder="Project (e.g. bouncing_ball)" value="bouncing_ball" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:160px;">
+        <input id="dbgSymProject" type="text" list="dbgProjectList" placeholder="Project" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:4px 8px;font-size:12px;width:140px;">
+        <datalist id="dbgProjectList"></datalist>
         <button class="btn" onclick="dbgLoadSymbols()">Load Symbols</button>
         <span id="dbgSymStatus" style="font-size:11px;color:var(--text-dim);"></span>
       </div>
@@ -1785,34 +1811,94 @@ let eventSource = null;
 document.getElementById('tabBar').addEventListener('click', (e) => {
   const tab = e.target.closest('.tab');
   if (!tab) return;
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#tabBar > .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.content > .tab-panel').forEach(p => p.classList.remove('active'));
   tab.classList.add('active');
   const tabName = tab.dataset.tab;
   document.getElementById('panel-' + tabName).classList.add('active');
   // Auto-refresh relevant data when switching tabs
-  if (tabName === 'graphics') {
-    if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
-  }
-  if (tabName === 'debug') {
-    api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
-    if (typeof toolRefreshTasks === 'function') toolRefreshTasks();
+  if (tabName === 'inspect') {
+    // Check which sub-tab is active for auto-refresh
+    const activeSubTab = document.querySelector('#panel-inspect .sub-tab.active');
+    const subName = activeSubTab ? activeSubTab.dataset.subtab : '';
+    if (subName === 'inspect-graphics') {
+      if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
+    }
+    if (subName === 'inspect-debug') {
+      api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
+      if (typeof toolRefreshTasks === 'function') toolRefreshTasks();
+    }
   }
   if (tabName === 'develop') {
     api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
     if (typeof toolRefreshProjects === 'function') toolRefreshProjects();
   }
-  // Load config when switching to config tab
-  if (tabName === 'config') {
-    cfgLoad();
-    emuCfgLoad();
-    emuRefresh();
-  }
-  // Load traffic log when switching to traffic tab
-  if (tabName === 'traffic') {
-    trafficLoad();
+  // Load config when switching to settings tab
+  if (tabName === 'settings') {
+    const activeSubTab = document.querySelector('#panel-settings .sub-tab.active');
+    const subName = activeSubTab ? activeSubTab.dataset.subtab : '';
+    if (subName === 'settings-config') {
+      cfgLoad();
+      emuCfgLoad();
+      emuRefresh();
+    }
+    if (subName === 'settings-traffic') {
+      trafficLoad();
+    }
   }
 });
+
+// ─── Sub-Tab Navigation ───
+document.querySelectorAll('.sub-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const parent = tab.closest('.tab-panel');
+    parent.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+    parent.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const targetId = 'sub-' + tab.dataset.subtab;
+    const target = document.getElementById(targetId);
+    if (target) target.classList.add('active');
+    // Persist selection
+    localStorage.setItem('subtab-' + parent.id, tab.dataset.subtab);
+    // Auto-refresh on sub-tab switch
+    const subName = tab.dataset.subtab;
+    if (subName === 'inspect-graphics') {
+      if (typeof toolRefreshWindows === 'function') toolRefreshWindows();
+    }
+    if (subName === 'inspect-debug') {
+      api('/clients').then(d => { if (d && d.clients) updateClients(d.clients); });
+      if (typeof toolRefreshTasks === 'function') toolRefreshTasks();
+    }
+    if (subName === 'settings-config') {
+      cfgLoad(); emuCfgLoad(); emuRefresh();
+    }
+    if (subName === 'settings-traffic') {
+      trafficLoad();
+    }
+  });
+});
+// Restore persisted sub-tab selections
+document.querySelectorAll('.content > .tab-panel').forEach(panel => {
+  const saved = localStorage.getItem('subtab-' + panel.id);
+  if (saved) {
+    const tab = panel.querySelector(`.sub-tab[data-subtab="${saved}"]`);
+    if (tab) tab.click();
+  }
+});
+
+// Helper to switch to a parent tab and a specific sub-tab
+function switchToSubTab(parentTab, subTabName) {
+  document.querySelectorAll('#tabBar > .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.content > .tab-panel').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector(`[data-tab="${parentTab}"]`);
+  const panel = document.getElementById('panel-' + parentTab);
+  if (btn) btn.classList.add('active');
+  if (panel) {
+    panel.classList.add('active');
+    const subTab = panel.querySelector(`.sub-tab[data-subtab="${subTabName}"]`);
+    if (subTab) subTab.click();
+  }
+}
 
 // ─── API Helpers ───
 async function api(path, opts = {}) {
@@ -1859,6 +1945,21 @@ function connectSSE() {
   eventSource.addEventListener('clients', (e) => {
     const data = JSON.parse(e.data);
     updateClients(data);
+    // Update debugger target list from the SSE data directly (no extra API call)
+    const dl = document.getElementById('dbgTargetList');
+    if (dl && Array.isArray(data)) {
+      const names = new Set();
+      data.forEach(c => {
+        const name = (typeof c === 'string' ? c : (c.name || '')).replace(/\(\d+\)$/, '').trim();
+        if (name) names.add(name);
+      });
+      dl.innerHTML = '';
+      names.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        dl.appendChild(opt);
+      });
+    }
   });
 
   eventSource.addEventListener('tasks', (e) => {
@@ -1889,11 +1990,11 @@ function connectSSE() {
     // Auto-show crash report in the tools tab
     renderCrashReport({crash: data, alertDetail: data.alertDetail, pcAddr: null});
     // Flash the tools tab to alert the user
-    const toolsTab = document.querySelector('[data-tab="tools"]');
-    if (toolsTab && !toolsTab.classList.contains('active')) {
-      toolsTab.style.color = 'var(--red)';
-      toolsTab.style.fontWeight = 'bold';
-      setTimeout(() => { toolsTab.style.color = ''; toolsTab.style.fontWeight = ''; }, 10000);
+    const inspectTab = document.querySelector('[data-tab="inspect"]');
+    if (inspectTab && !inspectTab.classList.contains('active')) {
+      inspectTab.style.color = 'var(--red)';
+      inspectTab.style.fontWeight = 'bold';
+      setTimeout(() => { inspectTab.style.color = ''; inspectTab.style.fontWeight = ''; }, 10000);
     }
   });
 
@@ -2208,8 +2309,17 @@ function appendLogLine(msg) {
 
   const line = document.createElement('div');
   line.className = 'log-line';
+  let ts = '';
+  if (msg.timestamp) {
+    const d = new Date(msg.timestamp);
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    const ss = String(d.getSeconds()).padStart(2,'0');
+    const ms = String(d.getMilliseconds()).padStart(3,'0').slice(0,1);
+    ts = hh + ':' + mm + ':' + ss + '.' + ms;
+  }
   line.innerHTML =
-    '<span class="log-tick">' + (msg.tick ?? '') + '</span>' +
+    '<span class="log-tick">' + ts + '</span>' +
     '<span class="log-level ' + msg.level + '">' + levelName(msg.level) + '</span>' +
     '<span class="log-client">' + escapeHtml(msg.client || '--') + '</span>' +
     '<span class="log-msg">' + escapeHtml(msg.message) + '</span>';
@@ -4266,13 +4376,8 @@ function libdevDumpMem(addrHex) {
   const countInput = document.getElementById('toolDisasmCount');
   if (addrInput) { addrInput.value = addrHex; }
   if (countInput) { countInput.value = '64'; }
-  // Switch to Debug tab
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  const debugBtn = document.querySelector('[data-tab="debug"]');
-  const debugPanel = document.getElementById('panel-debug');
-  if (debugBtn) debugBtn.classList.add('active');
-  if (debugPanel) debugPanel.classList.add('active');
+  // Switch to Inspect tab, Debug sub-tab
+  switchToSubTab('inspect', 'inspect-debug');
   if (typeof toolDisasm === 'function') toolDisasm();
 }
 
@@ -5073,6 +5178,9 @@ async function init() {
   }, 3000);
   // Load emulator status
   emuRefresh();
+  // Populate debugger dropdowns
+  dbgRefreshTargets();
+  dbgRefreshProjects();
   // Initialize reusable file pickers
   createFilePicker({
     containerId: 'iffPicker',
@@ -5679,6 +5787,48 @@ function showAbout() {
 // ─── Debugger ───
 const dbgState = { attached: false, stopped: false, targetName: '', regs: null, breakpoints: [], backtrace: [], sourceFile: '', sourceLines: [], bpLines: {}, gutterBps: new Set(), bpsDirty: false, codeBase: 0, hitLine: 0, prevVarValues: {} };
 
+// Populate target suggestions — called once at init, then updated via SSE
+async function dbgRefreshTargets() {
+  // Only called at init — subsequent updates via SSE clients event handler
+  const dl = document.getElementById('dbgTargetList');
+  if (!dl) return;
+  try {
+    const r = await api('/clients');
+    const clients = (r && r.clients) ? r.clients.map(c => c.name || c) : [];
+    const names = new Set();
+    clients.forEach(name => names.add(name.replace(/\(\d+\)$/, '').trim()));
+    dl.innerHTML = '';
+    names.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      dl.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+// Populate project suggestions from examples
+async function dbgRefreshProjects() {
+  const dl = document.getElementById('dbgProjectList');
+  try {
+    const r = await api('/projects');
+    const projects = (r && r.projects) ? r.projects : [];
+    dl.innerHTML = '';
+    projects.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      dl.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+// Sync: when target changes, auto-fill matching project
+document.getElementById('dbgTarget').addEventListener('change', () => {
+  const target = document.getElementById('dbgTarget').value.trim();
+  if (target) document.getElementById('dbgSymProject').value = target;
+});
+
+// Target list auto-refreshes via SSE clients event + init
+
 function dbgSetButtons(attached, stopped) {
   document.getElementById('dbgAttachBtn').disabled = attached;
   document.getElementById('dbgDetachBtn').disabled = !attached;
@@ -5722,12 +5872,101 @@ async function dbgLaunch() {
   }
 }
 
+async function dbgLaunchAndAttach() {
+  const target = document.getElementById('dbgTarget').value.trim() ||
+                 document.getElementById('dbgSymProject').value.trim();
+  if (!target) return;
+  const statusEl = document.getElementById('dbgStatus');
+  document.getElementById('dbgLaunchAttachBtn').disabled = true;
+
+  try {
+    // 1. Load symbols first (need them for breakpoints)
+    statusEl.textContent = 'Loading symbols...';
+    statusEl.style.color = 'var(--accent-orange)';
+    await dbgLoadSymbols();
+
+    // 2. Kill any existing instance
+    statusEl.textContent = 'Stopping old instance...';
+    await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `STOP|${target}`}) });
+    await new Promise(r => setTimeout(r, 500));
+
+    // 3. Launch with pause-on-init via DBGLAUNCH
+    statusEl.textContent = 'Launching ' + target + ' (paused)...';
+    await api('/command/raw', { method: 'POST', body: JSON.stringify({line: `DBGLAUNCH|Run >NIL: DH2:Dev/${target}`}) });
+
+    // 4. Wait for bridge client registration
+    statusEl.textContent = 'Waiting for registration...';
+    let registered = false;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 300));
+      const cl = await api('/command/raw', { method: 'POST', body: JSON.stringify({line: 'LISTCLIENTS'}) });
+      if (cl.response && cl.response.includes(target)) {
+        registered = true;
+        break;
+      }
+    }
+    if (!registered) {
+      statusEl.textContent = target + ' not registered — is it a bridge client?';
+      statusEl.style.color = '#ff6b6b';
+      return;
+    }
+
+    // 5. Attach debugger
+    statusEl.textContent = 'Attaching debugger...';
+    document.getElementById('dbgTarget').value = target;
+    const r = await api('/debugger/attach', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({target}) });
+    if (r.error) { statusEl.textContent = 'Attach failed: ' + r.error; statusEl.style.color = '#ff6b6b'; return; }
+    dbgState.attached = r.attached;
+    dbgState.targetName = r.targetName || target;
+    if (r.codeBase) dbgState.codeBase = r.codeBase;
+    dbgSetButtons(true, false);
+
+    // 6. Target is paused in ab_init()'s Wait(CTRL_F).
+    //    Sync BPs first so they're patched before the code runs.
+    statusEl.textContent = 'Setting breakpoints...';
+    dbgState.bpsDirty = true;
+    await dbgSyncBreakpoints();
+
+    // 7. Send CONTINUE to wake the target from ab_init's Wait(CTRL_F).
+    //    The target will run init code (after ab_init) and hit any BPs we set.
+    //    Note: code BEFORE ab_init() has already executed.
+    statusEl.textContent = 'Running to breakpoint (after ab_init)...';
+    dbgSetButtons(true, false);
+    await api('/debugger/continue', { method: 'POST' });
+
+    // 8. Wait for the target to hit a BP
+    let hitBp = false;
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const st = await api('/debugger/status');
+      if (st.stopped) {
+        dbgOnStop(st);
+        hitBp = true;
+        break;
+      }
+    }
+    if (!hitBp) {
+      // No BP hit — target is running in main loop
+      statusEl.textContent = 'Running: ' + target + ' (no breakpoint hit)';
+      statusEl.style.color = 'var(--accent-green)';
+      dbgSetButtons(true, false);
+    }
+  } catch(e) {
+    statusEl.textContent = 'Launch & Attach failed: ' + e.message;
+    statusEl.style.color = '#ff6b6b';
+  } finally {
+    document.getElementById('dbgLaunchAttachBtn').disabled = false;
+  }
+}
+
 async function dbgAttach() {
   const target = document.getElementById('dbgTarget').value.trim();
-  if (!target) return;
+  if (!target) { alert('Enter a target task name first'); return; }
+  document.getElementById('dbgStatus').textContent = 'Attaching to ' + target + '...';
+  document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
   try {
     const r = await api('/debugger/attach', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({target}) });
-    if (r.error) { alert('Attach failed: ' + r.error); return; }
+    if (r.error) { alert('Attach failed: ' + r.error); document.getElementById('dbgStatus').textContent = 'Attach failed'; document.getElementById('dbgStatus').style.color = '#ff6b6b'; return; }
     dbgState.attached = r.attached;
     dbgState.targetName = r.targetName || target;
     if (r.codeBase) dbgState.codeBase = r.codeBase;
@@ -5772,6 +6011,7 @@ async function dbgStep() {
   try {
     await dbgSyncBreakpoints();
     const r = await api('/debugger/step', { method: 'POST' });
+    dbgState.bpsDirty = true;  // Step clears bridge BPs — need re-sync on next continue
     if (r.stopped) dbgOnStop(r);
   } catch(e) { console.error(e); }
 }
@@ -5783,6 +6023,7 @@ async function dbgNext() {
   try {
     await dbgSyncBreakpoints();
     const r = await api('/debugger/next', { method: 'POST' });
+    dbgState.bpsDirty = true;  // Step clears bridge BPs — need re-sync on next continue
     if (r.stopped) dbgOnStop(r);
   } catch(e) { console.error(e); }
 }
@@ -5914,11 +6155,12 @@ function dbgOnStop(data) {
   const codeBase = dbgState.codeBase || data.codeBase || 0;
   const relPC = codeBase > 0 && pc >= codeBase ? pc - codeBase : pc;
   const reason = data.stopReason || 'stopped';
+  const hasContext = pc > 0 && pc !== codeBase;  /* Real PC from TRAP, not signal break */
 
   // Find which source line this PC corresponds to
   let lineInfo = '';
   let hitLine = 0;
-  if (dbgState.bpLines) {
+  if (hasContext && dbgState.bpLines) {
     // Find closest line at or before the PC
     let bestLine = 0, bestAddr = 0;
     for (const [line, addr] of Object.entries(dbgState.bpLines)) {
@@ -5935,14 +6177,18 @@ function dbgOnStop(data) {
   }
   dbgState.hitLine = hitLine;
 
-  document.getElementById('dbgStatus').textContent = `Stopped: ${reason} at 0x${relPC.toString(16).toUpperCase().padStart(4,'0')}${lineInfo}`;
+  if (hasContext) {
+    document.getElementById('dbgStatus').textContent = `Stopped: ${reason} at 0x${relPC.toString(16).toUpperCase().padStart(4,'0')}${lineInfo}`;
+  } else {
+    document.getElementById('dbgStatus').textContent = 'Paused — set breakpoints and continue';
+  }
   document.getElementById('dbgStatus').style.color = 'var(--accent-orange)';
 
   // Update registers
   if (data.regs) dbgRenderRegs(data);
 
-  // Show source at PC
-  dbgLoadSourceForPC(pc);
+  // Show source at PC (only if we have real context)
+  if (hasContext) dbgLoadSourceForPC(pc);
   // Load backtrace (bridge can respond while target is in pause stub)
   dbgLoadBacktrace();
   // Refresh BP list

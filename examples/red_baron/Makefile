@@ -2,7 +2,7 @@ CC = m68k-amigaos-gcc
 AS = vasmm68k_mot
 CFLAGS = -noixemul -O2 -m68020 -Wall -I../../amiga-bridge/include
 ASFLAGS = -Fhunk -m68000 -no-opt -I/opt/m68k-amigaos/m68k-amigaos/ndk-include/hardware -I/opt/m68k-amigaos/m68k-amigaos/ndk-include/resources
-LDFLAGS = -noixemul -L../../amiga-bridge -lbridge -lamiga
+LDFLAGS = -noixemul -g -L../../amiga-bridge -lbridge -lamiga
 
 TARGET = red_baron
 

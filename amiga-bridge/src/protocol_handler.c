@@ -400,6 +400,8 @@ void protocol_parse_line(const char *line)
         dbg_handle_clearall();
     } else if (strcmp(cmd, "DBGSTATUS") == 0) {
         dbg_handle_status();
+    } else if (strcmp(cmd, "DBGLAUNCH") == 0) {
+        dbg_handle_launch(args);
     } else if (strcmp(cmd, "SHUTDOWN") == 0) {
         send_ok("SHUTDOWN", NULL);
         g_shutdown_requested = TRUE;

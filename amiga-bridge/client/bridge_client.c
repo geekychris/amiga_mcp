@@ -347,6 +347,18 @@ int ab_init(const char *appName)
         }
     }
 
+    /* Check if debugger requested "start paused" (CTRL_E already pending).
+     * If so, pause here before returning to main() so the debugger can
+     * set breakpoints in initialization code. */
+    {
+        ULONG sigs = SetSignal(0L, 0L);  /* Read without clearing */
+        if (sigs & SIGBREAKF_CTRL_E) {
+            SetSignal(0L, SIGBREAKF_CTRL_E);  /* Clear CTRL_E */
+            /* Wait for CTRL_F (resume from debugger) */
+            Wait(SIGBREAKF_CTRL_F);
+        }
+    }
+
     return 0;
 }
 

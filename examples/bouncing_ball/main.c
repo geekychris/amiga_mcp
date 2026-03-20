@@ -183,8 +183,8 @@ int main(void)
 
         frame_count++;
 
-        /* Push variables every 60 frames */
-        if ((frame_count % 60) == 0) {
+        /* Push variables every 300 frames (~6 seconds) */
+        if ((frame_count % 300) == 0) {
             ab_push_var("ball_x");
             ab_push_var("ball_y");
             ab_push_var("ball_speed");

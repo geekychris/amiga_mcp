@@ -267,7 +267,9 @@ void dbg_handle_clearall(void);
 void dbg_poll(void);
 void dbg_handle_break(void);
 void dbg_handle_status(void);
+void dbg_handle_launch(const char *args);
 void dbg_cleanup(void);
+BOOL dbg_should_pause_on_launch(void);
 
 /* Tail file streaming */
 extern BOOL g_tail_active;

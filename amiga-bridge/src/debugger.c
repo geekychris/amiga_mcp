@@ -63,6 +63,7 @@ static char dbg_target_name[64];
 static ULONG dbg_saved_regs[18];  /* D0-D7, A0-A7, PC, SR */
 static BOOL dbg_stopped = FALSE;
 static BOOL dbg_attached = FALSE;
+static BOOL dbg_pause_on_launch = FALSE;  /* Set by DBGLAUNCH, cleared after use */
 static int  dbg_bp_count = 0;
 static ULONG dbg_code_base = 0;  /* Code segment load address */
 
@@ -253,12 +254,19 @@ __asm(
     "    rte\n"
 
     ".Ltrace_repatch:\n"
-    /* Step-past-BP: repatch all BPs, save resume PC, RTE to pause stub.
-     * The stub does Wait(CTRL_F) then jumps to resume_pc.
-     * This stops the target IMMEDIATELY after stepping past one BP,
-     * so the next BP in execution order will fire on continue. */
+    /* Step-past-BP: save POST-instruction registers (so the pause stub
+     * restores correct state), repatch all BPs, RTE to pause stub.
+     * Without saving regs here, the stub would restore PRE-instruction
+     * regs from the TRAP handler, which is wrong (e.g. link a5 effect lost). */
     "    clr.w   _dbg_step_mode\n"
     "    move.l  2(%sp), _dbg_resume_pc\n"
+    "    movem.l %d0-%d7/%a0-%a6, _dbg_saved_regs\n"
+    "    move.l  %usp, %a0\n"
+    "    move.l  %a0, _dbg_saved_regs+60\n"
+    "    move.l  2(%sp), _dbg_saved_regs+64\n"
+    "    move.w  (%sp), %d0\n"
+    "    and.l   #0xFFFF, %d0\n"
+    "    move.l  %d0, _dbg_saved_regs+68\n"
     "    jsr     _dbg_repatch_all_from_trace\n"
     "    move.l  #_dbg_pause_stub, 2(%sp)\n"
     "    rte\n"
@@ -777,8 +785,21 @@ void dbg_handle_attach(const char *args)
             task->tc_Node.ln_Name ? task->tc_Node.ln_Name : "?", 63);
     dbg_target_name[63] = '\0';
     dbg_attached = TRUE;
-    dbg_stopped = FALSE;
     dbg_trap_hit = FALSE;
+
+    /* Check if target was launched with DBGLAUNCH — it's paused in
+     * ab_init()'s Wait(CTRL_F). Mark as stopped so DBGCONT works. */
+    {
+        ULONG sigs = SetSignal(0L, 0L);  /* Check our own signals — not useful */
+        /* The target's Wait(CTRL_F) state is detectable by checking its
+         * tc_State. If it's TS_WAIT, it's likely paused from DBGLAUNCH. */
+        if (task->tc_State == TS_WAIT) {
+            dbg_stopped = TRUE;
+            printf("  Debugger: target in Wait state (launch-and-attach)\n");
+        } else {
+            dbg_stopped = FALSE;
+        }
+    }
 
     memset(bp_table, 0, sizeof(bp_table));
     dbg_bp_count = 0;
@@ -789,7 +810,8 @@ void dbg_handle_attach(const char *args)
 
     /* Install TRAP #15 handler (deferred until first BPSET to reduce crash risk) */
 
-    sprintf(dbg_buf, "DBGSTATE|1|0|%s|%08lx|0|BASE:%08lx",
+    sprintf(dbg_buf, "DBGSTATE|1|%ld|%s|%08lx|0|BASE:%08lx",
+            (long)dbg_stopped,
             dbg_target_name, (unsigned long)dbg_code_base,
             (unsigned long)dbg_code_base);
     protocol_send_raw(dbg_buf);
@@ -864,11 +886,25 @@ void dbg_handle_break(void)
         return;
     }
 
-    /* Signal the target to pause at next ab_poll() */
-    Signal(dbg_target, SIGBREAKF_CTRL_E);
+    /* Signal the target to pause at next ab_poll().
+     * Also signal CTRL_F in case the target is in ab_init()'s
+     * Wait(CTRL_F) from a DBGLAUNCH — CTRL_F wakes it, then
+     * CTRL_E is checked in the first ab_poll() call. */
+    Signal(dbg_target, SIGBREAKF_CTRL_E | SIGBREAKF_CTRL_F);
 
+    /* Don't send DBGSTOP with fake registers — the target hasn't
+     * actually stopped yet (signal is asynchronous). If a TRAP BP
+     * fires before ab_poll catches CTRL_E, dbg_poll() will send
+     * the real DBGSTOP with correct registers.
+     *
+     * Send a lightweight break-ack so the host knows we signaled. */
     dbg_stopped = TRUE;
-    dbg_send_stop("break");
+    sprintf(dbg_buf, "DBGSTATE|1|1|%s|%08lx|%ld|BASE:%08lx",
+            dbg_target_name,
+            (unsigned long)dbg_code_base,
+            (long)dbg_bp_count,
+            (unsigned long)dbg_code_base);
+    protocol_send_raw(dbg_buf);
     ui_add_log("DBG: break");
 }
 
@@ -1202,6 +1238,43 @@ void dbg_handle_clearall(void)
     dbg_bp_count = 0;
 
     protocol_send_raw("OK|DBGCLEARALLBP|cleared");
+}
+
+BOOL dbg_should_pause_on_launch(void)
+{
+    if (dbg_pause_on_launch) {
+        dbg_pause_on_launch = FALSE;  /* One-shot */
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void dbg_handle_launch(const char *args)
+{
+    /* DBGLAUNCH|command — sets pause-on-launch flag, then launches.
+     * The next client that calls ab_init() will pause before returning. */
+    static char resultBuf[256];
+
+    if (!args || args[0] == '\0') {
+        protocol_send_raw("ERR|DBGLAUNCH|needs command");
+        return;
+    }
+
+    dbg_pause_on_launch = TRUE;
+    printf("  Debugger: pause-on-launch armed for: %s\n", args);
+
+    /* Use the existing async launcher */
+    {
+        ULONG cmdId = *(volatile ULONG *)0xDFF004; /* Use vhposr as unique id */
+        int result = proc_run_async(cmdId, args, resultBuf, 256);
+        if (result == 0) {
+            sprintf(dbg_buf, "OK|DBGLAUNCH|%s", resultBuf);
+        } else {
+            dbg_pause_on_launch = FALSE;
+            sprintf(dbg_buf, "ERR|DBGLAUNCH|launch failed");
+        }
+        protocol_send_raw(dbg_buf);
+    }
 }
 
 void dbg_handle_status(void)

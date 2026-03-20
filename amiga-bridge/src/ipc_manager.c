@@ -127,6 +127,18 @@ void ipc_process(void)
                 bm->result = -1;
             }
             ReplyMsg(msg);
+            /* If debugger requested "pause on launch", signal CTRL_E to
+             * the newly registered client AFTER replying. The client's
+             * ab_init() checks for CTRL_E and pauses before returning. */
+            if (cid >= 0 && dbg_should_pause_on_launch()) {
+                /* The client just sent us a message via its reply port.
+                 * The reply port's SigTask is the client's task. */
+                struct Task *clientTask = bm->msg.mn_ReplyPort->mp_SigTask;
+                if (clientTask) {
+                    printf("[IPC] Signaling CTRL_E for debug pause\n");
+                    Signal(clientTask, SIGBREAKF_CTRL_E);
+                }
+            }
             g_ui_dirty = TRUE;
             break;
 

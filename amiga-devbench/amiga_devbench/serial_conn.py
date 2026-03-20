@@ -34,6 +34,7 @@ class SerialConnection:
     ) -> None:
         self._state = state
         self._event_bus = event_bus
+        self._dbg_state = None  # Set by server.py after creation
         self._host = host
         self._port = port
         self._pty_path = pty_path
@@ -588,7 +589,10 @@ class SerialConnection:
             self._event_bus.publish("sprite", msg)
 
         # ---- Debugger messages ----
+        # Always update _dbg_state directly (SSE handler may not be running)
         elif msg_type == "DBGSTOP":
+            if self._dbg_state:
+                self._dbg_state.update_from_stop(msg)
             self._event_bus.publish("dbg_stop", msg)
             self._event_bus.publish("log", {
                 "type": "LOG", "level": "W", "tick": 0,
@@ -608,6 +612,8 @@ class SerialConnection:
         elif msg_type == "DBGBT":
             self._event_bus.publish("dbg_bt", msg)
         elif msg_type == "DBGSTATE":
+            if self._dbg_state:
+                self._dbg_state.update_from_state(msg)
             self._event_bus.publish("dbg_state", msg)
 
         elif msg_type == "CRASH":
