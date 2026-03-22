@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amiga DevBench - SACC Presentation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', -apple-system, sans-serif; background: #0a0a1a; color: #e0e0e0; overflow: hidden; }
+
+  .slide { display: none; width: 100vw; height: 100vh; padding: 50px 70px; flex-direction: column; justify-content: center; position: relative; }
+  .slide.active { display: flex; }
+  .slide::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(ellipse at 30% 20%, rgba(224,112,32,0.08) 0%, transparent 60%); pointer-events: none; }
+
+  h1 { font-size: 3em; color: #e07020; margin-bottom: 20px; text-shadow: 0 0 40px rgba(224,112,32,0.3); line-height: 1.1; }
+  h2 { font-size: 2.2em; color: #e07020; margin-bottom: 24px; }
+  h3 { font-size: 1.4em; color: #4a90d9; margin-bottom: 10px; }
+  p { font-size: 1.2em; line-height: 1.6; margin-bottom: 14px; color: #c0c0c0; }
+  .subtitle { font-size: 1.5em; color: #4a90d9; margin-bottom: 30px; }
+  .dim { color: #888; }
+  .highlight { color: #e07020; font-weight: bold; }
+  .blue { color: #4a90d9; }
+  .green { color: #40c040; }
+  .mono { font-family: 'SF Mono', 'Consolas', monospace; }
+  .quote { font-style: italic; color: #999; border-left: 3px solid #e07020; padding-left: 16px; margin: 16px 0; }
+
+  ul { font-size: 1.15em; line-height: 1.7; margin-left: 30px; }
+  ul li { margin-bottom: 6px; }
+  ul li::marker { color: #e07020; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: start; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+
+  .card { background: rgba(224,112,32,0.06); border: 1px solid rgba(224,112,32,0.2); border-radius: 12px; padding: 20px; }
+  .card h3 { margin-bottom: 8px; }
+
+  .stat { text-align: center; padding: 16px; }
+  .stat .num { font-size: 3.2em; font-weight: bold; color: #e07020; display: block; }
+  .stat .label { font-size: 0.95em; color: #888; margin-top: 4px; }
+
+  .code-block { background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px 20px; font-family: 'SF Mono', monospace; font-size: 0.95em; line-height: 1.65; color: #8cf; margin: 12px 0; overflow-x: auto; white-space: pre; }
+  .code-comment { color: #666; }
+  .code-string { color: #ce9178; }
+  .code-keyword { color: #569cd6; }
+  .code-fn { color: #dcdcaa; }
+  .code-type { color: #4ec9b0; }
+
+  .flow-step { display: flex; align-items: center; gap: 14px; margin: 10px 0; font-size: 1.1em; }
+  .flow-num { background: #e07020; color: #fff; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.85em; flex-shrink: 0; }
+
+  .badge { display: inline-block; background: rgba(224,112,32,0.15); border: 1px solid rgba(224,112,32,0.3); border-radius: 6px; padding: 3px 10px; font-size: 0.85em; color: #e07020; margin: 2px; }
+
+  img.screenshot { max-height: 42vh; border-radius: 8px; border: 1px solid #333; box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+
+  .nav-hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); color: #333; font-size: 0.8em; z-index: 100; }
+
+  /* SVG diagram styles */
+  .arch-diagram { width: 100%; max-width: 900px; margin: 0 auto; }
+  .arch-diagram text { font-family: 'Segoe UI', sans-serif; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- Slide 1: Title -->
+<!-- ============================================================ -->
+<div class="slide active" id="s1">
+  <div style="text-align:center;">
+    <h1 style="font-size:3.5em;">Amiga DevBench</h1>
+    <p class="subtitle" style="font-size:1.8em;">Bringing AI-Powered Development<br>to the Amiga</p>
+    <div style="margin:30px 0;">
+      <img src="../doc_images/dashboard.png" class="screenshot" style="max-height:32vh;">
+    </div>
+    <p class="dim" style="font-size:1.1em;">Sacramento Amiga Computer Club &bull; 2026</p>
+    <p class="dim" style="font-size:0.95em;">Chris Collins &bull; chris@hitorro.com</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 2: Vibe Coding -->
+<!-- ============================================================ -->
+<div class="slide" id="s2">
+  <h2>What is "Vibe Coding"?</h2>
+  <div class="quote" style="font-size:1.15em;">
+    "You just see stuff, say stuff, run stuff, and copy-paste stuff,<br>and it mostly works."
+    <span style="color:#e07020;font-style:normal;"> &mdash; Andrei Karpathy</span>, coining the term, Feb 2025
+  </div>
+  <div class="two-col" style="margin-top:16px;">
+    <div>
+      <h3>Agentic Development</h3>
+      <p style="font-size:1.05em;">Goes beyond autocomplete. The AI agent can:</p>
+      <ul style="font-size:1.05em;">
+        <li><span class="blue">Read</span> entire codebases and understand architecture</li>
+        <li><span class="blue">Write</span> complete multi-file programs</li>
+        <li><span class="blue">Run tools</span> &mdash; build, deploy, test, inspect</li>
+        <li><span class="blue">See results</span> &mdash; screenshots, logs, errors</li>
+        <li><span class="blue">Iterate</span> &mdash; fix bugs based on what it observes</li>
+      </ul>
+      <p style="font-size:1em;margin-top:12px;">You describe the <em>what</em>.<br>The agent figures out the <em>how</em>.</p>
+    </div>
+    <div>
+      <div class="card">
+        <h3>An Actual Prompt</h3>
+        <p style="font-size:0.95em;color:#999;font-style:italic;">
+          "Create me a Planet Patrol game for the Amiga with multi-layer parallax scrolling,
+          ProTracker music, 6 enemy types, a scanner minimap, smart bombs, hyperspace,
+          keyboard and joystick support, and a high score table saved to disk."
+        </p>
+        <p style="font-size:0.95em;margin-top:12px;">
+          <span class="highlight">&rarr; Working game produced in one conversation</span>
+        </p>
+        <p style="font-size:0.95em;">8 source files, 2000+ lines, MOD music, SFX,<br>bridge integration for live testing</p>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <h3>But for Amiga, there's a problem&hellip;</h3>
+        <p style="font-size:0.95em;">AI agents need a <span class="highlight">tight feedback loop</span>.<br>The Amiga doesn't give them one. Not by default.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 3: The Challenge -->
+<!-- ============================================================ -->
+<div class="slide" id="s3">
+  <h2>The Challenge</h2>
+  <p>AI agents are powerful coders &mdash; but they need to <span class="highlight">see what's happening</span>.</p>
+  <div class="two-col" style="margin-top:16px;">
+    <div>
+      <h3>Modern Platforms <span class="dim">(easy for AI)</span></h3>
+      <ul>
+        <li>Write code &rarr; run &rarr; see output instantly</li>
+        <li>Error messages come right back</li>
+        <li>Tests run in milliseconds</li>
+        <li>Everything on the same machine</li>
+      </ul>
+      <div style="margin-top:24px;">
+        <h3>Amiga Development <span class="dim">(hard for AI)</span></h3>
+        <ul>
+          <li>Cross-compile on macOS via Docker</li>
+          <li>Deploy binary to a separate machine (emulator)</li>
+          <li><strong>No way to see the Amiga screen</strong></li>
+          <li><strong>Crashes take down the entire OS</strong></li>
+          <li>No network stack, no SSH, no shell access</li>
+          <li>No memory protection &mdash; buffer overflows are fatal</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="text-align:center;padding:30px;">
+      <h3 style="color:#e07020;font-size:1.4em;">The AI is Blind and Deaf</h3>
+      <p style="font-size:1.1em;margin-top:16px;">Without tooling, the AI can write Amiga code<br>but has <strong>zero ability</strong> to verify it works.</p>
+      <div style="margin:24px 0;font-size:3em;">&#128065;&#8199;&#10060;</div>
+      <p style="font-size:1em;">Can't see the screen<br>Can't read crash info<br>Can't inspect memory<br>Can't press keys to test<br>Can't browse the filesystem</p>
+      <p style="font-size:1.2em;margin-top:24px;color:#e07020;font-weight:bold;">
+        DevBench gives the AI<br>eyes, ears, and hands.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 4: MCP Tools -->
+<!-- ============================================================ -->
+<div class="slide" id="s4">
+  <h2>MCP: Giving AI Tools</h2>
+  <p><span class="blue">Model Context Protocol</span> &mdash; an open standard that lets AI call functions in the real world.</p>
+  <div class="two-col" style="margin-top:12px;">
+    <div>
+      <div class="code-block" style="font-size:0.9em;"><span class="code-comment">// During a conversation, Claude can call:</span>
+<span class="code-fn">amiga_build</span>(<span class="code-string">"defender"</span>)             <span class="code-comment">// cross-compile via Docker</span>
+<span class="code-fn">amiga_deploy</span>(<span class="code-string">"defender"</span>)            <span class="code-comment">// copy binary to Amiga</span>
+<span class="code-fn">amiga_launch</span>(<span class="code-string">"DH2:Dev/defender"</span>)   <span class="code-comment">// start the program</span>
+<span class="code-fn">amiga_screenshot</span>()                  <span class="code-comment">// SEE the Amiga screen</span>
+<span class="code-fn">amiga_input_key</span>(<span class="code-string">"space"</span>)            <span class="code-comment">// press a key</span>
+<span class="code-fn">amiga_call_hook</span>(<span class="code-string">"status"</span>)           <span class="code-comment">// ask the app for state</span>
+<span class="code-fn">amiga_get_var</span>(<span class="code-string">"score"</span>)              <span class="code-comment">// read a live variable</span>
+<span class="code-fn">amiga_set_var</span>(<span class="code-string">"lives"</span>, <span class="code-string">"99"</span>)       <span class="code-comment">// write a live variable</span>
+<span class="code-fn">amiga_inspect_memory</span>(<span class="code-string">"$DFF000"</span>)    <span class="code-comment">// read custom chips</span>
+<span class="code-fn">amiga_log</span>(<span class="code-string">"defender"</span>)              <span class="code-comment">// read debug logs</span></div>
+      <p style="font-size:1em;">Every tool returns structured data that Claude can reason about and act on.</p>
+    </div>
+    <div>
+      <h3>93 Tools Across 7 Categories</h3>
+      <div class="card" style="font-size:0.95em;line-height:1.8;">
+        <p><span class="highlight">Build & Deploy</span> &mdash; compile, deploy, launch, stop, run tests</p>
+        <p><span class="highlight">Inspect</span> &mdash; memory, tasks, libraries, screens, chip registers</p>
+        <p><span class="highlight">Debug</span> &mdash; breakpoints, step into/over, backtrace, registers</p>
+        <p><span class="highlight">Graphics</span> &mdash; screenshots, palette, copper list, sprites</p>
+        <p><span class="highlight">Files</span> &mdash; read, write, transfer, directory listing, assigns</p>
+        <p><span class="highlight">Control</span> &mdash; keyboard/mouse injection, ARexx, reboot</p>
+        <p><span class="highlight">App Integration</span> &mdash; logs, variables, hooks, SnoopDos</p>
+      </div>
+      <p style="font-size:0.95em;margin-top:12px;">Same tools available to both <span class="blue">Claude</span> (AI) and the <span class="blue">Web UI</span> (human).</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 5: Architecture (SVG block diagram) -->
+<!-- ============================================================ -->
+<div class="slide" id="s5">
+  <h2>How It All Connects</h2>
+  <div class="arch-diagram">
+    <svg viewBox="0 0 920 440" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-height:65vh;">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#e07020"/></marker>
+        <marker id="arrowBlue" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4a90d9"/></marker>
+        <marker id="arrowGreen" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#40c040"/></marker>
+      </defs>
+
+      <!-- Background regions -->
+      <rect x="10" y="10" width="420" height="420" rx="12" fill="rgba(74,144,217,0.06)" stroke="#4a90d9" stroke-width="1" stroke-dasharray="4"/>
+      <text x="20" y="32" fill="#4a90d9" font-size="13" font-weight="bold">HOST (macOS)</text>
+
+      <rect x="490" y="10" width="420" height="420" rx="12" fill="rgba(224,112,32,0.06)" stroke="#e07020" stroke-width="1" stroke-dasharray="4"/>
+      <text x="500" y="32" fill="#e07020" font-size="13" font-weight="bold">AMIGA (FS-UAE / Real Hardware)</text>
+
+      <!-- Claude Code box -->
+      <rect x="30" y="50" width="180" height="70" rx="8" fill="#1a1a3a" stroke="#4a90d9" stroke-width="2"/>
+      <text x="120" y="78" fill="#4a90d9" font-size="15" font-weight="bold" text-anchor="middle">Claude Code</text>
+      <text x="120" y="98" fill="#888" font-size="11" text-anchor="middle">AI Agent</text>
+
+      <!-- Web Browser box -->
+      <rect x="30" y="150" width="180" height="70" rx="8" fill="#1a1a3a" stroke="#4a90d9" stroke-width="2"/>
+      <text x="120" y="178" fill="#4a90d9" font-size="15" font-weight="bold" text-anchor="middle">Web Browser</text>
+      <text x="120" y="198" fill="#888" font-size="11" text-anchor="middle">Developer UI</text>
+
+      <!-- Docker box -->
+      <rect x="30" y="320" width="180" height="60" rx="8" fill="#1a1a3a" stroke="#666" stroke-width="1"/>
+      <text x="120" y="348" fill="#aaa" font-size="13" font-weight="bold" text-anchor="middle">Docker</text>
+      <text x="120" y="365" fill="#666" font-size="10" text-anchor="middle">m68k cross-compiler</text>
+
+      <!-- DevBench Server box -->
+      <rect x="240" y="110" width="170" height="100" rx="8" fill="#2a1a10" stroke="#e07020" stroke-width="2"/>
+      <text x="325" y="140" fill="#e07020" font-size="15" font-weight="bold" text-anchor="middle">DevBench</text>
+      <text x="325" y="158" fill="#888" font-size="11" text-anchor="middle">Python Server</text>
+      <text x="325" y="175" fill="#666" font-size="10" text-anchor="middle">93 MCP tools</text>
+      <text x="325" y="190" fill="#666" font-size="10" text-anchor="middle">Web UI + SSE</text>
+      <text x="325" y="205" fill="#666" font-size="10" text-anchor="middle">Source debugger</text>
+
+      <!-- Bridge Daemon box -->
+      <rect x="510" y="50" width="170" height="100" rx="8" fill="#1a1208" stroke="#e07020" stroke-width="2"/>
+      <text x="595" y="78" fill="#e07020" font-size="15" font-weight="bold" text-anchor="middle">AmigaBridge</text>
+      <text x="595" y="96" fill="#888" font-size="11" text-anchor="middle">68k Daemon</text>
+      <text x="595" y="113" fill="#666" font-size="10" text-anchor="middle">Serial I/O + IPC</text>
+      <text x="595" y="128" fill="#666" font-size="10" text-anchor="middle">SnoopDos, Debugger</text>
+      <text x="595" y="143" fill="#666" font-size="10" text-anchor="middle">System Inspector</text>
+
+      <!-- Target App 1 -->
+      <rect x="510" y="190" width="170" height="72" rx="8" fill="#0a1a0a" stroke="#40c040" stroke-width="2"/>
+      <text x="595" y="215" fill="#40c040" font-size="14" font-weight="bold" text-anchor="middle">Your App</text>
+      <text x="595" y="233" fill="#888" font-size="10" text-anchor="middle">links libbridge.a</text>
+      <text x="595" y="248" fill="#666" font-size="10" text-anchor="middle">ab_init, ab_log, ab_poll</text>
+
+      <!-- (removed second app box for clarity) -->
+
+      <!-- Feature callouts on the right -->
+      <rect x="720" y="190" width="180" height="162" rx="8" fill="rgba(64,192,64,0.08)" stroke="#40c040" stroke-width="1"/>
+      <text x="810" y="212" fill="#40c040" font-size="12" font-weight="bold" text-anchor="middle">Client Library Features</text>
+      <text x="730" y="234" fill="#aaa" font-size="11">&#x25B8; Remote logging</text>
+      <text x="730" y="253" fill="#aaa" font-size="11">&#x25B8; Live variables (r/w)</text>
+      <text x="730" y="272" fill="#aaa" font-size="11">&#x25B8; Callable hooks</text>
+      <text x="730" y="291" fill="#aaa" font-size="11">&#x25B8; Memory regions</text>
+      <text x="730" y="310" fill="#aaa" font-size="11">&#x25B8; Performance profiling</text>
+      <text x="730" y="329" fill="#aaa" font-size="11">&#x25B8; Test harness</text>
+      <text x="730" y="348" fill="#aaa" font-size="11">&#x25B8; Resource tracking</text>
+
+      <!-- Arrows: Claude -> DevBench -->
+      <line x1="210" y1="85" x2="237" y2="135" stroke="#4a90d9" stroke-width="2" marker-end="url(#arrowBlue)"/>
+      <text x="210" y="102" fill="#4a90d9" font-size="10">MCP</text>
+
+      <!-- Arrows: Browser -> DevBench -->
+      <line x1="210" y1="185" x2="237" y2="170" stroke="#4a90d9" stroke-width="2" marker-end="url(#arrowBlue)"/>
+      <text x="210" y="190" fill="#4a90d9" font-size="10">HTTP/SSE</text>
+
+      <!-- Arrow: DevBench -> Bridge -->
+      <line x1="410" y1="145" x2="507" y2="100" stroke="#e07020" stroke-width="2.5" marker-end="url(#arrow)"/>
+      <text x="440" y="108" fill="#e07020" font-size="11" font-weight="bold">Serial/TCP</text>
+
+      <!-- Arrow: Bridge -> App 1 (MsgPort IPC) -->
+      <line x1="595" y1="153" x2="595" y2="187" stroke="#40c040" stroke-width="2" marker-end="url(#arrowGreen)"/>
+      <text x="610" y="174" fill="#40c040" font-size="10">MsgPort</text>
+
+      <!-- (removed second app arrow) -->
+
+      <!-- Arrow: Apps -> Feature box -->
+      <line x1="680" y1="230" x2="717" y2="260" stroke="#40c040" stroke-width="1" stroke-dasharray="3" marker-end="url(#arrowGreen)"/>
+      <!-- (removed second app arrow) -->
+
+      <!-- Docker -> DevBench -->
+      <line x1="170" y1="320" x2="280" y2="213" stroke="#666" stroke-width="1" stroke-dasharray="4" marker-end="url(#arrow)"/>
+      <text x="195" y="280" fill="#666" font-size="10">binaries</text>
+
+      <!-- Shared folder annotation -->
+      <rect x="510" y="375" width="170" height="42" rx="6" fill="#111" stroke="#666" stroke-width="1"/>
+      <text x="595" y="395" fill="#888" font-size="11" text-anchor="middle">Shared Folder</text>
+      <text x="595" y="410" fill="#555" font-size="10" text-anchor="middle">DH2:Dev/</text>
+      <line x1="325" y1="213" x2="325" y2="390" stroke="#666" stroke-width="1" stroke-dasharray="3"/>
+      <line x1="328" y1="390" x2="507" y2="396" stroke="#666" stroke-width="1" stroke-dasharray="3" marker-end="url(#arrow)"/>
+      <text x="380" y="385" fill="#666" font-size="9">deploy</text>
+    </svg>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 6: The Client Library -->
+<!-- ============================================================ -->
+<div class="slide" id="s6">
+  <h2>The Bridge Client Library</h2>
+  <p>Your Amiga app links <span class="mono highlight">libbridge.a</span> &mdash; giving it superpowers the AI can use.</p>
+  <div class="two-col" style="margin-top:12px;">
+    <div>
+      <div class="code-block" style="font-size:0.85em;"><span class="code-comment">// Initialize connection to bridge daemon</span>
+<span class="code-fn">ab_init</span>(<span class="code-string">"my_game"</span>);
+
+<span class="code-comment">// Remote logging — streams to host in real-time</span>
+<span class="code-fn">AB_I</span>(<span class="code-string">"Level %ld started"</span>, (long)level);
+<span class="code-fn">AB_W</span>(<span class="code-string">"Low memory: %ld bytes"</span>, (long)free);
+<span class="code-fn">AB_E</span>(<span class="code-string">"Crash in draw_enemies!"</span>);
+
+<span class="code-comment">// Register variables — host can read AND write these live</span>
+<span class="code-fn">ab_register_var</span>(<span class="code-string">"score"</span>,  <span class="code-type">AB_TYPE_I32</span>, &amp;score);
+<span class="code-fn">ab_register_var</span>(<span class="code-string">"lives"</span>,  <span class="code-type">AB_TYPE_I32</span>, &amp;lives);
+<span class="code-fn">ab_register_var</span>(<span class="code-string">"level"</span>,  <span class="code-type">AB_TYPE_I32</span>, &amp;level);
+
+<span class="code-comment">// Register hooks — functions the host can CALL remotely</span>
+<span class="code-fn">ab_register_hook</span>(<span class="code-string">"reset"</span>,     <span class="code-string">"Reset game"</span>,    hook_reset);
+<span class="code-fn">ab_register_hook</span>(<span class="code-string">"next_level"</span>,<span class="code-string">"Skip level"</span>,    hook_next);
+<span class="code-fn">ab_register_hook</span>(<span class="code-string">"add_life"</span>,  <span class="code-string">"Extra life"</span>,    hook_life);
+<span class="code-fn">ab_register_hook</span>(<span class="code-string">"status"</span>,    <span class="code-string">"Game status"</span>,   hook_status);
+
+<span class="code-comment">// Call every frame to process incoming commands</span>
+<span class="code-fn">ab_poll</span>();</div>
+    </div>
+    <div>
+      <div class="card">
+        <h3 style="color:#40c040;">Why This Matters for AI</h3>
+        <ul style="font-size:0.95em;">
+          <li><span class="highlight">Logs</span> &mdash; Claude reads your app's debug output to diagnose issues</li>
+          <li><span class="highlight">Variables</span> &mdash; Claude reads score/lives/state to verify game logic; <em>writes</em> them to set up test scenarios</li>
+          <li><span class="highlight">Hooks</span> &mdash; Claude calls "reset", "next_level", "kill_all" to test without playing</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <h3>Also Available</h3>
+        <ul style="font-size:0.95em;">
+          <li><span class="blue">Memory regions</span> &mdash; expose buffers for host inspection</li>
+          <li><span class="blue">Performance profiling</span> &mdash; frame timing, section timing</li>
+          <li><span class="blue">Test harness</span> &mdash; AB_ASSERT macros with pass/fail reporting</li>
+          <li><span class="blue">Resource tracking</span> &mdash; detect memory leaks</li>
+        </ul>
+      </div>
+      <p style="font-size:0.95em;margin-top:12px;">All over a <span class="highlight">serial link</span> &mdash; works on real A500/A1200 hardware with a null-modem cable.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 7: Web Dashboard -->
+<!-- ============================================================ -->
+<div class="slide" id="s7">
+  <h2>The Web Dashboard</h2>
+  <p>Real-time inspection and control at <span class="mono highlight">http://localhost:3000</span></p>
+  <div class="two-col" style="margin-top:16px;">
+    <div>
+      <img src="../doc_images/logs.png" class="screenshot" style="max-height:32vh;">
+      <p style="font-size:0.9em;margin-top:6px;" class="dim">Real-time logs streaming from Amiga apps</p>
+    </div>
+    <div>
+      <img src="../doc_images/debugger.png" class="screenshot" style="max-height:32vh;">
+      <p style="font-size:0.9em;margin-top:6px;" class="dim">Source-level debugger with breakpoints &amp; registers</p>
+    </div>
+  </div>
+  <div style="margin-top:14px;">
+    <span class="badge">Dashboard</span>
+    <span class="badge">Logs</span>
+    <span class="badge">Files</span>
+    <span class="badge">Memory</span>
+    <span class="badge">Variables</span>
+    <span class="badge">AmigaDOS Shell</span>
+    <span class="badge">Tasks</span>
+    <span class="badge">Screenshots</span>
+    <span class="badge">Palette</span>
+    <span class="badge">Copper List</span>
+    <span class="badge">Sprites</span>
+    <span class="badge">SnoopDos</span>
+    <span class="badge">Crash Reports</span>
+    <span class="badge">Build &amp; Run</span>
+    <span class="badge">Debugger</span>
+    <span class="badge">Library Inspector</span>
+    <span class="badge">IFF Viewer</span>
+    <span class="badge">Bitmap Viewer</span>
+    <span class="badge">Font Browser</span>
+    <span class="badge">Assign Manager</span>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 8: The Agentic Loop -->
+<!-- ============================================================ -->
+<div class="slide" id="s8">
+  <h2>The Agentic Development Loop</h2>
+  <div class="two-col">
+    <div>
+      <div class="flow-step"><div class="flow-num">1</div><div><span class="blue">Prompt:</span> "Build me a Planet Patrol game with parallax&hellip;"</div></div>
+      <div class="flow-step"><div class="flow-num">2</div><div><span class="blue">Clarify:</span> Claude asks: scanner? enemy types? resolution?</div></div>
+      <div class="flow-step"><div class="flow-num">3</div><div><span class="blue">Plan:</span> Explores codebase, studies existing patterns</div></div>
+      <div class="flow-step"><div class="flow-num">4</div><div><span class="blue">Write:</span> Creates game.h, main.c, draw.c, input.c, sound.c&hellip;</div></div>
+      <div class="flow-step"><div class="flow-num" style="background:#4a90d9;">5</div><div><span class="mono">amiga_build</span> &rarr; compile errors? Fix and retry</div></div>
+      <div class="flow-step"><div class="flow-num" style="background:#4a90d9;">6</div><div><span class="mono">amiga_deploy</span> + <span class="mono">amiga_launch</span> &rarr; run on Amiga</div></div>
+      <div class="flow-step"><div class="flow-num" style="background:#4a90d9;">7</div><div><span class="mono">amiga_screenshot</span> &rarr; <em>Claude sees the game!</em></div></div>
+      <div class="flow-step"><div class="flow-num" style="background:#4a90d9;">8</div><div><span class="mono">amiga_input_key</span> + <span class="mono">amiga_call_hook("status")</span></div></div>
+      <div class="flow-step"><div class="flow-num" style="background:#40c040;">9</div><div><span class="green">User:</span> "Too slow!" &rarr; Claude profiles, optimizes, rebuilds</div></div>
+      <div class="flow-step"><div class="flow-num" style="background:#40c040;">10</div><div><span class="green">User:</span> "Add smart bombs" &rarr; Claude adds feature, tests it</div></div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:14px;">
+        <h3>MCP Tools Close the Loop</h3>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_build</span> &mdash; compiler errors return to Claude</p>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_screenshot</span> &mdash; Claude sees the actual display</p>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_call_hook</span> &mdash; "status" returns game state</p>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_get_var</span> &mdash; read score, lives, frame count</p>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_set_var</span> &mdash; set lives=0 to test game over</p>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_input_key</span> &mdash; automated play-testing</p>
+        <p style="font-size:0.9em;"><span class="highlight">amiga_log</span> &mdash; debug output in real-time</p>
+      </div>
+      <div class="card">
+        <h3>What Makes It Work</h3>
+        <p style="font-size:0.95em;">The key insight: every step where the AI needs feedback has an MCP tool that provides it. The loop is <span class="highlight">write &rarr; build &rarr; deploy &rarr; observe &rarr; adjust</span>, and the AI can do it all autonomously.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 9: What's Been Built -->
+<!-- ============================================================ -->
+<div class="slide" id="s9">
+  <h2>What's Been Built</h2>
+  <p>All created through AI-assisted development with DevBench</p>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:16px;">
+    <div style="text-align:center;"><img src="../doc_images/frank.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Frank the Frog</p></div>
+    <div style="text-align:center;"><img src="../doc_images/invaded.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Alien Storm</p></div>
+    <div style="text-align:center;"><img src="../doc_images/mooooon.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Lunar Rider</p></div>
+    <div style="text-align:center;"><img src="../doc_images/pac1.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">PacBro</p></div>
+    <div style="text-align:center;"><img src="../doc_images/pac2.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">PacBro Gameplay</p></div>
+  </div>
+  <div class="three-col" style="margin-top:16px;">
+    <div class="stat">
+      <span class="num">14</span>
+      <span class="label">Games &amp; demos</span>
+    </div>
+    <div class="stat">
+      <span class="num">27K+</span>
+      <span class="label">Lines of code</span>
+    </div>
+    <div class="stat">
+      <span class="num">31</span>
+      <span class="label">Example projects</span>
+    </div>
+  </div>
+  <div style="margin-top:10px;text-align:center;">
+    <span class="badge">Rock Blaster</span>
+    <span class="badge">Planet Patrol</span>
+    <span class="badge">Lunar Rider</span>
+    <span class="badge">Alien Storm</span>
+    <span class="badge">Pac-Man</span>
+    <span class="badge">Sky Knights</span>
+    <span class="badge">Gold Rush</span>
+    <span class="badge">Tetris</span>
+    <span class="badge">Ace Pilot 3D</span>
+    <span class="badge">Frogger</span>
+    <span class="badge">Boing Ball</span>
+    <span class="badge">Starfield</span>
+    <span class="badge">Jump Quest</span>
+    <span class="badge">Plasma</span>
+    <span class="badge">Game of Life</span>
+    <span class="badge">App Launcher</span>
+    <span class="badge">System Monitor</span>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 10: For the Community -->
+<!-- ============================================================ -->
+<div class="slide" id="s10">
+  <h2>For the Amiga Community</h2>
+  <div class="two-col">
+    <div>
+      <h3>What this means for us</h3>
+      <ul>
+        <li><strong>Lower the barrier</strong> to creating new Amiga software</li>
+        <li>Focus on <em>ideas</em>, let AI handle the boilerplate</li>
+        <li>Learn AmigaOS by exploring &mdash; ask the AI to explain</li>
+        <li>Rapid prototyping: try wild ideas fast</li>
+        <li>Works with <strong>real hardware</strong> (serial port)</li>
+        <li>The code is open &mdash; <strong>contribute!</strong></li>
+      </ul>
+      <div style="margin-top:24px;">
+        <h3>What you need</h3>
+        <ul>
+          <li>FS-UAE (or a real Amiga with serial)</li>
+          <li>Docker (for cross-compilation)</li>
+          <li>Claude Code (AI agent with MCP)</li>
+          <li>A dream of what to build</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="text-align:center;padding:24px;">
+        <img src="../amiga-devbench/amiga_devbench/web/sacc_logo.png" style="height:90px;margin-bottom:12px;">
+        <h3 style="color:#e07020;font-size:1.3em;">Sacramento Amiga Computer Club</h3>
+        <p style="font-size:1em;">40 years of keeping the dream alive.</p>
+        <p style="margin-top:10px;"><a href="https://sacc.org" style="color:#4a90d9;font-size:1.1em;">sacc.org</a></p>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <h3>By the Numbers</h3>
+        <p style="font-size:1em;"><span class="highlight">93</span> MCP tools for Amiga development</p>
+        <p style="font-size:1em;"><span class="highlight">27,000+</span> lines of code (Python + C)</p>
+        <p style="font-size:1em;"><span class="highlight">31</span> example programs including 14 games</p>
+        <p style="font-size:1em;"><span class="highlight">80+</span> bridge protocol commands</p>
+        <p style="font-size:1em;"><span class="highlight">20+</span> web UI inspection tools</p>
+        <p style="font-size:1em;"><span class="highlight">Source-level 68k debugger</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Slide 11: Thank You -->
+<!-- ============================================================ -->
+<div class="slide" id="s11">
+  <div style="text-align:center;">
+    <h1 style="font-size:3em;">Thank You!</h1>
+    <p class="subtitle" style="font-size:1.5em;">Questions &amp; Demo</p>
+    <div style="margin:24px 0;">
+      <div class="card" style="display:inline-block;text-align:center;padding:20px 40px;">
+        <p style="font-size:1.1em;margin-bottom:8px;"><span class="highlight">Chris Collins</span></p>
+        <p style="font-size:1em;margin-bottom:8px;"><span class="blue">chris@hitorro.com</span></p>
+        <p style="font-size:1em;margin-bottom:12px;"><span class="mono" style="color:#40c040;">github.com/geekychris/amiga_mcp</span></p>
+        <p style="font-size:0.95em;color:#999;">
+          This is early work &mdash; rough edges and all.<br>
+          If you're interested in hacking on it together,<br>
+          I'd love to find some kind souls to collaborate with.<br>
+          <span class="highlight">Let's make it better.</span>
+        </p>
+      </div>
+    </div>
+    <p style="font-size:1em;margin-top:16px;"><span class="blue">sacc.org</span></p>
+    <p class="dim" style="font-size:1em;margin-top:30px;font-style:italic;">
+      "We made Amiga, they fucked it up." &mdash; RJ Mical
+    </p>
+    <p class="dim" style="font-size:0.95em;margin-top:8px;">
+      Let's un-fuck it. With AI.
+    </p>
+  </div>
+</div>
+
+<div class="nav-hint">Arrow keys or click to navigate &bull; <span id="slideCounter">1/11</span></div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+let current = 0;
+const total = slides.length;
+
+function showSlide(n) {
+  slides[current].classList.remove('active');
+  current = Math.max(0, Math.min(n, total - 1));
+  slides[current].classList.add('active');
+  document.getElementById('slideCounter').textContent = (current + 1) + '/' + total;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+    e.preventDefault(); showSlide(current + 1);
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+    e.preventDefault(); showSlide(current - 1);
+  } else if (e.key === 'Home') { showSlide(0); }
+  else if (e.key === 'End') { showSlide(total - 1); }
+});
+
+document.addEventListener('click', (e) => {
+  if (e.clientX > window.innerWidth / 2) showSlide(current + 1);
+  else showSlide(current - 1);
+});
+</script>
+</body>
+</html>

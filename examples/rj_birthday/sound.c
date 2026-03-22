@@ -277,10 +277,10 @@ static WORD voice_frames_left = 0; /* frames until voice finishes */
 static UBYTE music_was_enabled = 0;
 
 static const char *voice_files[SINI_VOICE_COUNT] = {
-    "PROGDIR:snd_bewareco.raw",
-    "PROGDIR:snd_bewareil.raw",
-    "PROGDIR:snd_ihunger.raw",
-    "PROGDIR:snd_runrunru.raw"
+    "DH2:Dev/snd_bewareco.raw",
+    "DH2:Dev/snd_bewareil.raw",
+    "DH2:Dev/snd_ihunger.raw",
+    "DH2:Dev/snd_runrunru.raw"
 };
 
 static BYTE *load_raw_to_chip(const char *path, ULONG *out_size)

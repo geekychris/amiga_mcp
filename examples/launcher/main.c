@@ -31,6 +31,7 @@
 #include <exec/memory.h>
 #include <exec/lists.h>
 #include <exec/interrupts.h>
+#include <dos/dostags.h>
 #include <string.h>
 
 char *sprintf(char *buf, const char *fmt, ...);
@@ -387,14 +388,23 @@ static void build_list(void)
 static void launch_app(WORD idx)
 {
     char cmd[120];
+    BPTR nil;
     if (idx < 0 || idx >= app_count) return;
 
     apps[idx].count++;
     apps[idx].is_new = 0;
     stats_save();
 
-    sprintf(cmd, "Run >NIL: " APP_DIR "%s", apps[idx].name);
-    Execute((STRPTR)cmd, 0, 0);
+    /* Use SystemTagList for clean async launch (no signal inheritance) */
+    sprintf(cmd, APP_DIR "%s", apps[idx].name);
+    nil = Open((STRPTR)"NIL:", MODE_OLDFILE);
+    SystemTags((STRPTR)cmd,
+        SYS_Asynch, TRUE,
+        SYS_Input,  nil ? nil : 0,
+        SYS_Output, 0,
+        NP_StackSize, 16384,
+        TAG_DONE);
+    /* SystemTags closes nil handle when async */
 }
 
 /* ---- Main ---- */

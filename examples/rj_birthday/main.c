@@ -284,11 +284,11 @@ int main(void)
     game_init_tables();
 
     /* Load guest names */
-    game_load_names(&gs, "PROGDIR:guests.txt");
+    game_load_names(&gs, "DH2:Dev/guests.txt");
     AB_I("Loaded %ld guest names", (long)gs.name_count);
 
     /* Load high scores */
-    game_load_hiscores(&gs, "PROGDIR:hiscores.dat");
+    game_load_hiscores(&gs, "DH2:Dev/hiscores.dat");
     AB_I("Loaded %ld high scores", (long)gs.hi_count);
 
     /* Open display */
@@ -307,8 +307,8 @@ int main(void)
     AB_I("Sinistar voices loaded");
 
     /* Load MOD music */
-    mod_data = load_file_to_chip("PROGDIR:party.mod", &mod_size);
-    bday_mod_data = load_file_to_chip("PROGDIR:birthday.mod", &bday_mod_size);
+    mod_data = load_file_to_chip("DH2:Dev/party.mod", &mod_size);
+    bday_mod_data = load_file_to_chip("DH2:Dev/birthday.mod", &bday_mod_size);
 
     if (mod_data) {
         AB_I("Loaded party.mod (%ld bytes)", (long)mod_size);

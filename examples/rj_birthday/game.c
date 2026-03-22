@@ -1372,7 +1372,7 @@ void game_update(GameState *gs, InputState *inp)
 
         /* ESC = save and return */
         if (inp->bits & INP_ESC) {
-            game_save_names(gs, "PROGDIR:guests.txt");
+            game_save_names(gs, "DH2:Dev/guests.txt");
             gs->state = gs->edit_return_state;
             sfx_ding();
         }
@@ -1443,7 +1443,7 @@ void game_update(GameState *gs, InputState *inp)
                 WORD slot = game_check_hiscore(gs, gs->score);
                 if (slot >= 0) {
                     game_insert_hiscore(gs, slot, gs->entry_name, gs->score);
-                    game_save_hiscores(gs, "PROGDIR:hiscores.dat");
+                    game_save_hiscores(gs, "DH2:Dev/hiscores.dat");
                 }
                 gs->state = GS_HISCORE;
                 gs->flash_timer = 30;
@@ -1454,7 +1454,7 @@ void game_update(GameState *gs, InputState *inp)
                     strncpy(gs->names[gs->name_count], gs->entry_name, NAME_LEN - 1);
                     gs->names[gs->name_count][NAME_LEN - 1] = 0;
                     gs->name_count++;
-                    game_save_names(gs, "PROGDIR:guests.txt");
+                    game_save_names(gs, "DH2:Dev/guests.txt");
                     sfx_cheer();
                 }
                 /* Return to editor if we came from there, otherwise credits */

@@ -495,7 +495,7 @@ int main(void)
     build_sfx();
 
     /* Load MOD music */
-    mod_data = load_file_to_chip("PROGDIR:music.mod", &mod_size);
+    mod_data = load_file_to_chip("DH2:Dev/music.mod", &mod_size);
     if (mod_data) {
         AB_I("Loaded music.mod (%ld bytes)", (long)mod_size);
         mt_install_cia(CUSTOM_BASE, NULL, 1);

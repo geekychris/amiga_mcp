@@ -220,7 +220,7 @@ int main(void)
     }
 
     /* Load Star Trek MOD from disk into chip RAM */
-    mod_data = load_mod_file("PROGDIR:amigatre.mod", &mod_size);
+    mod_data = load_mod_file("DH2:Dev/amigatre.mod", &mod_size);
     if (mod_data) {
         if (bridge_ok) AB_I("Loaded amigatre.mod (%ld bytes)", (long)mod_size);
     } else {
