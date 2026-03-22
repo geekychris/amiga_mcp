@@ -22,6 +22,8 @@ with Claude Code.
 9. [MCP Tools Reference](#mcp-tools-reference)
 10. [Developing Amiga Software with Claude Code](#developing-amiga-software-with-claude-code)
 11. [Web UI Reference](#web-ui-reference)
+    - [Tab Organization](#tab-organization)
+    - [Debugger Tab](#debugger-tab)
 12. [Scripts & Utilities](#scripts--utilities)
 13. [Future Improvements](#future-improvements)
 
@@ -43,6 +45,7 @@ Amiga over a serial link.
 - Launch, stop, and break Amiga programs from the host
 - Execute arbitrary AmigaDOS scripts on the Amiga from the host
 - Read and write files on the Amiga filesystem
+- **Source-level debugger** — set breakpoints, step into/over, inspect registers and call stack
 - Monitor everything through a web dashboard or Claude Code MCP tools
 - Manage files, assigns, processes, and protection bits without touching the Amiga
 - Verify deployments with CRC32 checksums, tail log files in real-time
@@ -272,45 +275,7 @@ graph TB
 
 #### UI
 
-#### Dashboard
-![img.png](doc_images/img.png)
-
-#### Logs
-
-These logs from the amiga are transmitted over the bridge to the host
-
-![img_1.png](doc_images/img_1.png)
-
-#### Files
-
-You can traverse the file system on the amiga from the host
-
-![img_2.png](doc_images/img_2.png)
-
-#### Tasks
-
-![img_3.png](doc_images/img_3.png)
-
-#### Launching an app from the host on the amiga and setting process variables
-
-Using claude and the amiga dev mcp agent 
-
-![img_5.png](doc_images/img_5.png)
-
-![img_4.png](doc_images/img_4.png)
-
-#### Checking out the variables of the running app
-
-Instrumented apps can log to the host over the bridge.  We can also interact with registered process variables (both read and write):
-
-![img_6.png](doc_images/img_6.png)
-
-#### Memory editor
-
-Read and write to amiga memory from the host.
-
-![img_7.png](doc_images/img_7.png)
-
+See [Web UI Reference](#web-ui-reference) for detailed documentation with screenshots of all 8 tabs.
 
 | Module | Purpose |
 |---|---|
@@ -1348,62 +1313,89 @@ Claude:
 ## Web UI Reference
 
 The web dashboard at `http://localhost:3000/` provides a real-time view
-of the Amiga system.
+of the Amiga system with 8 main tabs.
 
-### Panels
+### Dashboard
 
-#### Connection Status (Header)
-- Serial link state (connected/disconnected)
-- Host, port, mode (TCP/PTY)
-- Log count, variable count
-- Last heartbeat timestamp
+Connection status, system info, quick actions, and emulator control.
 
-#### Logs Panel
-- Real-time log stream via SSE
+![Dashboard](doc_images/dashboard.png)
+
+- **Connection card** — serial link state, host, port, buffer counts
+- **System Status** — heartbeat, chip/fast memory, bridge version
+- **Clients** — list of connected bridge clients
+- **Bridge Capabilities** — queries daemon for supported commands
+- **Quick Actions** — Ping, List Clients, Tasks, Libs, Screens, etc.
+- **Emulator controls** — Start, Restart, Stop FS-UAE from the web UI
+- **Send Command** — raw protocol command input
+
+### Logs
+
+Real-time log streaming from all Amiga bridge clients.
+
+![Logs](doc_images/logs.png)
+
 - Filter by level: DEBUG, INFO, WARN, ERROR (toggleable buttons)
 - Filter by client name (dropdown)
 - Text search (substring match)
 - Auto-scroll toggle
-- Clear button
 - Color-coded by severity (blue=debug, green=info, orange=warn, red=error)
 
-#### Files Panel
-- Volume browser (left pane) — click to navigate
-- File listing (right pane) — name, size, date, protection bits
-- Breadcrumb path navigation
+### Files
 
-#### Tasks Panel
-- All running tasks/processes
-- Columns: Name, Priority, State (run/ready/wait), Type (proc/task)
-- Refresh button + auto-refresh toggle (5-second interval)
+Amiga filesystem browser and host↔Amiga file transfer.
 
-#### Memory Panel
+![Files](doc_images/files.png)
+
+- **Browser sub-tab** — Volume browser (left pane), file listing (right pane), breadcrumb navigation
+- **Transfer sub-tab** — Upload/download files, transfer history with CRC32 verification
+
+### Tools
+
+Four sub-tabs for memory, variables, shell, and tasks.
+
+#### Memory
+![Memory](doc_images/tools_memory.png)
+
 - Address input (hex) + Size input (decimal)
-- Read button — fetches hex dump
-- Bookmarks: CIA-A ($BFE001), CIA-B ($BFD000), ExecBase ($4), ROM ($F80000), Vectors ($4)
+- Hardware/system bookmarks: CIA-A, CIA-B, ExecBase, ROM, Vectors
 - Hex dump display with ASCII annotation
-- **Write controls:** Address input, Hex Data input, Write button
-- Write status indicator
+- **Write controls** — Address input, Hex Data input, Write button
 
-#### Variables Panel
+#### Variables
+![Variables](doc_images/tools_variables.png)
+
 - All registered variables from all clients
-- Columns: Client, Name, Type, Value, Action
 - Inline edit — click Edit, type new value, press Enter or click Set
-- Auto-refresh toggle (3-second interval via SSE + polling)
-- Auto-refresh pauses while editing to prevent input clobbering
+- Auto-refresh toggle (3-second interval)
 
-#### Shell Tab
+#### Shell
+![Shell](doc_images/tools_shell.png)
+
 Remote AmigaDOS shell via the `shell_proxy` bridge client.
 
 - **Launch Shell Proxy** button — builds, deploys, and starts the shell proxy on the Amiga
 - Terminal-style interface with scrolling output (green text on dark background)
 - Type AmigaDOS commands (`dir`, `type`, `list`, `assign`, etc.) and see output in real-time
-- Commands execute on the Amiga via the bridge protocol, output streams back over serial
 - Arrow keys (Up/Down) navigate command history
-- Aliases: define named shortcuts (e.g., `ll` = `list LFORMAT "%n %l"`), persisted server-side
-- Status indicator shows connection state
-![img.png](doc_images/shell_tab.png)
-#### Tools Tab
+- Aliases: define named shortcuts, persisted server-side
+
+#### Tasks
+![Tasks](doc_images/tools_tasks.png)
+
+- All running tasks/processes with Name, Priority, State, Type columns
+- Refresh button + auto-refresh toggle (5-second interval)
+- Tracked processes panel for launched programs
+
+### Inspect
+
+Three sub-tabs for graphics, system, and debug tools.
+
+![Inspect - Graphics](doc_images/inspect_graphics.png)
+![Inspect - System](doc_images/inspect_system.png)
+![Inspect - Debug](doc_images/inspect_debug.png)
+
+#### Inspect Tools
 Visual inspection and development tools arranged in a grid. Each tool has a `?` tooltip with detailed help.
 
 **Screenshot** — Captures the Amiga display as PNG. Select a window from the dropdown or choose "Whole Screen" for the frontmost screen. Reads planar bitplane data from chip RAM and converts to chunky pixels on the host. Screenshots saved to `/tmp/amiga-screenshots/` with clickable preview links and history.
@@ -1473,6 +1465,12 @@ Click **Start** to install patches, **Stop** to remove them. While active, every
 
 **System Info Dashboard** — One-click system overview combining multiple queries. Shows free chip RAM, free fast RAM, number of connected bridge clients, loaded library count, running task count, and mounted volume count. Provides a quick health check of the Amiga system state.
 
+### Develop
+
+Build, deploy, and run Amiga programs from the browser.
+
+![Develop](doc_images/develop.png)
+
 **Build & Run** — Full development cycle in one click: cross-compile via Docker (using a persistent container for ~10x speedup), deploy binary to AmiKit shared folder, stop any running instance (CTRL-C), then launch. Select a project from the dropdown (populated from the `examples/` directory).
 
 **New Project** — Scaffolds a new example project with Makefile and main.c. Three templates:
@@ -1480,9 +1478,106 @@ Click **Start** to install patches, **Stop** to remove them. While active, every
 - **Screen** — Custom screen (320x256, 5 bitplanes) with bridge integration
 - **Headless** — CLI-only program with bridge hooks, no GUI
 
-![img.png](doc_images/tools_page.png)
-![img.png](doc_images/memory_info.png)
-![img.png](doc_images/iff_sys_info.png)
+**Test Harness** — Real-time test results from `AB_ASSERT()` macros in client code.
+
+### Settings
+
+Serial, emulator, server configuration, and MCP/REST traffic logging.
+
+![Settings](doc_images/settings.png)
+
+- **Config sub-tab** — Serial mode (TCP/PTY), host, port, emulator binary/config path, auto-start, deploy directory. All editable and saved to `devbench.toml`.
+- **Traffic sub-tab** — Request logging with filters (MCP/REST), search, timing analysis for debugging MCP tool performance.
+
+### About Dialog
+
+![About](doc_images/about.png)
+
+Click the logo or "About" button to view the tribute to the Amiga team, the Sacramento Amiga Computer Club (SACC), and project credits.
+
+![About - SACC Section](doc_images/about_sacc.png)
+
+The About dialog includes a tribute to the [Sacramento Amiga Computer Club](https://sacc.org/) — 40 years of Amiga community with monthly meetings, classic gaming, music production, and 3D modeling.
+
+### Tab Organization
+
+The web UI is organized into 8 main tabs, several with sub-tabs:
+
+| Tab | Sub-tabs | Purpose |
+|-----|----------|---------|
+| **Dashboard** | — | Connection status, system info, quick actions, emulator control |
+| **Logs** | — | Real-time log streaming with level/client/text filtering |
+| **Files** | Browser, Transfer | Amiga filesystem navigation, host↔Amiga file transfers |
+| **Tools** | Memory, Variables, Shell, Tasks | Memory inspection, variable editing, AmigaDOS shell, task list |
+| **Inspect** | Graphics, System, Debug | Screenshots, palettes, copper lists, sprites, SnoopDos, input injection |
+| **Develop** | — | Build & Run, New Project scaffolding, Test Harness |
+| **Debugger** | — | Source-level debugging with breakpoints, stepping, registers, call stack |
+| **Settings** | Config, Traffic | Serial/emulator/server config, MCP/REST request logging |
+
+### Debugger Tab
+
+![Debugger](doc_images/debugger.png)
+
+The Debugger tab provides source-level debugging for Amiga programs, communicating
+with the bridge daemon's built-in debugger which uses 68k exception handlers.
+
+#### Target & Launch Controls
+- **Target** dropdown — select a project from `examples/` to debug
+- **Build & Launch** — cross-compile, deploy, and launch with debug symbols loaded
+- **Load Symbols** — parse the ELF/Hunk binary to extract function names and source line mappings
+- **Attach/Detach** — connect to or disconnect from a running program's debug session
+
+#### Execution Controls
+When the target is stopped (breakpoint hit, stepped, or manually broken):
+
+| Button | Action | Description |
+|--------|--------|-------------|
+| **Continue** | Resume | Run until next breakpoint or manual break |
+| **Break** | Stop | Pause execution at current instruction |
+| **Step Into** | Single step | Execute one instruction, entering function calls |
+| **Step Over** | Step over | Execute one instruction, stepping over function calls |
+
+#### Source Viewer
+- Displays the C source file corresponding to the current program counter
+- **Gutter breakpoints** — click the line number gutter to toggle breakpoints (red dots)
+- **Current line highlight** — the executing line is highlighted in yellow/green
+- **Scroll to PC** — automatically centers the view on the current execution point
+- Source files are read from the host project directory using debug symbol line mappings
+
+#### Registers Panel
+Shows all 68020 CPU registers when the target is stopped:
+- **Data registers**: D0–D7 (32-bit hex values)
+- **Address registers**: A0–A6 (32-bit hex values)
+- **Stack Pointer**: SP/A7
+- **Program Counter**: PC with current address
+- **Status Register**: SR with condition code flags
+
+#### Call Stack (Backtrace)
+- Shows the function call chain from the current PC back to `main()`
+- Each frame shows: function name, source file, line number, and return address
+- Click a frame to navigate the source viewer to that location
+- Uses frame pointer (A5) chain walking + symbol table lookups
+
+#### Breakpoints Panel
+- Lists all set breakpoints with source file, line number, and address
+- Toggle enable/disable per breakpoint
+- Delete individual breakpoints or clear all
+- Breakpoints persist across continue/step operations
+- Implemented via 68k TRAP instructions patched into the code
+
+#### Variables Panel (Debug Context)
+- When stopped, shows local variables and function parameters
+- Values read from the Amiga's memory using debug symbol information
+- Changed values highlighted since last stop
+
+#### How It Works
+The bridge daemon's debugger module (`debugger.c`) installs 68k exception handlers:
+1. **TRAP #0** — breakpoint exception. When a breakpoint address is hit, the CPU traps, registers are saved, and the bridge notifies the host.
+2. **Trace bit** — for single-stepping. Sets the T bit in the SR to generate a trace exception after each instruction.
+3. The host sends **BREAK**, **CONTINUE**, **STEP**, **STEPOVER** commands via the serial protocol.
+4. Register state is captured in the exception handler and sent as **DBGSTOP** events.
+5. **Step Over** detection: compares the stopped PC against known function entry points to determine if we entered a call, and sets a temporary breakpoint at the return address.
+
 ### SSE Event Stream
 
 The web UI connects to `/api/events` for real-time updates:

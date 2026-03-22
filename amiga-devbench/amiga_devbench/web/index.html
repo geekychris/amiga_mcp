@@ -5710,6 +5710,25 @@ function showAbout() {
     ]},
   ];
 
+  // SACC community section (rendered separately with logo)
+  const saccHTML = `
+    <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <img src="/static/sacc_logo.png" alt="SACC" style="width:64px;height:auto;border-radius:4px;">
+        <div>
+          <div style="font-size:13px;color:var(--accent-orange);font-weight:bold;">Sacramento Amiga Computer Club</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">
+            Celebrating 40 years of Amiga. Monthly meetings, classic gaming,
+            music production, 3D modeling, and keeping the Amiga spirit alive.
+          </div>
+          <a href="https://sacc.org/" target="_blank" rel="noopener"
+             style="font-size:11px;color:var(--accent-blue);text-decoration:none;margin-top:4px;display:inline-block;">
+            sacc.org &rarr;
+          </a>
+        </div>
+      </div>
+    </div>`;
+
   function personHTML(p) {
     const isDead = p[0] === 'd';
     const border = isDead ? 'var(--accent-orange)' : 'var(--accent-blue)';
@@ -5756,6 +5775,7 @@ function showAbout() {
             </div>
           </div>
           ${sectionsHTML}
+          ${saccHTML}
           <div style="text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid var(--border);">
             <div style="color:var(--text-dim);font-size:11px;line-height:1.8;">
               <span style="color:var(--accent-orange);">&hearts;</span> Remembered with love &mdash;
