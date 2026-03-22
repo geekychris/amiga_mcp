@@ -26,6 +26,7 @@ examples: lib
 	$(DOCKER_RUN) make -C examples/boing_ball
 	$(DOCKER_RUN) make -C examples/starfield
 	$(DOCKER_RUN) make -C examples/rj_birthday
+	$(DOCKER_RUN) make -C examples/defender
 
 bridge:
 	$(DOCKER_RUN) make -C amiga-bridge
@@ -49,6 +50,7 @@ clean:
 	$(DOCKER_RUN) make -C examples/boing_ball clean
 	$(DOCKER_RUN) make -C examples/starfield clean
 	$(DOCKER_RUN) make -C examples/rj_birthday clean
+	$(DOCKER_RUN) make -C examples/defender clean
 	$(DOCKER_RUN) make -C amiga-bridge clean
 
 mcp-server:

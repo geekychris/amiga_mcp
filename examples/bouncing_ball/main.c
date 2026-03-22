@@ -83,20 +83,20 @@ int main(void)
     BOOL running = TRUE;
     LONG inner_w, inner_h;
 
+    /* Connect to AmigaBridge daemon FIRST so Launch & Attach
+     * can pause before any setup code runs. */
+    if (ab_init("bouncing_ball") != 0) {
+        printf("Bridge: NOT FOUND\n");
+    }
+
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
-    if (!IntuitionBase) return 1;
+    if (!IntuitionBase) { ab_cleanup(); return 1; }
 
     GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
     if (!GfxBase) {
         CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
         return 1;
-    }
-
-    /* Connect to AmigaBridge daemon (also sets task name) */
-    if (ab_init("bouncing_ball") != 0) {
-        printf("Bridge: NOT FOUND\n");
-    } else {
-        printf("Bridge: CONNECTED\n");
     }
 
     AB_I("Bouncing Ball starting");
