@@ -333,12 +333,18 @@ static void sort_apps(void)
         j = i - 1;
         while (j >= 0) {
             WORD swap = 0;
-            if (tmp.is_new && !apps[j].is_new)
+            if (tmp.is_new && !apps[j].is_new) {
                 swap = 1;
-            else if (tmp.is_new && apps[j].is_new) {
+            } else if (tmp.is_new && apps[j].is_new) {
+                /* Both new: sort alphabetically */
                 if (strcmp(tmp.name, apps[j].name) < 0) swap = 1;
             } else if (!tmp.is_new && !apps[j].is_new) {
-                if (tmp.count > apps[j].count) swap = 1;
+                if (tmp.count > apps[j].count) {
+                    swap = 1;
+                } else if (tmp.count == apps[j].count) {
+                    /* Same frequency: sort alphabetically */
+                    if (strcmp(tmp.name, apps[j].name) < 0) swap = 1;
+                }
             }
             if (!swap) break;
             apps[j + 1] = apps[j];

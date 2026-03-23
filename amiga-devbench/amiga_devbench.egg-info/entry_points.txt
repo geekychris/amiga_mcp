@@ -1,2 +1,0 @@
-[console_scripts]
-amiga-devbench = amiga_devbench.__main__:main
