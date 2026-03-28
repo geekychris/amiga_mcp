@@ -84,6 +84,18 @@ start_devbench() {
     sleep 1
 
     cd "$PROJECT_ROOT"
+
+    # Auto-install amiga-devbench if not already installed
+    if ! python3 -c "import amiga_devbench" 2>/dev/null; then
+        status_info "Installing amiga-devbench package..."
+        pip install -e amiga-devbench > "$DEVBENCH_LOG" 2>&1
+        if [ $? -ne 0 ]; then
+            status_fail "Failed to install amiga-devbench (see $DEVBENCH_LOG)"
+            return 1
+        fi
+        status_ok "amiga-devbench installed"
+    fi
+
     python3 -m amiga_devbench --log-level DEBUG $extra_args > "$DEVBENCH_LOG" 2>&1 &
     echo $! > "$DEVBENCH_PID"
 
