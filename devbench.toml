@@ -2,8 +2,8 @@
 
 [serial]
 mode = "tcp"
-host = "127.0.0.1"
-port = 2345
+host = "127.0.0.1"   # real Amiga over network: set to the Amiga's LAN IP (run `amiga-bridge TCP 2345` there, RoadShow stack up)
+port = 2345          # must match the daemon's TCP listen port
 pty_path = "/tmp/amiga-serial"
 
 [emulator]
