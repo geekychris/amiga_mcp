@@ -56,11 +56,14 @@ def parse_palette(palette_str: str) -> list[tuple[int, int, int]]:
     colors = []
     for entry in palette_str.split(","):
         entry = entry.strip()
-        if len(entry) >= 3:
+        if len(entry) >= 6:
+            # 8-bit per channel (RRGGBB) from GetRGB32
+            colors.append((int(entry[0:2], 16), int(entry[2:4], 16), int(entry[4:6], 16)))
+        elif len(entry) >= 3:
+            # Legacy 4-bit per channel (RGB) from GetRGB4: scale 0-15 -> 0-255
             r4 = int(entry[0], 16)
             g4 = int(entry[1], 16)
             b4 = int(entry[2], 16)
-            # Scale 4-bit (0-15) to 8-bit (0-255)
             colors.append((r4 * 17, g4 * 17, b4 * 17))
         else:
             colors.append((0, 0, 0))

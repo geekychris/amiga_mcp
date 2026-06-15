@@ -142,25 +142,29 @@ void gfx_handle_screenshot(const char *args)
             (long)width, (long)height, (long)depth);
     pos = strlen(linebuf);
 
-    for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 8; i++) {
-        UWORD rgb4;
-        UWORD r, g, b;
-
-        if (i > 0) linebuf[pos++] = ',';
-
+    {
+        /* True 8-bit-per-channel palette via GetRGB32 (the high byte of each
+         * 32-bit fixed component is the 8-bit value). Sent as 6 hex digits
+         * RRGGBB per colour. Falls back to zeros if there is no colormap. */
+        static ULONG rgbtable[256 * 3];
         if (cm) {
-            rgb4 = GetRGB4(cm, (long)i);
+            GetRGB32(cm, 0, (ULONG)numColors, rgbtable);
         } else {
-            rgb4 = 0;
+            UWORD k;
+            for (k = 0; k < numColors * 3; k++) rgbtable[k] = 0;
         }
-
-        r = (rgb4 >> 8) & 0x0F;
-        g = (rgb4 >> 4) & 0x0F;
-        b = rgb4 & 0x0F;
-
-        linebuf[pos++] = hex_chars[r];
-        linebuf[pos++] = hex_chars[g];
-        linebuf[pos++] = hex_chars[b];
+        for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 10; i++) {
+            UBYTE r = (UBYTE)(rgbtable[i * 3 + 0] >> 24);
+            UBYTE g = (UBYTE)(rgbtable[i * 3 + 1] >> 24);
+            UBYTE b = (UBYTE)(rgbtable[i * 3 + 2] >> 24);
+            if (i > 0) linebuf[pos++] = ',';
+            linebuf[pos++] = hex_chars[(r >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[r & 0x0F];
+            linebuf[pos++] = hex_chars[(g >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[g & 0x0F];
+            linebuf[pos++] = hex_chars[(b >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[b & 0x0F];
+        }
     }
     linebuf[pos] = '\0';
 
@@ -276,25 +280,29 @@ void gfx_handle_palette(const char *args)
     sprintf(linebuf, "PALETTE|%ld|", (long)depth);
     pos = strlen(linebuf);
 
-    for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 8; i++) {
-        UWORD rgb4;
-        UWORD r, g, b;
-
-        if (i > 0) linebuf[pos++] = ',';
-
+    {
+        /* True 8-bit-per-channel palette via GetRGB32 (the high byte of each
+         * 32-bit fixed component is the 8-bit value). Sent as 6 hex digits
+         * RRGGBB per colour. Falls back to zeros if there is no colormap. */
+        static ULONG rgbtable[256 * 3];
         if (cm) {
-            rgb4 = GetRGB4(cm, (long)i);
+            GetRGB32(cm, 0, (ULONG)numColors, rgbtable);
         } else {
-            rgb4 = 0;
+            UWORD k;
+            for (k = 0; k < numColors * 3; k++) rgbtable[k] = 0;
         }
-
-        r = (rgb4 >> 8) & 0x0F;
-        g = (rgb4 >> 4) & 0x0F;
-        b = rgb4 & 0x0F;
-
-        linebuf[pos++] = hex_chars[r];
-        linebuf[pos++] = hex_chars[g];
-        linebuf[pos++] = hex_chars[b];
+        for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 10; i++) {
+            UBYTE r = (UBYTE)(rgbtable[i * 3 + 0] >> 24);
+            UBYTE g = (UBYTE)(rgbtable[i * 3 + 1] >> 24);
+            UBYTE b = (UBYTE)(rgbtable[i * 3 + 2] >> 24);
+            if (i > 0) linebuf[pos++] = ',';
+            linebuf[pos++] = hex_chars[(r >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[r & 0x0F];
+            linebuf[pos++] = hex_chars[(g >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[g & 0x0F];
+            linebuf[pos++] = hex_chars[(b >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[b & 0x0F];
+        }
     }
     linebuf[pos] = '\0';
 
