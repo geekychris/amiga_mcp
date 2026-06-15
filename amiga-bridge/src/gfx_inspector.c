@@ -44,6 +44,58 @@ static void hex_encode(const UBYTE *data, ULONG len, char *outHex)
     outHex[len * 2] = '\0';
 }
 
+/* Compare two pixels of `bpp` bytes. */
+static int pix_eq(const UBYTE *a, const UBYTE *b, int bpp)
+{
+    int i;
+    for (i = 0; i < bpp; i++) if (a[i] != b[i]) return 0;
+    return 1;
+}
+
+/*
+ * TGA/PackBits-style RLE encode `count` pixels of `bpp` bytes each.
+ *
+ * Output is a sequence of packets, each starting with one header byte:
+ *   high bit SET  -> run:     (hdr & 0x7f)+1 copies of the following 1 pixel
+ *   high bit CLEAR-> literal: (hdr & 0x7f)+1 pixels follow verbatim
+ * so incompressible data costs at most 1 header byte per 128 pixels.
+ *
+ * `out` must hold up to count*bpp + count/128 + 1 bytes.
+ * Returns the number of bytes written.
+ */
+static ULONG rle_encode(const UBYTE *src, ULONG count, int bpp, UBYTE *out)
+{
+    ULONG ip = 0, op = 0;
+
+    while (ip < count) {
+        ULONG run = 1;
+        while (ip + run < count && run < 128 &&
+               pix_eq(src + (ip + run) * bpp, src + ip * bpp, bpp))
+            run++;
+
+        if (run >= 2) {
+            int k;
+            out[op++] = (UBYTE)(0x80 | (run - 1));
+            for (k = 0; k < bpp; k++) out[op++] = src[ip * bpp + k];
+            ip += run;
+        } else {
+            /* Literal: gather pixels until a >=2 run begins or we hit 128. */
+            ULONG lit = 1, k;
+            while (ip + lit < count && lit < 128) {
+                if (ip + lit + 1 < count &&
+                    pix_eq(src + (ip + lit) * bpp,
+                           src + (ip + lit + 1) * bpp, bpp))
+                    break;
+                lit++;
+            }
+            out[op++] = (UBYTE)(lit - 1);
+            for (k = 0; k < lit * (ULONG)bpp; k++) out[op++] = src[ip * bpp + k];
+            ip += lit;
+        }
+    }
+    return op;
+}
+
 /*
  * Find a window by title on any screen.
  * Must be called with IntuitionBase locked.
@@ -142,11 +194,15 @@ void gfx_handle_screenshot(const char *args)
 
         if (realdepth > 8 && bm->Planes[0] && bpr >= (ULONG)width * 4) {
             /* True-colour (BGRA32) chunky framebuffer: read 4 bytes/pixel
-             * straight from Planes[0] at the real stride, emit RGB rows. */
+             * straight from Planes[0] at the real stride, RLE-compress each
+             * RGB row and emit it hex-encoded as a SCRRLE line. The width is
+             * capped so even a worst-case (incompressible) RLE row stays
+             * within BRIDGE_MAX_LINE after hex expansion. */
             static UBYTE rgbrow[1360 * 3];
-            static char  rgbhex[1360 * 6 + 16];
+            static UBYTE rlebuf[1360 * 3 + 64];
+            static char  rlehex[(1360 * 3 + 64) * 2 + 16];
             UWORD w = width;
-            if (w > 1360) w = 1360;
+            if (w > 1344) w = 1344;
             sprintf(linebuf, "SCRINFO|%ld|%ld|24|", (long)w, (long)height);
             protocol_send_raw(linebuf);
             for (row = 0; row < height; row++) {
@@ -155,14 +211,16 @@ void gfx_handle_screenshot(const char *args)
                 UBYTE *src = (UBYTE *)bm->Planes[0]
                              + (ULONG)srcRow * bpr + (ULONG)srcX * 4;
                 UWORD x;
+                ULONG rlen;
                 for (x = 0; x < w; x++) {
                     /* BGRA byte order -> RGB */
                     rgbrow[x * 3 + 0] = src[x * 4 + 2];  /* R */
                     rgbrow[x * 3 + 1] = src[x * 4 + 1];  /* G */
                     rgbrow[x * 3 + 2] = src[x * 4 + 0];  /* B */
                 }
-                hex_encode(rgbrow, (ULONG)(w * 3), rgbhex);
-                sprintf(linebuf, "SCRRGB|%ld|%s", (long)row, rgbhex);
+                rlen = rle_encode(rgbrow, (ULONG)w, 3, rlebuf);
+                hex_encode(rlebuf, rlen, rlehex);
+                sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, rlehex);
                 protocol_send_raw(linebuf);
             }
             UnlockIBase(lock);
@@ -224,6 +282,7 @@ void gfx_handle_screenshot(const char *args)
     if (depth <= 8 && (ULONG)bm->BytesPerRow >= (ULONG)width) {
         static char chunkhex[8200];
         static UBYTE rowbuf[4096];
+        static UBYTE crle[4096 + 64];
         struct BitMap *tempbm;
         struct RastPort temprp;
         UWORD n = width;
@@ -235,10 +294,14 @@ void gfx_handle_screenshot(const char *args)
             for (row = 0; row < height; row++) {
                 UWORD srcRow = useClip ? (row + clipTop) : row;
                 UWORD srcX   = useClip ? clipLeft : 0;
+                ULONG rlen;
                 ReadPixelArray8(&scr->RastPort, srcX, srcRow,
                                 (UWORD)(srcX + n - 1), srcRow, rowbuf, &temprp);
-                hex_encode(rowbuf, (ULONG)n, chunkhex);
-                sprintf(linebuf, "SCRDATA|%ld|255|%s", (long)row, chunkhex);
+                /* RLE the 1-byte-per-pixel pen indices (host infers bpp=1
+                 * from the <=8 depth in SCRINFO). */
+                rlen = rle_encode(rowbuf, (ULONG)n, 1, crle);
+                hex_encode(crle, rlen, chunkhex);
+                sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, chunkhex);
                 protocol_send_raw(linebuf);
             }
             FreeBitMap(tempbm);

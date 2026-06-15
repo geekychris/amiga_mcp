@@ -48,6 +48,32 @@ def planar_to_chunky(
     return pixels
 
 
+def rle_decode(hex_data: str, bpp: int) -> bytes:
+    """Decode one TGA/PackBits-style RLE row (hex-encoded) to raw pixel bytes.
+
+    Packet header byte:
+      high bit SET   -> run:     (hdr & 0x7f)+1 copies of the next 1 pixel.
+      high bit CLEAR -> literal: (hdr & 0x7f)+1 pixels follow verbatim.
+    """
+    data = bytes.fromhex(hex_data)
+    out = bytearray()
+    i = 0
+    n = len(data)
+    while i < n:
+        hdr = data[i]
+        i += 1
+        count = (hdr & 0x7F) + 1
+        if hdr & 0x80:
+            pix = data[i:i + bpp]
+            i += bpp
+            out += pix * count
+        else:
+            nbytes = count * bpp
+            out += data[i:i + nbytes]
+            i += nbytes
+    return bytes(out)
+
+
 def parse_palette(palette_str: str) -> list[tuple[int, int, int]]:
     """Parse palette string 'rgb,rgb,...' where each is 3 hex digits (OCS 4-bit).
 
@@ -153,6 +179,7 @@ def save_screenshot(
     scrdata_lines: list[dict[str, Any]],
     save_path: str | None = None,
     rgb_lines: list[dict[str, Any]] | None = None,
+    rle_lines: list[dict[str, Any]] | None = None,
 ) -> str:
     """Orchestrate screenshot conversion and save to file.
 
@@ -161,6 +188,9 @@ def save_screenshot(
         scrdata_lines: List of parsed SCRDATA messages.
         save_path: Optional explicit path to save to. If None, uses temp file.
         rgb_lines: List of parsed SCRRGB messages (true-colour, 3 bytes/pixel).
+        rle_lines: List of parsed SCRRLE messages (RLE-compressed rows). Decoded
+            here into the equivalent true-colour or chunky rows; pixel size is
+            3 bytes when depth==24, else 1 byte (chunky pen indices).
 
     Returns:
         Path to the saved PNG/PPM file.
@@ -168,6 +198,22 @@ def save_screenshot(
     width = scrinfo["width"]
     height = scrinfo["height"]
     depth = scrinfo["depth"]
+
+    # Expand RLE rows into the raw shapes the renderers below already expect.
+    if rle_lines:
+        if depth > 8:
+            rgb_lines = list(rgb_lines or [])
+            rgb_lines += [
+                {"row": r["row"], "hexData": rle_decode(r["hexData"], 3).hex()}
+                for r in rle_lines
+            ]
+        else:
+            scrdata_lines = list(scrdata_lines or [])
+            scrdata_lines += [
+                {"row": r["row"], "plane": 255,
+                 "hexData": rle_decode(r["hexData"], 1).hex()}
+                for r in rle_lines
+            ]
 
     # True-colour (RTG/Picasso96 >8bpp) path: SCRRGB rows carry raw RGB bytes.
     if rgb_lines:

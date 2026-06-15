@@ -890,9 +890,10 @@ async def amiga_screenshot(window: str = "") -> str:
     scrinfo_msg = None
     scrdata_msgs: list[dict] = []
     scrrgb_msgs: list[dict] = []
+    scrrle_msgs: list[dict] = []
     expected_total = 0
 
-    async with bus.subscribe("scrinfo", "scrdata", "scrrgb", "err") as queue:
+    async with bus.subscribe("scrinfo", "scrdata", "scrrgb", "scrrle", "err") as queue:
         if window:
             conn.send({"type": "SCREENSHOT", "window": window})
         else:
@@ -910,6 +911,11 @@ async def amiga_screenshot(window: str = "") -> str:
                 if evt == "scrinfo":
                     scrinfo_msg = data
                     expected_total = data["height"] * data["depth"]
+                elif evt == "scrrle":
+                    # RLE-compressed row (true-colour or chunky): one per row.
+                    scrrle_msgs.append(data)
+                    if scrinfo_msg and len(scrrle_msgs) >= scrinfo_msg["height"]:
+                        break
                 elif evt == "scrrgb":
                     # True-colour (RTG): one RGB row per line.
                     scrrgb_msgs.append(data)
@@ -931,12 +937,18 @@ async def amiga_screenshot(window: str = "") -> str:
     if not scrinfo_msg:
         return "Timed out waiting for screenshot header"
 
-    if not scrdata_msgs and not scrrgb_msgs:
+    if not scrdata_msgs and not scrrgb_msgs and not scrrle_msgs:
         return f"Got header ({scrinfo_msg['width']}x{scrinfo_msg['height']}x{scrinfo_msg['depth']}) but no pixel data"
 
-    path = save_screenshot(scrinfo_msg, scrdata_msgs, rgb_lines=scrrgb_msgs or None)
-    rows = len(scrrgb_msgs) if scrrgb_msgs else len(scrdata_msgs)
-    kind = "truecolor" if scrrgb_msgs else f"{scrinfo_msg['depth']} planes"
+    path = save_screenshot(scrinfo_msg, scrdata_msgs,
+                           rgb_lines=scrrgb_msgs or None,
+                           rle_lines=scrrle_msgs or None)
+    if scrrle_msgs:
+        rows, kind = len(scrrle_msgs), "RLE"
+    elif scrrgb_msgs:
+        rows, kind = len(scrrgb_msgs), "truecolor"
+    else:
+        rows, kind = len(scrdata_msgs), f"{scrinfo_msg['depth']} planes"
     return f"Screenshot saved: {path} ({scrinfo_msg['width']}x{scrinfo_msg['height']}, {kind}, {rows} rows received)"
 
 

@@ -1301,12 +1301,13 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if not _conn or not _conn.connected:
             return JSONResponse({"error": "Not connected"})
         window = request.query_params.get("window", "")
-        # Subscribe BEFORE sending so no SCRINFO/SCRRGB/SCRDATA is missed.
+        # Subscribe BEFORE sending so no SCRINFO/SCRRGB/SCRRLE/SCRDATA is missed.
         scrinfo = None
         scrdata_lines = []
         scrrgb_lines = []
+        scrrle_lines = []
         expected_total = 0
-        async with _event_bus.subscribe("scrinfo", "scrdata", "scrrgb", "err") as queue:
+        async with _event_bus.subscribe("scrinfo", "scrdata", "scrrgb", "scrrle", "err") as queue:
             cmd = {"type": "SCREENSHOT"}
             if window:
                 cmd["window"] = window
@@ -1325,6 +1326,11 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 if evt == "scrinfo":
                     scrinfo = data
                     expected_total = data["height"] * data["depth"]
+                elif evt == "scrrle":
+                    # RLE-compressed row (true-colour or chunky): one per row.
+                    scrrle_lines.append(data)
+                    if scrinfo and len(scrrle_lines) >= scrinfo["height"]:
+                        break
                 elif evt == "scrrgb":
                     # True-colour (RTG): one RGB row per line.
                     scrrgb_lines.append(data)
@@ -1338,7 +1344,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                         break
         if not scrinfo:
             return JSONResponse({"error": "No SCRINFO response"})
-        if not scrdata_lines and not scrrgb_lines:
+        if not scrdata_lines and not scrrgb_lines and not scrrle_lines:
             return JSONResponse({"error": "No pixel data received"})
         try:
             from .screenshot import save_screenshot
@@ -1347,7 +1353,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             label = window.replace(" ", "_") if window else "screen"
             save_path = str(_screenshot_dir / f"{label}_{ts}.png")
             path = save_screenshot(scrinfo, scrdata_lines, save_path,
-                                   rgb_lines=scrrgb_lines or None)
+                                   rgb_lines=scrrgb_lines or None,
+                                   rle_lines=scrrle_lines or None)
             _last_screenshot_path[0] = path
             filename = Path(path).name  # save_screenshot may switch .png/.ppm
             return JSONResponse({
