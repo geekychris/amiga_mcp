@@ -195,14 +195,17 @@ void gfx_handle_screenshot(const char *args)
         if (realdepth > 8 && bm->Planes[0] && bpr >= (ULONG)width * 4) {
             /* True-colour (BGRA32) chunky framebuffer: read 4 bytes/pixel
              * straight from Planes[0] at the real stride, RLE-compress each
-             * RGB row and emit it hex-encoded as a SCRRLE line. The width is
-             * capped so even a worst-case (incompressible) RLE row stays
-             * within BRIDGE_MAX_LINE after hex expansion. */
-            static UBYTE rgbrow[1360 * 3];
-            static UBYTE rlebuf[1360 * 3 + 64];
-            static char  rlehex[(1360 * 3 + 64) * 2 + 16];
+             * RGB row and emit it base64-encoded as a SCRRLE line. The width
+             * is capped so even a worst-case (incompressible) RLE row stays
+             * within BRIDGE_MAX_LINE after base64 expansion - base64's lower
+             * overhead lets this cap cover 1600/1920 RTG modes that the old
+             * hex path (cap 1344) would have truncated. */
+            #define SCR_MAXW 1920
+            static UBYTE rgbrow[SCR_MAXW * 3];
+            static UBYTE rlebuf[SCR_MAXW * 3 + SCR_MAXW / 128 + 8];
+            static char  rlehex[((SCR_MAXW * 3 + SCR_MAXW / 128 + 8) * 4) / 3 + 8];
             UWORD w = width;
-            if (w > 1344) w = 1344;
+            if (w > SCR_MAXW) w = SCR_MAXW;
             sprintf(linebuf, "SCRINFO|%ld|%ld|24|", (long)w, (long)height);
             protocol_send_raw(linebuf);
             for (row = 0; row < height; row++) {
@@ -219,7 +222,7 @@ void gfx_handle_screenshot(const char *args)
                     rgbrow[x * 3 + 2] = src[x * 4 + 0];  /* B */
                 }
                 rlen = rle_encode(rgbrow, (ULONG)w, 3, rlebuf);
-                hex_encode(rlebuf, rlen, rlehex);
+                b64_encode(rlebuf, rlen, rlehex);   /* base64: 33% vs hex 100% */
                 sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, rlehex);
                 protocol_send_raw(linebuf);
             }
@@ -300,7 +303,7 @@ void gfx_handle_screenshot(const char *args)
                 /* RLE the 1-byte-per-pixel pen indices (host infers bpp=1
                  * from the <=8 depth in SCRINFO). */
                 rlen = rle_encode(rowbuf, (ULONG)n, 1, crle);
-                hex_encode(crle, rlen, chunkhex);
+                b64_encode(crle, rlen, chunkhex);   /* base64: 33% vs hex 100% */
                 sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, chunkhex);
                 protocol_send_raw(linebuf);
             }

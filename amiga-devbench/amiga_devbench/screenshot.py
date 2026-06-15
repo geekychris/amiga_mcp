@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import logging
 import struct
@@ -48,14 +49,13 @@ def planar_to_chunky(
     return pixels
 
 
-def rle_decode(hex_data: str, bpp: int) -> bytes:
-    """Decode one TGA/PackBits-style RLE row (hex-encoded) to raw pixel bytes.
+def rle_decode(data: bytes, bpp: int) -> bytes:
+    """Decode one TGA/PackBits-style RLE row (raw bytes) to raw pixel bytes.
 
     Packet header byte:
       high bit SET   -> run:     (hdr & 0x7f)+1 copies of the next 1 pixel.
       high bit CLEAR -> literal: (hdr & 0x7f)+1 pixels follow verbatim.
     """
-    data = bytes.fromhex(hex_data)
     out = bytearray()
     i = 0
     n = len(data)
@@ -200,18 +200,20 @@ def save_screenshot(
     depth = scrinfo["depth"]
 
     # Expand RLE rows into the raw shapes the renderers below already expect.
+    # The SCRRLE payload is base64(RLE(pixels)); decode base64 then RLE.
     if rle_lines:
         if depth > 8:
             rgb_lines = list(rgb_lines or [])
             rgb_lines += [
-                {"row": r["row"], "hexData": rle_decode(r["hexData"], 3).hex()}
+                {"row": r["row"],
+                 "hexData": rle_decode(base64.b64decode(r["hexData"]), 3).hex()}
                 for r in rle_lines
             ]
         else:
             scrdata_lines = list(scrdata_lines or [])
             scrdata_lines += [
                 {"row": r["row"], "plane": 255,
-                 "hexData": rle_decode(r["hexData"], 1).hex()}
+                 "hexData": rle_decode(base64.b64decode(r["hexData"]), 1).hex()}
                 for r in rle_lines
             ]
 

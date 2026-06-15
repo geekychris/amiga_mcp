@@ -11,7 +11,7 @@
 
 /* Daemon version - bump MAJOR/MINOR here ONLY; everything else derives from it. */
 #define BRIDGE_VERSION_MAJOR 1
-#define BRIDGE_VERSION_MINOR 9
+#define BRIDGE_VERSION_MINOR 10
 #define BRIDGE_STR_(x) #x
 #define BRIDGE_STR(x)  BRIDGE_STR_(x)
 #define BRIDGE_VERSION_STR \
@@ -19,6 +19,10 @@
 
 /* Build identity (src/version.c, force-rebuilt each make) */
 extern const char * const g_bridge_build;
+
+/* ---- b64.c ---- base64 encode/decode for bulk binary payloads */
+ULONG b64_encode(const UBYTE *data, ULONG len, char *out);
+ULONG b64_decode(const char *in, ULONG inlen, UBYTE *out);
 
 /* ---- serial_io.c ---- */
 int serial_open(ULONG baud);
