@@ -1301,43 +1301,62 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if not _conn or not _conn.connected:
             return JSONResponse({"error": "Not connected"})
         window = request.query_params.get("window", "")
-        cmd = {"type": "SCREENSHOT"}
-        if window:
-            cmd["window"] = window
-        _conn.send(cmd)
-        # Collect SCRINFO + SCRDATA
-        scrinfo = await _event_bus.wait_for("scrinfo", timeout=5.0)
+        # Subscribe BEFORE sending so no SCRINFO/SCRRGB/SCRDATA is missed.
+        scrinfo = None
+        scrdata_lines = []
+        scrrgb_lines = []
+        expected_total = 0
+        async with _event_bus.subscribe("scrinfo", "scrdata", "scrrgb", "err") as queue:
+            cmd = {"type": "SCREENSHOT"}
+            if window:
+                cmd["window"] = window
+            _conn.send(cmd)
+            deadline = asyncio.get_event_loop().time() + 60.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    break
+                if evt == "err" and "SCREENSHOT" in data.get("context", ""):
+                    return JSONResponse({"error": data.get("message", "screenshot failed")})
+                if evt == "scrinfo":
+                    scrinfo = data
+                    expected_total = data["height"] * data["depth"]
+                elif evt == "scrrgb":
+                    # True-colour (RTG): one RGB row per line.
+                    scrrgb_lines.append(data)
+                    if scrinfo and len(scrrgb_lines) >= scrinfo["height"]:
+                        break
+                elif evt == "scrdata":
+                    scrdata_lines.append(data)
+                    # Chunky rows (plane==255) send one line per row.
+                    need = (scrinfo["height"] if data.get("plane") == 255 else expected_total) if scrinfo else 0
+                    if need and len(scrdata_lines) >= need:
+                        break
         if not scrinfo:
             return JSONResponse({"error": "No SCRINFO response"})
-        rows = scrinfo.get("height", 0)
-        depth = scrinfo.get("depth", 0)
-        total_lines = rows * depth
-        scrdata_lines = []
-        deadline = asyncio.get_event_loop().time() + 15.0
-        while len(scrdata_lines) < total_lines:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                break
-            msg = await _event_bus.wait_for("scrdata", timeout=remaining)
-            if msg:
-                scrdata_lines.append(msg)
+        if not scrdata_lines and not scrrgb_lines:
+            return JSONResponse({"error": "No pixel data received"})
         try:
             from .screenshot import save_screenshot
-            # Save to fixed location with timestamp
             import datetime
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             label = window.replace(" ", "_") if window else "screen"
-            filename = f"{label}_{ts}.png"
-            save_path = str(_screenshot_dir / filename)
-            path = save_screenshot(scrinfo, scrdata_lines, save_path)
+            save_path = str(_screenshot_dir / f"{label}_{ts}.png")
+            path = save_screenshot(scrinfo, scrdata_lines, save_path,
+                                   rgb_lines=scrrgb_lines or None)
             _last_screenshot_path[0] = path
+            filename = Path(path).name  # save_screenshot may switch .png/.ppm
             return JSONResponse({
                 "path": path,
                 "filename": filename,
                 "viewUrl": f"/api/screenshot/view?file={filename}",
                 "width": scrinfo.get("width"),
-                "height": rows,
-                "depth": depth,
+                "height": scrinfo.get("height"),
+                "depth": scrinfo.get("depth"),
             })
         except Exception as e:
             return JSONResponse({"error": str(e)})

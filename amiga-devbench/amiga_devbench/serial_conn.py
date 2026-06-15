@@ -579,6 +579,9 @@ class SerialConnection:
         elif msg_type == "SCRDATA":
             self._event_bus.publish("scrdata", msg)
 
+        elif msg_type == "SCRRGB":
+            self._event_bus.publish("scrrgb", msg)
+
         elif msg_type == "PALETTE":
             self._event_bus.publish("palette", msg)
 

@@ -127,8 +127,15 @@ static struct Window *open_window(void)
     g_baseline = w->RPort->TxBaseline;
     g_top      = 2;
 
-    innerW = (int)TextLength(w->RPort,
-                 (CONST_STRPTR)"Serial: Disconnected   TX:000000", 32) + TEXT_LEFT + 6;
+    /* Width: fit the wider of the status line and a representative command
+     * line (command + params), so the "Cmd:" line shows its arguments. */
+    {
+        int wStatus = (int)TextLength(w->RPort,
+                          (CONST_STRPTR)"Serial: Disconnected   TX:000000", 32);
+        int wCmd    = (int)TextLength(w->RPort,
+                          (CONST_STRPTR)"Cmd: WRITEFILE|MEDIA1:_mcp/longfilename.bin|0|abcd", 50);
+        innerW = (wStatus > wCmd ? wStatus : wCmd) + TEXT_LEFT + 6;
+    }
     innerH = g_top + UI_NUM_LINES * g_line_h + 2;
     totalW = innerW + w->BorderLeft + w->BorderRight;
     totalH = innerH + w->BorderTop + w->BorderBottom;
