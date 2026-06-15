@@ -413,8 +413,14 @@ class SerialConnection:
             if not trimmed:
                 continue
             # Strip non-printable characters (serial noise) instead of
-            # dropping the entire line - valid protocol data may follow
-            cleaned = "".join(c for c in trimmed if ord(c) >= 32 or c == '\t')
+            # dropping the entire line - valid protocol data may follow.
+            # Fast path: clean printable-ASCII lines (the common case, e.g.
+            # large hex screenshot rows) skip the per-character rebuild, which
+            # otherwise scans millions of chars on the event loop per capture.
+            if trimmed.isascii() and trimmed.isprintable():
+                cleaned = trimmed
+            else:
+                cleaned = "".join(c for c in trimmed if ord(c) >= 32 or c == '\t')
             if not cleaned:
                 logger.debug("Skipping all-garbage line: %s", repr(trimmed[:80]))
                 continue

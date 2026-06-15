@@ -12,9 +12,12 @@
 #include <proto/dos.h>
 #include <proto/socket.h>
 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/filio.h>
+#include <sys/time.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <errno.h>
 #include <string.h>
 
@@ -64,6 +67,16 @@ static void try_accept(void)
         client_sock = s;
         set_nonblocking(client_sock);
         set_async(client_sock);    /* wake the daemon immediately on incoming data */
+        {
+            /* Throughput tuning for big streamed responses (screenshots):
+             * disable Nagle so each row isn't held waiting for an ACK, and
+             * enlarge the send buffer so more queues before back-pressure.
+             * Both are best-effort - ignore failures on stacks that lack them. */
+            LONG one = 1;
+            LONG sndbuf = 128 * 1024;
+            setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (char *)&one, sizeof(one));
+            setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf, sizeof(sndbuf));
+        }
         rx_len = rx_pos = 0;
         ui_add_log("TCP: client connected");
     }
@@ -185,8 +198,7 @@ int net_check_read(char *out_byte)
 
 int net_write(const char *buf, int len)
 {
-    int sent  = 0;
-    int stall = 0;
+    int sent = 0;
 
     if (client_sock < 0) return -1;
 
@@ -194,19 +206,29 @@ int net_write(const char *buf, int len)
         LONG n = send(client_sock, (APTR)(buf + sent), len - sent, 0);
         if (n > 0) {
             sent += (int)n;
-            stall = 0;               /* progress made: reset the stall timer */
         } else if (n < 0 && Errno() == EINTR) {
             continue;                /* interrupted: retry, no penalty */
         } else if (n < 0 && Errno() == EWOULDBLOCK) {
-            /* Send buffer full. Wait for it to drain instead of dropping the
-             * peer on a brief host-side stall - large transfers (e.g. a
-             * multi-MB true-colour screenshot) routinely back-pressure here.
-             * Only give up after a long *sustained* stall with zero progress,
-             * which means the host has really gone away. The stall counter is
-             * reset above whenever any bytes get through, so a slow-but-moving
-             * link never trips this. */
-            if (++stall > 1500) { drop_client(); return sent; }  /* ~30s cap */
-            Delay(1);                /* ~20ms: let the send buffer drain */
+            /* Send buffer full. Block until the socket is writable again
+             * instead of polling with Delay(): WaitSelect lets the stack wake
+             * us the instant space frees up, so a multi-MB true-colour
+             * screenshot streams at link speed rather than being throttled to
+             * Delay() granularity (~20ms/burst). A generous timeout still
+             * guards against a host that has really gone away (drop the peer
+             * only on a long sustained stall, never on normal back-pressure). */
+            fd_set wfds;
+            struct timeval tv;
+            LONG r;
+
+            FD_ZERO(&wfds);
+            FD_SET(client_sock, &wfds);
+            tv.tv_sec  = 30;
+            tv.tv_usec = 0;
+            r = WaitSelect(client_sock + 1, NULL, &wfds, NULL, &tv, NULL);
+            if (r <= 0) {            /* timeout (peer gone) or select error */
+                drop_client();
+                return sent;
+            }
         } else {
             drop_client();
             return sent;
