@@ -1,6 +1,9 @@
 CC = m68k-amigaos-gcc
 AR = m68k-amigaos-ar
-CFLAGS = -noixemul -O0 -m68020 -Wall -Iinclude
+# -MMD -MP auto-generate per-object .d header-dependency files so that editing
+# a header (e.g. bumping the version in bridge_internal.h) rebuilds every object
+# that includes it - not just the .c files that changed.
+CFLAGS = -noixemul -O0 -m68020 -Wall -Iinclude -MMD -MP
 LDFLAGS = -noixemul -lamiga
 
 # Daemon sources
@@ -25,6 +28,11 @@ CLIENT_LIB = libbridge.a
 
 .PHONY: all clean daemon client FORCE
 
+# `all` must be the default goal: the `src/version.o: FORCE` rule below would
+# otherwise become the first (default) target, so a bare `make` would only
+# rebuild the build-stamp and never link the daemon.
+.DEFAULT_GOAL := all
+
 # Always rebuild the build-stamp so __DATE__/__TIME__ reflect this build.
 src/version.o: FORCE
 FORCE:
@@ -43,15 +51,19 @@ $(CLIENT_LIB): $(CLIENT_OBJS)
 
 # snoop.c needs -O2 so register __asm("d1") captures work correctly
 src/snoop.o: src/snoop.c
-	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -c -o $@ $<
+	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -MMD -MP -c -o $@ $<
 
 # debugger.c needs -O2 for register captures in exception handlers
 src/debugger.o: src/debugger.c
-	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -c -o $@ $<
+	$(CC) -noixemul -O2 -m68020 -Wall -Iinclude -MMD -MP -c -o $@ $<
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# Pull in auto-generated header dependencies (created by -MMD above).
+-include $(DAEMON_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d)
+
 clean:
 	rm -f $(DAEMON_OBJS) $(DAEMON_BIN)
 	rm -f $(CLIENT_OBJS) $(CLIENT_LIB)
+	rm -f $(DAEMON_OBJS:.o=.d) $(CLIENT_OBJS:.o=.d)
