@@ -18,7 +18,7 @@ from .state import EventBus
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 400        # bytes per chunk (800 hex chars, fits in 1024-char line)
+CHUNK_SIZE = 4000       # bytes per chunk (8000 hex chars, fits in 8192-char line)
 MAX_RETRIES = 3
 CHUNK_TIMEOUT = 5.0
 
@@ -214,11 +214,13 @@ async def pull_file(
                 "file", timeout=CHUNK_TIMEOUT,
                 predicate=lambda d: d.get("path") == amiga_path,
             )
+            got = 0
             if msg:
                 hex_data = msg.get("hexData", "")
                 if hex_data:
                     chunk_bytes = bytes.fromhex(hex_data)
                     collected.extend(chunk_bytes)
+                    got = len(chunk_bytes)
                     success = True
                 else:
                     retries += 1
@@ -236,7 +238,9 @@ async def pull_file(
                 elapsed=elapsed,
             )
 
-        offset += req_size
+        # Advance by bytes actually received: the daemon caps each chunk so the
+        # response line fits, which can be < req_size. (BUG2 fix)
+        offset += got
         chunk_num += 1
 
     # Write local file

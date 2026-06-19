@@ -358,6 +358,28 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "hexData": parts[3],
         }
 
+    if msg_type == "SCRRGB":
+        # Format: SCRRGB|row|hex_rgb  (true-colour, 3 bytes/pixel)
+        if len(parts) < 3:
+            return None
+        return {
+            "type": "SCRRGB",
+            "row": _int(parts[1]),
+            "hexData": parts[2],
+        }
+
+    if msg_type == "SCRRLE":
+        # Format: SCRRLE|row|hex  (TGA-style RLE of the row's pixels; the
+        # pixel size is 3 bytes for true-colour (SCRINFO depth 24) or 1 byte
+        # for chunky pen indices (SCRINFO depth <= 8)).
+        if len(parts) < 3:
+            return None
+        return {
+            "type": "SCRRLE",
+            "row": _int(parts[1]),
+            "hexData": parts[2],
+        }
+
     if msg_type == "PALETTE":
         # Format: PALETTE|depth|r0g0b0,r1g1b1,...
         if len(parts) < 3:
@@ -1045,7 +1067,7 @@ def format_command(cmd: dict[str, Any]) -> str:
     if t == "LISTVOLUMES":
         return "LISTVOLUMES"
     if t == "LISTDIR":
-        return f"LISTDIR|{cmd['path']}"
+        return f"LISTDIR|{cmd['path']}|{cmd.get('offset', 0)}"
     if t == "READFILE":
         return f"READFILE|{cmd['path']}|{cmd['offset']}|{cmd['size']}"
     if t == "WRITEFILE":

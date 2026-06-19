@@ -44,6 +44,58 @@ static void hex_encode(const UBYTE *data, ULONG len, char *outHex)
     outHex[len * 2] = '\0';
 }
 
+/* Compare two pixels of `bpp` bytes. */
+static int pix_eq(const UBYTE *a, const UBYTE *b, int bpp)
+{
+    int i;
+    for (i = 0; i < bpp; i++) if (a[i] != b[i]) return 0;
+    return 1;
+}
+
+/*
+ * TGA/PackBits-style RLE encode `count` pixels of `bpp` bytes each.
+ *
+ * Output is a sequence of packets, each starting with one header byte:
+ *   high bit SET  -> run:     (hdr & 0x7f)+1 copies of the following 1 pixel
+ *   high bit CLEAR-> literal: (hdr & 0x7f)+1 pixels follow verbatim
+ * so incompressible data costs at most 1 header byte per 128 pixels.
+ *
+ * `out` must hold up to count*bpp + count/128 + 1 bytes.
+ * Returns the number of bytes written.
+ */
+static ULONG rle_encode(const UBYTE *src, ULONG count, int bpp, UBYTE *out)
+{
+    ULONG ip = 0, op = 0;
+
+    while (ip < count) {
+        ULONG run = 1;
+        while (ip + run < count && run < 128 &&
+               pix_eq(src + (ip + run) * bpp, src + ip * bpp, bpp))
+            run++;
+
+        if (run >= 2) {
+            int k;
+            out[op++] = (UBYTE)(0x80 | (run - 1));
+            for (k = 0; k < bpp; k++) out[op++] = src[ip * bpp + k];
+            ip += run;
+        } else {
+            /* Literal: gather pixels until a >=2 run begins or we hit 128. */
+            ULONG lit = 1, k;
+            while (ip + lit < count && lit < 128) {
+                if (ip + lit + 1 < count &&
+                    pix_eq(src + (ip + lit) * bpp,
+                           src + (ip + lit + 1) * bpp, bpp))
+                    break;
+                lit++;
+            }
+            out[op++] = (UBYTE)(lit - 1);
+            for (k = 0; k < lit * (ULONG)bpp; k++) out[op++] = src[ip * bpp + k];
+            ip += lit;
+        }
+    }
+    return op;
+}
+
 /*
  * Find a window by title on any screen.
  * Must be called with IntuitionBase locked.
@@ -133,6 +185,53 @@ void gfx_handle_screenshot(const char *args)
         height = clipHeight;
     }
 
+    /* The BitMap.Depth field caps at 8 for deep RTG bitmaps, so query the real
+     * depth. A true-colour (>8bpp) RTG screen has no palette - read it as RGB
+     * via cybergraphics ReadPixelArray (RECTFMT_RGB converts BGRA32 -> RGB). */
+    {
+        ULONG realdepth = (ULONG)GetBitMapAttr(bm, BMA_DEPTH);
+        ULONG bpr       = (ULONG)bm->BytesPerRow;
+
+        if (realdepth > 8 && bm->Planes[0] && bpr >= (ULONG)width * 4) {
+            /* True-colour (BGRA32) chunky framebuffer: read 4 bytes/pixel
+             * straight from Planes[0] at the real stride, RLE-compress each
+             * RGB row and emit it base64-encoded as a SCRRLE line. The width
+             * is capped so even a worst-case (incompressible) RLE row stays
+             * within BRIDGE_MAX_LINE after base64 expansion - base64's lower
+             * overhead lets this cap cover 1600/1920 RTG modes that the old
+             * hex path (cap 1344) would have truncated. */
+            #define SCR_MAXW 1920
+            static UBYTE rgbrow[SCR_MAXW * 3];
+            static UBYTE rlebuf[SCR_MAXW * 3 + SCR_MAXW / 128 + 8];
+            static char  rlehex[((SCR_MAXW * 3 + SCR_MAXW / 128 + 8) * 4) / 3 + 8];
+            UWORD w = width;
+            if (w > SCR_MAXW) w = SCR_MAXW;
+            sprintf(linebuf, "SCRINFO|%ld|%ld|24|", (long)w, (long)height);
+            protocol_send_raw(linebuf);
+            for (row = 0; row < height; row++) {
+                UWORD srcRow = useClip ? (row + clipTop) : row;
+                UWORD srcX   = useClip ? clipLeft : 0;
+                UBYTE *src = (UBYTE *)bm->Planes[0]
+                             + (ULONG)srcRow * bpr + (ULONG)srcX * 4;
+                UWORD x;
+                ULONG rlen;
+                for (x = 0; x < w; x++) {
+                    /* BGRA byte order -> RGB */
+                    rgbrow[x * 3 + 0] = src[x * 4 + 2];  /* R */
+                    rgbrow[x * 3 + 1] = src[x * 4 + 1];  /* G */
+                    rgbrow[x * 3 + 2] = src[x * 4 + 0];  /* B */
+                }
+                rlen = rle_encode(rgbrow, (ULONG)w, 3, rlebuf);
+                b64_encode(rlebuf, rlen, rlehex);   /* base64: 33% vs hex 100% */
+                sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, rlehex);
+                protocol_send_raw(linebuf);
+            }
+            UnlockIBase(lock);
+            return;
+        }
+        /* else fall through to the 8-bit / planar path */
+    }
+
     numColors = 1;
     for (i = 0; i < depth; i++) numColors <<= 1;
     if (numColors > 256) numColors = 256;
@@ -142,25 +241,29 @@ void gfx_handle_screenshot(const char *args)
             (long)width, (long)height, (long)depth);
     pos = strlen(linebuf);
 
-    for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 8; i++) {
-        UWORD rgb4;
-        UWORD r, g, b;
-
-        if (i > 0) linebuf[pos++] = ',';
-
+    {
+        /* True 8-bit-per-channel palette via GetRGB32 (the high byte of each
+         * 32-bit fixed component is the 8-bit value). Sent as 6 hex digits
+         * RRGGBB per colour. Falls back to zeros if there is no colormap. */
+        static ULONG rgbtable[256 * 3];
         if (cm) {
-            rgb4 = GetRGB4(cm, (long)i);
+            GetRGB32(cm, 0, (ULONG)numColors, rgbtable);
         } else {
-            rgb4 = 0;
+            UWORD k;
+            for (k = 0; k < numColors * 3; k++) rgbtable[k] = 0;
         }
-
-        r = (rgb4 >> 8) & 0x0F;
-        g = (rgb4 >> 4) & 0x0F;
-        b = rgb4 & 0x0F;
-
-        linebuf[pos++] = hex_chars[r];
-        linebuf[pos++] = hex_chars[g];
-        linebuf[pos++] = hex_chars[b];
+        for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 10; i++) {
+            UBYTE r = (UBYTE)(rgbtable[i * 3 + 0] >> 24);
+            UBYTE g = (UBYTE)(rgbtable[i * 3 + 1] >> 24);
+            UBYTE b = (UBYTE)(rgbtable[i * 3 + 2] >> 24);
+            if (i > 0) linebuf[pos++] = ',';
+            linebuf[pos++] = hex_chars[(r >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[r & 0x0F];
+            linebuf[pos++] = hex_chars[(g >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[g & 0x0F];
+            linebuf[pos++] = hex_chars[(b >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[b & 0x0F];
+        }
     }
     linebuf[pos] = '\0';
 
@@ -172,6 +275,44 @@ void gfx_handle_screenshot(const char *args)
      * For a full screen row: bytesPerRow = (width+15)/16 * 2
      * Max hex per line: 80 bytes = 160 hex chars (for 640-wide) */
     bytesPerRow = ((width + 15) / 16) * 2;
+
+    /* RTG / chunky detection: a chunky (Picasso96/RTG) 8bpp bitmap stores one
+     * pen byte per pixel, so BytesPerRow >= width; planar bitmaps have
+     * BytesPerRow ~= width/8. A chunky framebuffer is NOT linear bitplanes, so
+     * read it with ReadPixelArray8() (works on any bitmap type, planar or RTG),
+     * which yields chunky pen indices. Each row is sent with plane=255 as a
+     * sentinel for the host's chunky decoder. */
+    if (depth <= 8 && (ULONG)bm->BytesPerRow >= (ULONG)width) {
+        static char chunkhex[8200];
+        static UBYTE rowbuf[4096];
+        static UBYTE crle[4096 + 64];
+        struct BitMap *tempbm;
+        struct RastPort temprp;
+        UWORD n = width;
+        if (n > 4000) n = 4000;   /* keep the line under BRIDGE_MAX_LINE */
+        tempbm = AllocBitMap(n, 1, depth, 0, bm);   /* 1-row scratch for RPA8 */
+        if (tempbm) {
+            InitRastPort(&temprp);
+            temprp.BitMap = tempbm;
+            for (row = 0; row < height; row++) {
+                UWORD srcRow = useClip ? (row + clipTop) : row;
+                UWORD srcX   = useClip ? clipLeft : 0;
+                ULONG rlen;
+                ReadPixelArray8(&scr->RastPort, srcX, srcRow,
+                                (UWORD)(srcX + n - 1), srcRow, rowbuf, &temprp);
+                /* RLE the 1-byte-per-pixel pen indices (host infers bpp=1
+                 * from the <=8 depth in SCRINFO). */
+                rlen = rle_encode(rowbuf, (ULONG)n, 1, crle);
+                b64_encode(crle, rlen, chunkhex);   /* base64: 33% vs hex 100% */
+                sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, chunkhex);
+                protocol_send_raw(linebuf);
+            }
+            FreeBitMap(tempbm);
+            UnlockIBase(lock);
+            return;
+        }
+        /* AllocBitMap failed: fall through to the planar path below */
+    }
 
     for (row = 0; row < height; row++) {
         for (plane = 0; plane < depth; plane++) {
@@ -243,25 +384,29 @@ void gfx_handle_palette(const char *args)
     sprintf(linebuf, "PALETTE|%ld|", (long)depth);
     pos = strlen(linebuf);
 
-    for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 8; i++) {
-        UWORD rgb4;
-        UWORD r, g, b;
-
-        if (i > 0) linebuf[pos++] = ',';
-
+    {
+        /* True 8-bit-per-channel palette via GetRGB32 (the high byte of each
+         * 32-bit fixed component is the 8-bit value). Sent as 6 hex digits
+         * RRGGBB per colour. Falls back to zeros if there is no colormap. */
+        static ULONG rgbtable[256 * 3];
         if (cm) {
-            rgb4 = GetRGB4(cm, (long)i);
+            GetRGB32(cm, 0, (ULONG)numColors, rgbtable);
         } else {
-            rgb4 = 0;
+            UWORD k;
+            for (k = 0; k < numColors * 3; k++) rgbtable[k] = 0;
         }
-
-        r = (rgb4 >> 8) & 0x0F;
-        g = (rgb4 >> 4) & 0x0F;
-        b = rgb4 & 0x0F;
-
-        linebuf[pos++] = hex_chars[r];
-        linebuf[pos++] = hex_chars[g];
-        linebuf[pos++] = hex_chars[b];
+        for (i = 0; i < numColors && pos < BRIDGE_MAX_LINE - 10; i++) {
+            UBYTE r = (UBYTE)(rgbtable[i * 3 + 0] >> 24);
+            UBYTE g = (UBYTE)(rgbtable[i * 3 + 1] >> 24);
+            UBYTE b = (UBYTE)(rgbtable[i * 3 + 2] >> 24);
+            if (i > 0) linebuf[pos++] = ',';
+            linebuf[pos++] = hex_chars[(r >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[r & 0x0F];
+            linebuf[pos++] = hex_chars[(g >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[g & 0x0F];
+            linebuf[pos++] = hex_chars[(b >> 4) & 0x0F];
+            linebuf[pos++] = hex_chars[b & 0x0F];
+        }
     }
     linebuf[pos] = '\0';
 

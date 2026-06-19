@@ -1,0 +1,14 @@
+; StartBridge - start the AmigaBridge daemon in TCP mode (port 2345).
+;
+; Manual run:   Execute DH0:AmigaBridge/StartBridge
+; Auto-start:   add that same line to the END of S:User-Startup so the
+;               bridge launches on every boot.
+;
+; Edit the path / port on the "Run" line below if you copied the daemon
+; somewhere other than DH0:AmigaBridge, or want a different TCP port.
+;
+Echo "AmigaBridge: waiting a moment for the TCP/IP stack..."
+Wait 3
+Echo "AmigaBridge: starting TCP server on port 2345"
+Run >NIL: DH0:AmigaBridge/amiga-bridge TCP 2345
+Echo "AmigaBridge: launched - see its status window."

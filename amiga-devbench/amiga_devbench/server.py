@@ -238,17 +238,13 @@ async def api_dir(request: Request) -> JSONResponse:
     if not _conn.connected:
         return JSONResponse({"path": dir_path, "entries": [], "error": "Not connected"})
     try:
-        _conn.send({"type": "LISTDIR", "path": dir_path})
+        from .mcp_tools import list_dir_all
+        entries = await list_dir_all(_conn, _event_bus, dir_path)
     except Exception:
         return JSONResponse({"path": dir_path, "entries": [], "error": "Send failed"})
-
-    msg = await _event_bus.wait_for(
-        "dir", timeout=5.0,
-        predicate=lambda d: d.get("path") == dir_path,
-    )
-    if msg:
-        return JSONResponse({"path": msg.get("path", dir_path), "entries": msg.get("entries", [])})
-    return JSONResponse({"path": dir_path, "entries": [], "message": "No response"})
+    if entries is None:
+        return JSONResponse({"path": dir_path, "entries": [], "message": "No response"})
+    return JSONResponse({"path": dir_path, "entries": entries})
 
 
 async def api_file(request: Request) -> JSONResponse:
@@ -713,29 +709,16 @@ async def api_script(request: Request) -> JSONResponse:
     script = body.get("script", "")
     if not script:
         return JSONResponse({"error": "Missing script"}, status_code=400)
-    cmd_id = int(time.time() * 1000) % 100000
     # Convert newlines to semicolons for the protocol
     script_line = script.replace("\n", ";")
-    async with _event_bus.subscribe("cmd") as queue:
-        try:
-            _conn.send({"type": "SCRIPT", "id": cmd_id, "script": script_line})
-        except Exception as e:
-            return JSONResponse({"error": str(e)})
-        deadline = asyncio.get_event_loop().time() + 30.0
-        while True:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                break
-            try:
-                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
-                if data.get("id") == cmd_id:
-                    return JSONResponse({
-                        "status": data["status"],
-                        "output": data.get("data", ""),
-                    })
-            except asyncio.TimeoutError:
-                break
-    return JSONResponse({"status": "timeout", "output": "Script execution timed out"})
+    # Runs asynchronously on the Amiga (bridge stays responsive); shared helper
+    # polls the capture file for completion.
+    from .mcp_tools import script_execute
+    try:
+        status, output = await script_execute(_conn, _event_bus, script_line, timeout=60.0)
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+    return JSONResponse({"status": status, "output": output})
 
 
 async def api_write_memory(request: Request) -> JSONResponse:
@@ -1060,6 +1043,24 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     # Initialize MCP tools with shared state
     init_tools(_conn, _state, _builder, _deployer, _event_bus, fsuae_rpc=_fsuae_rpc)
 
+    # Add an INFO Logs-tab line for EVERY tool call (Claude's via /mcp and the
+    # web UI's). Traffic-view recording already happens in McpLoggingWrapper
+    # (Claude) and the /api/command handler (web UI), so we only add the Logs
+    # entry here to avoid double-recording.
+    _orig_call_tool = mcp._tool_manager.call_tool
+
+    async def _logging_call_tool(name, arguments=None, *a, **kw):
+        params = arguments if isinstance(arguments, dict) else {}
+        argstr = ", ".join(f"{k}={v}" for k, v in params.items())
+        logger.info("MCP tool: %s(%s)", name, argstr)
+        if _state is not None:
+            _state.add_log({"level": "I", "client": "mcp",
+                            "message": f"tool: {name}({argstr})",
+                            "timestamp": time.time()})
+        return await _orig_call_tool(name, arguments, *a, **kw)
+
+    mcp._tool_manager.call_tool = _logging_call_tool
+
     # Get the MCP session manager (triggers lazy init)
     _mcp_app_inner = mcp.streamable_http_app()
     session_manager = mcp._session_manager
@@ -1158,6 +1159,21 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                         try:
                             evt, data = await queue.get()
                             logger.info("Bridge READY received: %s", data)
+                            # Surface the running daemon build so it is obvious
+                            # which binary is live after an update.
+                            if _conn and _conn.connected:
+                                try:
+                                    async with _event_bus.subscribe("version") as vq:
+                                        _conn.send({"type": "VERSION"})
+                                        _, vd = await asyncio.wait_for(vq.get(), timeout=3.0)
+                                        logger.warning(
+                                            "*** Connected to %s v%s.%s (build %s) ***",
+                                            vd.get("name", "AmigaBridge"),
+                                            vd.get("major", "?"), vd.get("minor", "?"),
+                                            vd.get("date", "?"),
+                                        )
+                                except Exception:
+                                    pass
                             if _auto_crash and _conn and _conn.connected:
                                 logger.info("Auto-enabling crash handler...")
                                 await asyncio.sleep(0.5)
@@ -1268,43 +1284,69 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         if not _conn or not _conn.connected:
             return JSONResponse({"error": "Not connected"})
         window = request.query_params.get("window", "")
-        cmd = {"type": "SCREENSHOT"}
-        if window:
-            cmd["window"] = window
-        _conn.send(cmd)
-        # Collect SCRINFO + SCRDATA
-        scrinfo = await _event_bus.wait_for("scrinfo", timeout=5.0)
+        # Subscribe BEFORE sending so no SCRINFO/SCRRGB/SCRRLE/SCRDATA is missed.
+        scrinfo = None
+        scrdata_lines = []
+        scrrgb_lines = []
+        scrrle_lines = []
+        expected_total = 0
+        async with _event_bus.subscribe("scrinfo", "scrdata", "scrrgb", "scrrle", "err") as queue:
+            cmd = {"type": "SCREENSHOT"}
+            if window:
+                cmd["window"] = window
+            _conn.send(cmd)
+            deadline = asyncio.get_event_loop().time() + 60.0
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    break
+                if evt == "err" and "SCREENSHOT" in data.get("context", ""):
+                    return JSONResponse({"error": data.get("message", "screenshot failed")})
+                if evt == "scrinfo":
+                    scrinfo = data
+                    expected_total = data["height"] * data["depth"]
+                elif evt == "scrrle":
+                    # RLE-compressed row (true-colour or chunky): one per row.
+                    scrrle_lines.append(data)
+                    if scrinfo and len(scrrle_lines) >= scrinfo["height"]:
+                        break
+                elif evt == "scrrgb":
+                    # True-colour (RTG): one RGB row per line.
+                    scrrgb_lines.append(data)
+                    if scrinfo and len(scrrgb_lines) >= scrinfo["height"]:
+                        break
+                elif evt == "scrdata":
+                    scrdata_lines.append(data)
+                    # Chunky rows (plane==255) send one line per row.
+                    need = (scrinfo["height"] if data.get("plane") == 255 else expected_total) if scrinfo else 0
+                    if need and len(scrdata_lines) >= need:
+                        break
         if not scrinfo:
             return JSONResponse({"error": "No SCRINFO response"})
-        rows = scrinfo.get("height", 0)
-        depth = scrinfo.get("depth", 0)
-        total_lines = rows * depth
-        scrdata_lines = []
-        deadline = asyncio.get_event_loop().time() + 15.0
-        while len(scrdata_lines) < total_lines:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                break
-            msg = await _event_bus.wait_for("scrdata", timeout=remaining)
-            if msg:
-                scrdata_lines.append(msg)
+        if not scrdata_lines and not scrrgb_lines and not scrrle_lines:
+            return JSONResponse({"error": "No pixel data received"})
         try:
             from .screenshot import save_screenshot
-            # Save to fixed location with timestamp
             import datetime
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             label = window.replace(" ", "_") if window else "screen"
-            filename = f"{label}_{ts}.png"
-            save_path = str(_screenshot_dir / filename)
-            path = save_screenshot(scrinfo, scrdata_lines, save_path)
+            save_path = str(_screenshot_dir / f"{label}_{ts}.png")
+            path = save_screenshot(scrinfo, scrdata_lines, save_path,
+                                   rgb_lines=scrrgb_lines or None,
+                                   rle_lines=scrrle_lines or None)
             _last_screenshot_path[0] = path
+            filename = Path(path).name  # save_screenshot may switch .png/.ppm
             return JSONResponse({
                 "path": path,
                 "filename": filename,
                 "viewUrl": f"/api/screenshot/view?file={filename}",
                 "width": scrinfo.get("width"),
-                "height": rows,
-                "depth": depth,
+                "height": scrinfo.get("height"),
+                "depth": scrinfo.get("depth"),
             })
         except Exception as e:
             return JSONResponse({"error": str(e)})
@@ -3305,28 +3347,25 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
     # ---- Helper: run SCRIPT command and get output ----
     async def _run_script(script: str, timeout: float = 10.0) -> tuple[str | None, str | None]:
-        """Run a SCRIPT command and return (output, error). One will be None."""
+        """Run a SCRIPT command and return (output, error). One will be None.
+
+        Uses the shared async helper: the script runs without blocking the
+        bridge and its capture file is polled for completion.
+        """
         if not _conn or not _conn.connected:
             return None, "Not connected"
-        import time as _time
-        cmd_id = int(_time.time() * 1000) % 100000
-        async with _event_bus.subscribe("cmd", "err") as q:
-            _conn.send({"type": "SCRIPT", "id": cmd_id, "script": script})
-            try:
-                deadline = asyncio.get_event_loop().time() + timeout
-                while True:
-                    remaining = deadline - asyncio.get_event_loop().time()
-                    if remaining <= 0:
-                        return None, "Timeout"
-                    evt, data = await asyncio.wait_for(q.get(), timeout=remaining)
-                    if evt == "err":
-                        return None, data.get("message", "Error")
-                    if evt == "cmd" and data.get("id") == cmd_id:
-                        output = data.get("data", "")
-                        output = output.replace(";", "\n")
-                        return output, None
-            except asyncio.TimeoutError:
-                return None, "Timeout"
+        from .mcp_tools import script_execute
+        status, output = await script_execute(_conn, _event_bus, script, timeout=timeout)
+        if status == "ok":
+            return output, None
+        if status == "running":
+            # Past the (short) web timeout but bridge is fine; return partial.
+            return output, None
+        if status == "error":
+            return None, output or "Error"
+        if status == "disconnected":
+            return None, "Not connected"
+        return None, "Timeout"
 
     # ---- Assign Manager ----
     async def api_tool_assigns(request: Request) -> JSONResponse:
@@ -3975,31 +4014,23 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         try:
             result = await mcp._tool_manager.call_tool(tool_name, args)
             duration = (time.time() - t0) * 1000
-            # Extract text content from result
             resp_text = ""
             for item in result:
                 if hasattr(item, "text"):
                     resp_text += item.text
+            # Traffic record for web-UI-initiated tool calls (Claude's go via
+            # McpLoggingWrapper; the call_tool wrapper only adds the Logs line).
             _traffic.record(
-                kind="mcp",
-                method=tool_name,
-                path=f"mcp://{tool_name}",
-                request_body=args,
-                response_body=resp_text,
+                kind="mcp", method=tool_name, path=f"mcp://{tool_name}",
+                request_body=args, response_body=resp_text,
                 duration_ms=round(duration, 1),
             )
             return JSONResponse({"result": resp_text, "duration_ms": round(duration, 1)})
         except Exception as exc:
-            duration = (time.time() - t0) * 1000
             _traffic.record(
-                kind="mcp",
-                method=tool_name,
-                path=f"mcp://{tool_name}",
-                request_body=args,
-                response_body=None,
-                status=500,
-                duration_ms=round(duration, 1),
-                error=str(exc),
+                kind="mcp", method=tool_name, path=f"mcp://{tool_name}",
+                request_body=args, status=500,
+                duration_ms=round((time.time() - t0) * 1000, 1), error=str(exc),
             )
             return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -5072,11 +5103,14 @@ def _kill_stale_instance() -> None:
     try:
         with open(_PID_FILE) as f:
             old_pid = int(f.read().strip())
-        # Check if process is still running
+        # Check if process is still running. On Windows os.kill(pid, 0) can
+        # raise OSError (WinError 87) or even SystemError for a stale/recycled
+        # PID rather than a clean ProcessLookupError, so treat any failure here
+        # as "not running".
         try:
             os.kill(old_pid, 0)
-        except OSError:
-            return  # Already dead
+        except (OSError, SystemError):
+            return  # Already dead (or not queryable on this platform)
         logger.info("Killing stale devbench process (pid %d)", old_pid)
         os.kill(old_pid, _signal.SIGTERM)
         # Wait briefly for it to die

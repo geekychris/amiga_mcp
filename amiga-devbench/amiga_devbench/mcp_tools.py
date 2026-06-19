@@ -62,6 +62,146 @@ def _require_connected() -> tuple[SerialConnection, AmigaState, EventBus]:
     return _conn, _state, _event_bus
 
 
+# Sentinel echoed by the daemon after an async SCRIPT completes; must match
+# SCRIPT_SENTINEL in amiga-bridge/src/protocol_handler.c.
+SCRIPT_SENTINEL = "###ABDONE###"
+
+
+def _bridge_no_response(cmd_name: str) -> str:
+    """Build an accurate error when a command got no reply, distinguishing a
+    dropped connection / busy-or-hung bridge from a genuinely unsupported
+    command (the old code always blamed 'unsupported', which misled users)."""
+    if _conn is None or not _conn.connected:
+        return (f"ERROR: lost connection to the Amiga bridge — '{cmd_name}' could "
+                f"not be delivered. Reconnect and retry (this is a connection "
+                f"failure, not an unsupported command).")
+    return (f"ERROR: the Amiga bridge did not respond to '{cmd_name}' within the "
+            f"timeout. It is reachable but not answering — most likely busy "
+            f"running a long command or wedged. This is a communication timeout, "
+            f"NOT an unsupported command.")
+
+
+async def _read_amiga_file_text(conn, bus, path: str, max_bytes: int = 65536,
+                                per_chunk_timeout: float = 4.0) -> str | None:
+    """Read an Amiga file via the READFILE protocol and return its text.
+
+    Returns None if the bridge errors or stops responding (so callers can tell
+    'file not ready / unreachable' from 'empty file'). Decodes latin-1 so raw
+    bytes never raise.
+    """
+    collected = bytearray()
+    offset = 0
+    while offset < max_bytes:
+        async with bus.subscribe("file", "err") as queue:
+            conn.send({"type": "READFILE", "path": path, "offset": offset, "size": 4096})
+            got = None
+            deadline = asyncio.get_event_loop().time() + per_chunk_timeout
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    break
+                if evt == "err":
+                    return None
+                if evt == "file" and data.get("path") == path:
+                    got = data
+                    break
+        if got is None:
+            return None
+        hexd = got.get("hexData", "")
+        if not hexd:
+            break  # EOF
+        chunk = bytes.fromhex(hexd)
+        collected.extend(chunk)
+        offset += len(chunk)
+        if len(chunk) < 4096:
+            break  # short read => EOF
+    return collected.decode("latin-1", errors="replace")
+
+
+async def script_execute(conn, bus, script_line: str, timeout: float = 120.0):
+    """Launch an AmigaDOS SCRIPT and wait for it to finish without blocking the
+    bridge. Shared by every SCRIPT caller (MCP tool + web endpoints).
+
+    v1.14+ daemons run the script asynchronously and reply 'ASYNC|<capfile>';
+    we poll that file for the completion sentinel. Pre-v1.14 daemons reply with
+    the output directly. Returns (status, output):
+      'ok'           -> output is the command's output
+      'running'      -> still running after `timeout`; output is partial
+      'timeout'      -> no launch acknowledgement (bridge busy/unreachable)
+      'disconnected' -> connection lost
+      'error'        -> output is the error message
+    """
+    cmd_id = int(time.time() * 1000) % 100000
+    ack = None
+    async with bus.subscribe("cmd", "err") as queue:
+        conn.send({"type": "SCRIPT", "id": cmd_id, "script": script_line})
+        deadline = asyncio.get_event_loop().time() + 10.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                break
+            if evt == "err":
+                return "error", data.get("message", "Error")
+            if evt == "cmd" and data.get("id") == cmd_id:
+                ack = data
+                break
+    if ack is None:
+        return ("disconnected" if not conn.connected else "timeout"), ""
+
+    resp = ack.get("data", "")
+    if not resp.startswith("ASYNC|"):
+        return "ok", resp.replace(";", "\n")           # legacy synchronous daemon
+
+    outfile = resp[len("ASYNC|"):].strip()
+    deadline = asyncio.get_event_loop().time() + timeout
+    last = ""
+    while asyncio.get_event_loop().time() < deadline:
+        text = await _read_amiga_file_text(conn, bus, outfile)
+        if text is not None:
+            last = text
+            if SCRIPT_SENTINEL in text:
+                conn.send({"type": "DELETEFILE", "path": outfile})   # best-effort cleanup
+                return "ok", text.split(SCRIPT_SENTINEL)[0].rstrip()
+        elif not conn.connected:
+            return "disconnected", ""
+        await asyncio.sleep(0.4)
+    return "running", (last.split(SCRIPT_SENTINEL)[0].rstrip() if last else "")
+
+
+async def list_dir_all(conn, bus, path: str, timeout: float = 5.0):
+    """List a whole directory, paging until every entry is received.
+
+    The daemon serializes one BRIDGE_MAX_LINE page per LISTDIR and reports the
+    TRUE total count, so we page (offset = entries so far) until we have them
+    all — fixes the old silent truncation of large dirs (BUG1). Returns the
+    entry list, or None if the bridge never answered.
+    """
+    entries: list = []
+    offset = 0
+    while True:
+        conn.send({"type": "LISTDIR", "path": path, "offset": offset})
+        msg = await bus.wait_for(
+            "dir", timeout=timeout, predicate=lambda d: d.get("path") == path)
+        if not msg:
+            return entries if entries else None
+        page = msg.get("entries", [])
+        total = msg.get("count", len(page))
+        entries.extend(page)
+        offset = len(entries)
+        # stop at completion, empty page (can't progress), or a sanity cap
+        if not page or offset >= total or offset > 100000:
+            break
+    return entries
+
+
 # ─── Build Tools ───
 
 @mcp.tool()
@@ -298,7 +438,7 @@ async def amiga_exec(command: str) -> str:
             except asyncio.TimeoutError:
                 break
 
-    return "Command sent (no response received)"
+    return _bridge_no_response("exec")
 
 
 # ─── System Info Tools ───
@@ -312,7 +452,7 @@ async def amiga_list_clients() -> str:
     if msg:
         names = msg.get("names", [])
         return f"Clients ({len(names)}): {', '.join(names) if names else 'none'}"
-    return "No response (bridge may not support LISTCLIENTS)"
+    return _bridge_no_response("LISTCLIENTS")
 
 
 @mcp.tool()
@@ -332,7 +472,7 @@ async def amiga_list_tasks() -> str:
                 f"state={t.get('state', '?'):10s} stack={t.get('stackSize', '?')}"
             )
         return "\n".join(lines)
-    return "No response (bridge may not support LISTTASKS)"
+    return _bridge_no_response("LISTTASKS")
 
 
 @mcp.tool()
@@ -349,7 +489,7 @@ async def amiga_list_libs() -> str:
         for lib in libs:
             lines.append(f"  {lib.get('name', '?'):30s} v{lib.get('version', '?')}.{lib.get('revision', '?')}")
         return "\n".join(lines)
-    return "No response (bridge may not support LISTLIBS)"
+    return _bridge_no_response("LISTLIBS")
 
 
 @mcp.tool()
@@ -376,7 +516,7 @@ async def amiga_lib_info(name: str) -> str:
                 return "\n".join(lines)
         except asyncio.TimeoutError:
             pass
-    return "No response from bridge"
+    return _bridge_no_response("get_var")
 
 
 @mcp.tool()
@@ -403,7 +543,7 @@ async def amiga_dev_info(name: str) -> str:
                 return "\n".join(lines)
         except asyncio.TimeoutError:
             pass
-    return "No response from bridge"
+    return _bridge_no_response("set_var")
 
 
 # ─── File System Tools ───
@@ -412,22 +552,17 @@ async def amiga_dev_info(name: str) -> str:
 async def amiga_list_dir(path: str = "SYS:") -> str:
     """List directory contents on the Amiga."""
     conn, state, bus = _require_connected()
-    conn.send({"type": "LISTDIR", "path": path})
-    msg = await bus.wait_for(
-        "dir", timeout=5.0,
-        predicate=lambda d: d.get("path") == path,
-    )
-    if msg:
-        entries = msg.get("entries", [])
-        if not entries:
-            return f"Empty directory: {path}"
-        lines = [f"Directory: {path} ({len(entries)} entries)"]
-        for e in entries:
-            kind = "DIR " if e.get("type") == "dir" else "FILE"
-            size = f"{e.get('size', 0):>8}" if e.get("type") != "dir" else "       -"
-            lines.append(f"  {kind} {e.get('name', '?'):30s} {size}  {e.get('date', '')}")
-        return "\n".join(lines)
-    return "No response (bridge may not support LISTDIR)"
+    entries = await list_dir_all(conn, bus, path)
+    if entries is None:
+        return _bridge_no_response("LISTDIR")
+    if not entries:
+        return f"Empty directory: {path}"
+    lines = [f"Directory: {path} ({len(entries)} entries)"]
+    for e in entries:
+        kind = "DIR " if e.get("type") == "dir" else "FILE"
+        size = f"{e.get('size', 0):>8}" if e.get("type") != "dir" else "       -"
+        lines.append(f"  {kind} {e.get('name', '?'):30s} {size}  {e.get('date', '')}")
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -444,7 +579,7 @@ async def amiga_read_file(path: str, offset: int = 0, size: int = 4096) -> str:
         if hex_data:
             return format_hex_dump(f"{offset:08x}", hex_data)
         return f"File is empty or could not be read: {path}"
-    return "No response (bridge may not support READFILE)"
+    return _bridge_no_response("READFILE")
 
 
 @mcp.tool()
@@ -470,7 +605,7 @@ async def amiga_launch(command: str) -> str:
     )
     if msg:
         return f"[{msg['status']}] {msg.get('data', '')}"
-    return f"Launch command sent: {command} (no response)"
+    return _bridge_no_response("launch")
 
 
 @mcp.tool()
@@ -486,7 +621,7 @@ async def amiga_dos_command(command: str) -> str:
     )
     if msg:
         return f"[{msg['status']}] {msg['data']}"
-    return f"DOS command sent: {command} (no response)"
+    return _bridge_no_response("dos_command")
 
 
 # ─── Hook Tools ───
@@ -627,31 +762,27 @@ async def amiga_stop_client(name: str, signal: str = "CTRLC") -> str:
 # ─── Script Execution ───
 
 @mcp.tool()
-async def amiga_run_script(script: str) -> str:
+async def amiga_run_script(script: str, timeout: float = 120.0) -> str:
     """Write and execute an AmigaDOS script on the Amiga. Use newlines to separate commands.
-    The script is written to T:, executed via 'Execute', and output is captured."""
+
+    The script runs ASYNCHRONOUSLY on the Amiga (so the bridge stays responsive
+    even for slow or hung commands); its output is captured to a temp file which
+    is polled until the command finishes. `timeout` bounds how long to wait for
+    completion before returning with partial output.
+    """
     conn, state, bus = _require_connected()
-    cmd_id = int(time.time() * 1000) % 100000
-    # Convert newlines to semicolons for protocol transport
     script_line = script.replace("\n", ";")
 
-    async with bus.subscribe("cmd") as queue:
-        conn.send({"type": "SCRIPT", "id": cmd_id, "script": script_line})
-        deadline = asyncio.get_event_loop().time() + 30.0
-        while True:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                break
-            try:
-                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
-                if data.get("id") == cmd_id:
-                    output = data.get("data", "")
-                    # Convert semicolons back to newlines for display
-                    output = output.replace(";", "\n")
-                    return f"[{data['status']}]\n{output}" if output else f"[{data['status']}]"
-            except asyncio.TimeoutError:
-                break
-    return "Script execution timed out"
+    status, output = await script_execute(conn, bus, script_line, timeout=timeout)
+    if status == "ok":
+        return f"[OK]\n{output}" if output else "[OK] (no output)"
+    if status == "running":
+        return (f"[STILL RUNNING] Command did not finish within {timeout:.0f}s, but "
+                f"the bridge stayed responsive.\nPartial output:\n{output or '(none yet)'}")
+    if status == "error":
+        return f"ERROR: the Amiga reported: {output}"
+    # 'timeout' or 'disconnected'
+    return _bridge_no_response("run_script")
 
 
 # ─── Memory Write Tool ───
@@ -889,15 +1020,17 @@ async def amiga_screenshot(window: str = "") -> str:
 
     scrinfo_msg = None
     scrdata_msgs: list[dict] = []
+    scrrgb_msgs: list[dict] = []
+    scrrle_msgs: list[dict] = []
     expected_total = 0
 
-    async with bus.subscribe("scrinfo", "scrdata", "err") as queue:
+    async with bus.subscribe("scrinfo", "scrdata", "scrrgb", "scrrle", "err") as queue:
         if window:
             conn.send({"type": "SCREENSHOT", "window": window})
         else:
             conn.send({"type": "SCREENSHOT"})
 
-        deadline = asyncio.get_event_loop().time() + 30.0
+        deadline = asyncio.get_event_loop().time() + 120.0
         while True:
             remaining = deadline - asyncio.get_event_loop().time()
             if remaining <= 0:
@@ -909,9 +1042,25 @@ async def amiga_screenshot(window: str = "") -> str:
                 if evt == "scrinfo":
                     scrinfo_msg = data
                     expected_total = data["height"] * data["depth"]
+                elif evt == "scrrle":
+                    # RLE-compressed row (true-colour or chunky): one per row.
+                    scrrle_msgs.append(data)
+                    if scrinfo_msg and len(scrrle_msgs) >= scrinfo_msg["height"]:
+                        break
+                elif evt == "scrrgb":
+                    # True-colour (RTG): one RGB row per line.
+                    scrrgb_msgs.append(data)
+                    if scrinfo_msg and len(scrrgb_msgs) >= scrinfo_msg["height"]:
+                        break
                 elif evt == "scrdata":
                     scrdata_msgs.append(data)
-                    if scrinfo_msg and len(scrdata_msgs) >= expected_total:
+                    # Chunky (RTG) rows use plane==255 and send one line per
+                    # row, not one per bitplane.
+                    if data.get("plane") == 255 and scrinfo_msg:
+                        needed = scrinfo_msg["height"]
+                    else:
+                        needed = expected_total
+                    if scrinfo_msg and needed and len(scrdata_msgs) >= needed:
                         break
             except asyncio.TimeoutError:
                 break
@@ -919,11 +1068,19 @@ async def amiga_screenshot(window: str = "") -> str:
     if not scrinfo_msg:
         return "Timed out waiting for screenshot header"
 
-    if not scrdata_msgs:
+    if not scrdata_msgs and not scrrgb_msgs and not scrrle_msgs:
         return f"Got header ({scrinfo_msg['width']}x{scrinfo_msg['height']}x{scrinfo_msg['depth']}) but no pixel data"
 
-    path = save_screenshot(scrinfo_msg, scrdata_msgs)
-    return f"Screenshot saved: {path} ({scrinfo_msg['width']}x{scrinfo_msg['height']}, {scrinfo_msg['depth']} planes, {len(scrdata_msgs)} rows received)"
+    path = save_screenshot(scrinfo_msg, scrdata_msgs,
+                           rgb_lines=scrrgb_msgs or None,
+                           rle_lines=scrrle_msgs or None)
+    if scrrle_msgs:
+        rows, kind = len(scrrle_msgs), "RLE"
+    elif scrrgb_msgs:
+        rows, kind = len(scrrgb_msgs), "truecolor"
+    else:
+        rows, kind = len(scrdata_msgs), f"{scrinfo_msg['depth']} planes"
+    return f"Screenshot saved: {path} ({scrinfo_msg['width']}x{scrinfo_msg['height']}, {kind}, {rows} rows received)"
 
 
 # ─── Palette Tools ───
@@ -1502,6 +1659,37 @@ async def amiga_list_gadgets(window: str) -> str:
                     return "\n".join(lines)
             except asyncio.TimeoutError:
                 return "Timeout"
+
+
+@mcp.tool()
+async def amiga_window_move(window: str, x: int, y: int) -> str:
+    """Move an Intuition window to absolute position (x, y) on its screen.
+
+    window: hex address from amiga_list_screen_windows. Uses Intuition MoveWindow()
+    daemon-side. This is the reliable way to move a window: simulated mouse drags of
+    a title bar CANNOT move Intuition windows (the drag loop tracks the physical mouse,
+    not injected events)."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "WINMOVE", "window": window, "x": x, "y": y})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Window moved")
+    return "Timeout (window not found?)"
+
+
+@mcp.tool()
+async def amiga_window_resize(window: str, width: int, height: int) -> str:
+    """Resize an Intuition window to width x height pixels.
+
+    window: hex address from amiga_list_screen_windows. Uses Intuition SizeWindow()
+    daemon-side (clamped to the window's min/max size). This is the reliable way to
+    resize a window: simulated mouse corner-drags CANNOT resize Intuition windows."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "WINSIZE", "window": window, "width": width, "height": height})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Window resized")
+    return "Timeout (window not found?)"
 
 
 # ---- Input Injection ----
@@ -2120,7 +2308,7 @@ async def amiga_version() -> str:
     msg = await bus.wait_for("version", timeout=5.0)
     if msg:
         return f"{msg.get('name', 'AmigaBridge')} v{msg.get('major', '?')}.{msg.get('minor', '?')} ({msg.get('date', '')})"
-    return "No response (bridge may not support VERSION)"
+    return _bridge_no_response("VERSION")
 
 
 @mcp.tool()
@@ -2200,7 +2388,7 @@ async def amiga_list_volumes() -> str:
             total = used + free
             lines.append(f"  {name:20s} {handler:12s} {state_str:8s} {used:>8d}KB / {total:>8d}KB ({free}KB free)")
         return "\n".join(lines)
-    return "No response (bridge may not support VOLUMES)"
+    return _bridge_no_response("VOLUMES")
 
 
 @mcp.tool()
@@ -2217,7 +2405,7 @@ async def amiga_list_ports() -> str:
         for p in ports:
             lines.append(f"  {p}")
         return "\n".join(lines)
-    return "No response (bridge may not support PORTS)"
+    return _bridge_no_response("PORTS")
 
 
 @mcp.tool()
@@ -2243,7 +2431,7 @@ async def amiga_sysinfo() -> str:
             f"  Total:    {chip_free + fast_free:,} / {chip_total + fast_total:,} bytes free",
         ]
         return "\n".join(lines)
-    return "No response (bridge may not support SYSINFO)"
+    return _bridge_no_response("SYSINFO")
 
 
 @mcp.tool()
@@ -2257,7 +2445,7 @@ async def amiga_uptime() -> str:
         hours, remainder = divmod(secs, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"Uptime: {hours}h {minutes}m {seconds}s ({secs} seconds)"
-    return "No response (bridge may not support UPTIME)"
+    return _bridge_no_response("UPTIME")
 
 
 @mcp.tool()

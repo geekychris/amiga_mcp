@@ -1,0 +1,6 @@
+; restart-bridge - relaunch the AmigaBridge daemon after it has been asked
+; to shut down. Run DETACHED so it survives the old daemon exiting:
+;   Run >NIL: Execute MEDIA1:_mcp/restart-bridge
+; Waits for the old instance to release its port/IPC, then starts the new one.
+Wait 4
+Run >NIL: MEDIA1:_mcp/amiga-bridge TCP 2345

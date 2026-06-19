@@ -1,0 +1,15 @@
+; AmigaBridge TCP auto-start installer
+;
+; Adds the bridge daemon (TCP mode, port 2345) to S:User-Startup so it
+; launches on every boot. Edit the path below if you copied the files
+; somewhere other than DH0:AmigaBridge.
+;
+; Run once from a Shell:   Execute install-bridge-tcp.script
+;
+Search S:User-Startup "amiga-bridge" QUIET
+IF WARN
+  Echo "Run >NIL: DH0:AmigaBridge/amiga-bridge TCP 2345" >>S:User-Startup
+  Echo "AmigaBridge (TCP 2345) added to User-Startup."
+ELSE
+  Echo "AmigaBridge already present in User-Startup - not added again."
+ENDIF

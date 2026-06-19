@@ -5,8 +5,24 @@
 #include <exec/ports.h>
 #include "bridge_ipc.h"
 
-/* Maximum protocol line length */
-#define BRIDGE_MAX_LINE 1024
+/* Maximum protocol line length (large enough for ~4KB hex file-transfer
+ * chunks and full-width chunky screenshot rows). */
+#define BRIDGE_MAX_LINE 8192
+
+/* Daemon version - bump MAJOR/MINOR here ONLY; everything else derives from it. */
+#define BRIDGE_VERSION_MAJOR 1
+#define BRIDGE_VERSION_MINOR 15
+#define BRIDGE_STR_(x) #x
+#define BRIDGE_STR(x)  BRIDGE_STR_(x)
+#define BRIDGE_VERSION_STR \
+    "AmigaBridge v" BRIDGE_STR(BRIDGE_VERSION_MAJOR) "." BRIDGE_STR(BRIDGE_VERSION_MINOR)
+
+/* Build identity (src/version.c, force-rebuilt each make) */
+extern const char * const g_bridge_build;
+
+/* ---- b64.c ---- base64 encode/decode for bulk binary payloads */
+ULONG b64_encode(const UBYTE *data, ULONG len, char *out);
+ULONG b64_decode(const char *in, ULONG inlen, UBYTE *out);
 
 /* ---- serial_io.c ---- */
 int serial_open(ULONG baud);
@@ -16,6 +32,29 @@ void serial_start_read(void);
 int serial_check_read(char *out_byte);
 ULONG serial_get_signal(void);
 BOOL serial_is_open(void);
+
+/* ─── Transport selection ─── */
+#define TRANSPORT_SERIAL 0
+#define TRANSPORT_TCP    1
+
+extern int g_transport_mode;
+
+/* Transport dispatch layer (transport.c) — main.c and callers use these */
+int   transport_open(int mode, ULONG param);   /* param: serial baud OR tcp port */
+void  transport_close(void);
+int   transport_write(const char *buf, int len);
+void  transport_start_read(void);
+int   transport_check_read(char *out_byte);
+ULONG transport_get_signal(void);
+BOOL  transport_is_open(void);
+
+/* TCP/bsdsocket backend (net_io.c) */
+int   net_open(ULONG port);
+void  net_close(void);
+int   net_write(const char *buf, int len);
+int   net_check_read(char *out_byte);
+ULONG net_get_signal(void);
+BOOL  net_is_open(void);
 
 /* ---- ipc_manager.c ---- */
 int ipc_init(void);
@@ -100,7 +139,7 @@ void protocol_send_clients(void);
 void protocol_send_tasks(void);
 void protocol_send_libs(void);
 void protocol_send_devices(void);
-void protocol_send_dir(const char *path);
+void protocol_send_dir(const char *path, ULONG offset);
 void protocol_send_file(const char *path, ULONG offset, ULONG size);
 void protocol_send_fileinfo(const char *path);
 void protocol_send_raw(const char *line);
@@ -136,7 +175,7 @@ void sys_handle_uptime(void);
 int sys_signal_task_by_addr(ULONG addr, ULONG sigMask);
 
 /* ---- fs_access.c ---- */
-int fs_list_dir(const char *path, char *buf, int bufSize);
+int fs_list_dir(const char *path, ULONG startIdx, char *buf, int bufSize);
 int fs_read_file(const char *path, ULONG offset, ULONG size,
                  UBYTE *buf, ULONG bufSize, ULONG *actualRead);
 int fs_write_file(const char *path, ULONG offset,
@@ -288,5 +327,6 @@ extern BOOL g_serial_connected;
 extern BOOL g_host_connected;
 
 void ui_add_log(const char *msg);
+void ui_set_last_cmd(const char *cmd);
 
 #endif /* BRIDGE_INTERNAL_H */

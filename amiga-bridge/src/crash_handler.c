@@ -185,7 +185,7 @@ static void crash_alert_handler(void)
 
     /* Send directly over serial - bypass normal IPC since
      * the system may be in an unstable state */
-    if (serial_is_open()) {
+    if (transport_is_open()) {
         protocol_send_raw(crash_buf);
     }
 
