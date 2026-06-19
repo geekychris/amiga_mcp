@@ -1067,7 +1067,7 @@ def format_command(cmd: dict[str, Any]) -> str:
     if t == "LISTVOLUMES":
         return "LISTVOLUMES"
     if t == "LISTDIR":
-        return f"LISTDIR|{cmd['path']}"
+        return f"LISTDIR|{cmd['path']}|{cmd.get('offset', 0)}"
     if t == "READFILE":
         return f"READFILE|{cmd['path']}|{cmd['offset']}|{cmd['size']}"
     if t == "WRITEFILE":

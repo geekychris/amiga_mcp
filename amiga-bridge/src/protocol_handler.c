@@ -556,10 +556,10 @@ void protocol_send_devices(void)
     send_line(buf);
 }
 
-void protocol_send_dir(const char *path)
+void protocol_send_dir(const char *path, ULONG offset)
 {
     static char buf[BRIDGE_MAX_LINE];
-    int result = fs_list_dir(path, buf, BRIDGE_MAX_LINE);
+    int result = fs_list_dir(path, offset, buf, BRIDGE_MAX_LINE);
     if (result < 0) {
         send_err("LISTDIR failed", path);
     } else {
@@ -573,14 +573,23 @@ void protocol_send_file(const char *path, ULONG offset, ULONG size)
     ULONG actual = 0;
     int result;
 
-    if (size > 4096) size = 4096;
+    /* (BUG2) Cap the read so the whole "FILE|path|off|len|hex" line fits in
+     * one BRIDGE_MAX_LINE: hex is 2x the bytes. The old code hex-encoded into
+     * a 902-byte buffer, so any read > 450 bytes overran static memory and
+     * wedged the daemon (reboot to recover). Read() already returns a short
+     * count at EOF, so this never blocks. */
+    {
+        ULONG maxbytes = (BRIDGE_MAX_LINE - (ULONG)strlen(path) - 40) / 2;
+        if (size > 4096) size = 4096;
+        if (size > maxbytes) size = maxbytes;
+    }
 
     result = fs_read_file(path, offset, size, filebuf, 4096, &actual);
     if (result < 0) {
         send_err("READFILE failed", path);
     } else {
         static char buf[BRIDGE_MAX_LINE];
-        static char hexbuf[902];
+        static char hexbuf[BRIDGE_MAX_LINE];
         ULONG i;
         for (i = 0; i < actual; i++) {
             sprintf(hexbuf + i * 2, "%02lx", (unsigned long)filebuf[i]);
@@ -957,7 +966,18 @@ static void handle_listvolumes(void)
 
 static void handle_listdir(const char *args)
 {
-    protocol_send_dir(args);
+    /* args is "path" or "path|startIdx" (paths never contain '|'). */
+    const char *sep = strchr(args, '|');
+    if (sep) {
+        static char path[256];
+        int plen = (int)(sep - args);
+        if (plen > 255) plen = 255;
+        strncpy(path, args, plen);
+        path[plen] = '\0';
+        protocol_send_dir(path, strtoul(sep + 1, NULL, 10));
+    } else {
+        protocol_send_dir(args, 0);
+    }
 }
 
 static void handle_readfile(const char *args)

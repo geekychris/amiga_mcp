@@ -11,7 +11,7 @@
 
 /* Daemon version - bump MAJOR/MINOR here ONLY; everything else derives from it. */
 #define BRIDGE_VERSION_MAJOR 1
-#define BRIDGE_VERSION_MINOR 14
+#define BRIDGE_VERSION_MINOR 15
 #define BRIDGE_STR_(x) #x
 #define BRIDGE_STR(x)  BRIDGE_STR_(x)
 #define BRIDGE_VERSION_STR \
@@ -139,7 +139,7 @@ void protocol_send_clients(void);
 void protocol_send_tasks(void);
 void protocol_send_libs(void);
 void protocol_send_devices(void);
-void protocol_send_dir(const char *path);
+void protocol_send_dir(const char *path, ULONG offset);
 void protocol_send_file(const char *path, ULONG offset, ULONG size);
 void protocol_send_fileinfo(const char *path);
 void protocol_send_raw(const char *line);
@@ -175,7 +175,7 @@ void sys_handle_uptime(void);
 int sys_signal_task_by_addr(ULONG addr, ULONG sigMask);
 
 /* ---- fs_access.c ---- */
-int fs_list_dir(const char *path, char *buf, int bufSize);
+int fs_list_dir(const char *path, ULONG startIdx, char *buf, int bufSize);
 int fs_read_file(const char *path, ULONG offset, ULONG size,
                  UBYTE *buf, ULONG bufSize, ULONG *actualRead);
 int fs_write_file(const char *path, ULONG offset,

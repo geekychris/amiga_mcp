@@ -103,6 +103,44 @@ async def _still_running_when_sentinel_never_comes():
     assert "partial output" in output, repr(output)
 
 
+# ── list_dir_all paging (BUG1) ──
+
+class _PagingConn:
+    connected = True
+
+    def __init__(self):
+        self.last_offset = 0
+
+    def send(self, msg):
+        self.last_offset = msg.get("offset", 0)
+
+
+class _PagingBus:
+    def __init__(self, conn, pages):
+        self.conn, self.pages = conn, pages
+
+    async def wait_for(self, ev, timeout=5.0, predicate=None):
+        return self.pages.get(self.conn.last_offset)
+
+
+async def _paging_collects_all():
+    # daemon returns 2 pages, total=5
+    pages = {0: {"path": "X:", "count": 5, "entries": [{"name": c} for c in "ABC"]},
+             3: {"path": "X:", "count": 5, "entries": [{"name": c} for c in "DE"]}}
+    conn = _PagingConn()
+    got = await mcp_tools.list_dir_all(conn, _PagingBus(conn, pages), "X:")
+    assert [e["name"] for e in got] == list("ABCDE"), got
+
+
+async def _paging_stops_on_empty_page():
+    # count claims 9 but the 2nd page is empty -> must NOT loop forever
+    pages = {0: {"path": "Y:", "count": 9, "entries": [{"name": "Z"}]},
+             1: {"path": "Y:", "count": 9, "entries": []}}
+    conn = _PagingConn()
+    got = await mcp_tools.list_dir_all(conn, _PagingBus(conn, pages), "Y:")
+    assert [e["name"] for e in got] == ["Z"], got
+
+
 def test_all():
     orig = mcp_tools._read_amiga_file_text
     try:
@@ -111,10 +149,12 @@ def test_all():
         asyncio.run(_no_ack_is_timeout())
         asyncio.run(_no_ack_disconnected())
         asyncio.run(_still_running_when_sentinel_never_comes())
+        asyncio.run(_paging_collects_all())
+        asyncio.run(_paging_stops_on_empty_page())
     finally:
         mcp_tools._read_amiga_file_text = orig
 
 
 if __name__ == "__main__":
     test_all()
-    print("OK: all script_execute async-path tests passed")
+    print("OK: all host bridge-helper tests passed")

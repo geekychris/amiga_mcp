@@ -176,6 +176,32 @@ async def script_execute(conn, bus, script_line: str, timeout: float = 120.0):
     return "running", (last.split(SCRIPT_SENTINEL)[0].rstrip() if last else "")
 
 
+async def list_dir_all(conn, bus, path: str, timeout: float = 5.0):
+    """List a whole directory, paging until every entry is received.
+
+    The daemon serializes one BRIDGE_MAX_LINE page per LISTDIR and reports the
+    TRUE total count, so we page (offset = entries so far) until we have them
+    all — fixes the old silent truncation of large dirs (BUG1). Returns the
+    entry list, or None if the bridge never answered.
+    """
+    entries: list = []
+    offset = 0
+    while True:
+        conn.send({"type": "LISTDIR", "path": path, "offset": offset})
+        msg = await bus.wait_for(
+            "dir", timeout=timeout, predicate=lambda d: d.get("path") == path)
+        if not msg:
+            return entries if entries else None
+        page = msg.get("entries", [])
+        total = msg.get("count", len(page))
+        entries.extend(page)
+        offset = len(entries)
+        # stop at completion, empty page (can't progress), or a sanity cap
+        if not page or offset >= total or offset > 100000:
+            break
+    return entries
+
+
 # ─── Build Tools ───
 
 @mcp.tool()
@@ -526,22 +552,17 @@ async def amiga_dev_info(name: str) -> str:
 async def amiga_list_dir(path: str = "SYS:") -> str:
     """List directory contents on the Amiga."""
     conn, state, bus = _require_connected()
-    conn.send({"type": "LISTDIR", "path": path})
-    msg = await bus.wait_for(
-        "dir", timeout=5.0,
-        predicate=lambda d: d.get("path") == path,
-    )
-    if msg:
-        entries = msg.get("entries", [])
-        if not entries:
-            return f"Empty directory: {path}"
-        lines = [f"Directory: {path} ({len(entries)} entries)"]
-        for e in entries:
-            kind = "DIR " if e.get("type") == "dir" else "FILE"
-            size = f"{e.get('size', 0):>8}" if e.get("type") != "dir" else "       -"
-            lines.append(f"  {kind} {e.get('name', '?'):30s} {size}  {e.get('date', '')}")
-        return "\n".join(lines)
-    return _bridge_no_response("LISTDIR")
+    entries = await list_dir_all(conn, bus, path)
+    if entries is None:
+        return _bridge_no_response("LISTDIR")
+    if not entries:
+        return f"Empty directory: {path}"
+    lines = [f"Directory: {path} ({len(entries)} entries)"]
+    for e in entries:
+        kind = "DIR " if e.get("type") == "dir" else "FILE"
+        size = f"{e.get('size', 0):>8}" if e.get("type") != "dir" else "       -"
+        lines.append(f"  {kind} {e.get('name', '?'):30s} {size}  {e.get('date', '')}")
+    return "\n".join(lines)
 
 
 @mcp.tool()

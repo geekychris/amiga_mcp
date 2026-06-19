@@ -25,14 +25,27 @@
  * type: F=file, D=dir
  * Returns length written or -1 on error.
  */
-int fs_list_dir(const char *path, char *buf, int bufSize)
+/*
+ * List one page of a directory, starting at entry index `startIdx`.
+ * Writes "DIR|path|<grandTotal>|entry,entry,..." into buf (entries that fit
+ * from startIdx onward). The count field is the TRUE total entry count so the
+ * caller knows when it has them all and pages the rest with a higher startIdx
+ * -- this is what stops large dirs from being silently truncated (BUG1).
+ * Returns the grand total, or -1 on error.
+ *
+ * ponytail: each page re-Examines and skips startIdx entries, so paging a dir
+ * of N entries is O(N * pages). Dirs are hundreds of entries / a few pages, so
+ * it's fine; switch to a cached enumeration if that ever stops being true.
+ */
+int fs_list_dir(const char *path, ULONG startIdx, char *buf, int bufSize)
 {
     BPTR lock;
     struct FileInfoBlock *fib;
-    int pos;
-    int count = 0;
+    int pos, headerPos;
+    ULONG total = 0;
+    BOOL full = FALSE;
+    int firstInPage = 1;
     static char entry[128];
-    BOOL ok;
     struct Process *pr;
     APTR oldWinPtr;
 
@@ -42,12 +55,8 @@ int fs_list_dir(const char *path, char *buf, int bufSize)
     pr = (struct Process *)FindTask(NULL);
     oldWinPtr = pr->pr_WindowPtr;
     pr->pr_WindowPtr = (APTR)-1;
-
     lock = Lock((CONST_STRPTR)path, ACCESS_READ);
-
-    /* Restore requester */
     pr->pr_WindowPtr = oldWinPtr;
-
     if (!lock) return -1;
 
     fib = (struct FileInfoBlock *)AllocDosObject(DOS_FIB, NULL);
@@ -55,9 +64,7 @@ int fs_list_dir(const char *path, char *buf, int bufSize)
         UnLock(lock);
         return -1;
     }
-
-    ok = Examine(lock, fib);
-    if (!ok) {
+    if (!Examine(lock, fib)) {
         FreeDosObject(DOS_FIB, fib);
         UnLock(lock);
         return -1;
@@ -65,62 +72,52 @@ int fs_list_dir(const char *path, char *buf, int bufSize)
 
     sprintf(buf, "DIR|%s|", path);
     pos = strlen(buf);
+    headerPos = pos;
+    memset(buf + pos, ' ', 7);     /* reserve 7 for "<total>|" */
+    pos += 7;
+    buf[pos] = '\0';
 
-    /* Reserve 5 chars for count, then fill entries */
-    {
-        int headerPos = pos;
-        char countStr[16];
-
-        memset(buf + pos, ' ', 5);
-        pos += 5;
-        buf[pos] = '\0';
-
-        while (ExNext(lock, fib)) {
-            const char *typeStr;
+    while (ExNext(lock, fib)) {
+        if (total >= startIdx && !full) {
+            const char *typeStr = (fib->fib_DirEntryType > 0) ? "D" : "F";
             int written;
-
-            if (fib->fib_DirEntryType > 0) {
-                typeStr = "D";
-            } else {
-                typeStr = "F";
-            }
-
             sprintf(entry, "%s(%ld,%s)",
-                    fib->fib_FileName,
-                    (long)fib->fib_Size,
-                    typeStr);
+                    fib->fib_FileName, (long)fib->fib_Size, typeStr);
             entry[sizeof(entry) - 1] = '\0';
             written = strlen(entry);
-
-            if (pos + written + 1 >= bufSize - 2) break;
-
-            if (count > 0) buf[pos++] = ',';
-            memcpy(buf + pos, entry, written);
-            pos += written;
-            buf[pos] = '\0';
-            count++;
-        }
-
-        /* Patch count into reserved space */
-        sprintf(countStr, "%ld|", (long)count);
-        {
-            int clen = strlen(countStr);
-            int gap = 5 - clen;
-            if (gap > 0) {
-                int entryStart = headerPos + 5;
-                int entryLen = pos - entryStart;
-                memmove(buf + headerPos + clen, buf + entryStart, entryLen);
-                pos -= gap;
+            if (pos + written + 2 >= bufSize - 8) {
+                full = TRUE;       /* page is full; keep counting for the total */
+            } else {
+                if (!firstInPage) buf[pos++] = ',';
+                memcpy(buf + pos, entry, written);
+                pos += written;
+                buf[pos] = '\0';
+                firstInPage = 0;
             }
-            memcpy(buf + headerPos, countStr, clen);
         }
+        total++;
     }
 
+    /* Patch the grand total into the reserved field. */
+    {
+        char countStr[16];
+        int clen, gap;
+        sprintf(countStr, "%lu|", (unsigned long)total);
+        clen = strlen(countStr);
+        gap = 7 - clen;
+        if (gap > 0) {
+            int entryStart = headerPos + 7;
+            int entryLen = pos - entryStart;
+            memmove(buf + headerPos + clen, buf + entryStart, entryLen);
+            pos -= gap;
+        }
+        memcpy(buf + headerPos, countStr, clen);
+    }
     buf[pos] = '\0';
 
     FreeDosObject(DOS_FIB, fib);
     UnLock(lock);
-    return pos;
+    return (int)total;
 }
 
 /*
@@ -152,8 +149,10 @@ int fs_read_file(const char *path, ULONG offset, ULONG size,
     if (offset > 0) {
         seekResult = Seek(fh, (LONG)offset, OFFSET_BEGINNING);
         if (seekResult == -1) {
+            /* offset at/after EOF: a clean 0-byte (EOF) read, not an error. */
             Close(fh);
-            return -1;
+            *actualRead = 0;
+            return 0;
         }
     }
 

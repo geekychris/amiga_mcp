@@ -214,11 +214,13 @@ async def pull_file(
                 "file", timeout=CHUNK_TIMEOUT,
                 predicate=lambda d: d.get("path") == amiga_path,
             )
+            got = 0
             if msg:
                 hex_data = msg.get("hexData", "")
                 if hex_data:
                     chunk_bytes = bytes.fromhex(hex_data)
                     collected.extend(chunk_bytes)
+                    got = len(chunk_bytes)
                     success = True
                 else:
                     retries += 1
@@ -236,7 +238,9 @@ async def pull_file(
                 elapsed=elapsed,
             )
 
-        offset += req_size
+        # Advance by bytes actually received: the daemon caps each chunk so the
+        # response line fits, which can be < req_size. (BUG2 fix)
+        offset += got
         chunk_num += 1
 
     # Write local file

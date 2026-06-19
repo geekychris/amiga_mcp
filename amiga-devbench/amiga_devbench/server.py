@@ -238,17 +238,13 @@ async def api_dir(request: Request) -> JSONResponse:
     if not _conn.connected:
         return JSONResponse({"path": dir_path, "entries": [], "error": "Not connected"})
     try:
-        _conn.send({"type": "LISTDIR", "path": dir_path})
+        from .mcp_tools import list_dir_all
+        entries = await list_dir_all(_conn, _event_bus, dir_path)
     except Exception:
         return JSONResponse({"path": dir_path, "entries": [], "error": "Send failed"})
-
-    msg = await _event_bus.wait_for(
-        "dir", timeout=5.0,
-        predicate=lambda d: d.get("path") == dir_path,
-    )
-    if msg:
-        return JSONResponse({"path": msg.get("path", dir_path), "entries": msg.get("entries", [])})
-    return JSONResponse({"path": dir_path, "entries": [], "message": "No response"})
+    if entries is None:
+        return JSONResponse({"path": dir_path, "entries": [], "message": "No response"})
+    return JSONResponse({"path": dir_path, "entries": entries})
 
 
 async def api_file(request: Request) -> JSONResponse:

@@ -1301,8 +1301,14 @@ void sys_handle_volumes_ext(void)
                             ULONG totalBlocks = (ULONG)id->id_NumBlocks;
                             ULONG usedBlocks = (ULONG)id->id_NumBlocksUsed;
                             ULONG freeBlocks = totalBlocks - usedBlocks;
-                            usedK = (usedBlocks * blockSize) / 1024;
-                            freeK = (freeBlocks * blockSize) / 1024;
+                            /* blocks*blockSize/1024 overflows 32-bit past 4GB
+                             * (35GB free showed as 3.5GB); divide first. (BUG3)
+                             * ponytail: id_NumBlocks is itself 32-bit, so >1TB
+                             * drives still can't be represented - Info() limit. */
+                            usedK = (usedBlocks / 1024) * blockSize
+                                    + ((usedBlocks % 1024) * blockSize) / 1024;
+                            freeK = (freeBlocks / 1024) * blockSize
+                                    + ((freeBlocks % 1024) * blockSize) / 1024;
                         }
                         FreeMem(id, sizeof(struct InfoData));
                     }
