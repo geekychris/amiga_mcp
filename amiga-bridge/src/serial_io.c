@@ -159,6 +159,13 @@ int serial_check_read(char *out_byte)
         return 1;
     }
 
+    /* The read completed without a valid byte — a line/overrun error (common at
+     * 115200 when bytes arrive faster than the 1-byte read loop drains them) or
+     * a 0-length completion. The caller only re-arms after a *successful* byte,
+     * so without re-posting here a single transient error would permanently
+     * wedge serial RX. Clear the error and re-arm so RX self-recovers. */
+    read_io->IOSer.io_Error = 0;
+    serial_start_read();
     return 0;
 }
 

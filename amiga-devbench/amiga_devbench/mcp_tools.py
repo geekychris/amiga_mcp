@@ -1067,13 +1067,22 @@ async def amiga_screenshot(window: str = "") -> str:
         else:
             conn.send({"type": "SCREENSHOT"})
 
-        deadline = asyncio.get_event_loop().time() + 120.0
+        # Idle timeout, not a fixed total: a full 1280x1024 screen over 115200
+        # serial streams for minutes (one row at a time), so a hard deadline
+        # would truncate it. Instead keep collecting as long as rows keep
+        # arriving and give up only after IDLE seconds of silence, with a long
+        # absolute cap as a backstop.
+        IDLE = 20.0
+        hard_cap = asyncio.get_event_loop().time() + 600.0
+        deadline = asyncio.get_event_loop().time() + IDLE
         while True:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
+            now = asyncio.get_event_loop().time()
+            remaining = deadline - now
+            if remaining <= 0 or now > hard_cap:
                 break
             try:
                 evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                deadline = asyncio.get_event_loop().time() + IDLE   # got data: extend
                 if evt == "err" and "SCREENSHOT" in data.get("context", ""):
                     return f"Screenshot failed: {data.get('message', 'unknown error')}"
                 if evt == "scrinfo":
@@ -1916,17 +1925,14 @@ async def amiga_proc_list() -> str:
 async def amiga_proc_stat(proc_id: int) -> str:
     """Get status of a specific tracked process by ID."""
     conn, state, bus = _require_connected()
-    conn.send({"type": "PROCSTAT", "id": proc_id})
-    msg = await bus.wait_for("procstat", timeout=5.0,
-                             predicate=lambda d: d.get("id") == proc_id)
-    if not msg:
-        # Check for error
-        err = await bus.wait_for("err", timeout=0.5,
-                                 predicate=lambda d: d.get("context") == "PROCSTAT")
-        if err:
-            return f"Error: {err.get('message', '?')}"
-        return "No response (timeout)"
-    return f"Process {msg['id']}: {msg.get('command', '?')} — {msg.get('status', '?')}"
+    kind, msg = await _send_await(
+        conn, bus, {"type": "PROCSTAT", "id": proc_id},
+        "procstat", lambda d: d.get("id") == proc_id, 5.0)
+    if kind == "ok":
+        return f"Process {msg['id']}: {msg.get('command', '?')} — {msg.get('status', '?')}"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("PROCSTAT")
 
 
 @mcp.tool()
@@ -1940,16 +1946,14 @@ async def amiga_signal(proc_id: int, signal: str = "CTRL_C") -> str:
     sig_map = {"CTRL_C": 0, "CTRL_D": 1, "CTRL_E": 2, "CTRL_F": 3}
     sig_type = sig_map.get(signal.upper(), 0)
     conn, state, bus = _require_connected()
-    conn.send({"type": "SIGNAL", "id": proc_id, "sigType": sig_type})
-    msg = await bus.wait_for("ok", timeout=5.0,
-                             predicate=lambda d: d.get("context") == "SIGNAL")
-    if msg:
+    kind, msg = await _send_await(
+        conn, bus, {"type": "SIGNAL", "id": proc_id, "sigType": sig_type},
+        "ok", lambda d: d.get("context") == "SIGNAL", 5.0)
+    if kind == "ok":
         return msg.get("message", "Signal sent")
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "SIGNAL")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("SIGNAL")
 
 
 # ─── File Tail (Live Streaming) ───
@@ -1967,17 +1971,14 @@ async def amiga_tail(path: str, duration_ms: int = 10000) -> str:
     """
     from .protocol import hex_to_ascii
     conn, state, bus = _require_connected()
-    conn.send({"type": "TAIL", "path": path})
-
-    # Wait for OK acknowledgment
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "TAIL")
-    if not ok:
-        err = await bus.wait_for("err", timeout=0.5,
-                                 predicate=lambda d: d.get("context") == "TAIL")
-        if err:
-            return f"Error: {err.get('message', '?')}"
-        return "No response (timeout)"
+    # Wait for OK acknowledgment (or an error) before streaming.
+    kind, data = await _send_await(
+        conn, bus, {"type": "TAIL", "path": path},
+        "ok", lambda d: d.get("context") == "TAIL", 5.0)
+    if kind == "err":
+        return f"Error: {data.get('message', '?')}"
+    if kind != "ok":
+        return _bridge_no_response("TAIL")
 
     # Collect tail data
     chunks: list[str] = []
@@ -2018,16 +2019,14 @@ async def amiga_checksum(path: str) -> str:
         path: Amiga file path (e.g. "DH2:Dev/myprogram")
     """
     conn, state, bus = _require_connected()
-    conn.send({"type": "CHECKSUM", "path": path})
-    msg = await bus.wait_for("checksum", timeout=10.0,
-                             predicate=lambda d: d.get("path") == path)
-    if not msg:
-        err = await bus.wait_for("err", timeout=0.5,
-                                 predicate=lambda d: d.get("context") == "CHECKSUM")
-        if err:
-            return f"Error: {err.get('message', '?')}"
-        return "No response (timeout)"
-    return f"File: {msg['path']}\nCRC32: {msg['crc32']}\nSize: {msg['size']} bytes"
+    kind, msg = await _send_await(
+        conn, bus, {"type": "CHECKSUM", "path": path},
+        "checksum", lambda d: d.get("path") == path, 10.0)
+    if kind == "ok":
+        return f"File: {msg['path']}\nCRC32: {msg['crc32']}\nSize: {msg['size']} bytes"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("CHECKSUM")
 
 
 # ─── File Transfer (Serial) ───
@@ -2186,16 +2185,13 @@ async def amiga_assign(name: str, path: str, mode: str = "") -> str:
     cmd: dict = {"type": "ASSIGN", "name": name, "path": path}
     if mode:
         cmd["mode"] = mode.upper()
-    conn.send(cmd)
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "ASSIGN")
-    if ok:
-        return ok.get("message", "Assign updated")
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "ASSIGN")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    kind, msg = await _send_await(
+        conn, bus, cmd, "ok", lambda d: d.get("context") == "ASSIGN", 5.0)
+    if kind == "ok":
+        return msg.get("message", "Assign updated")
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("ASSIGN")
 
 
 # ─── File Metadata ───
@@ -2212,10 +2208,9 @@ async def amiga_protect(path: str, bits: str | None = None) -> str:
     cmd: dict = {"type": "PROTECT", "path": path}
     if bits:
         cmd["bits"] = bits
-    conn.send(cmd)
-    msg = await bus.wait_for("protect", timeout=5.0,
-                             predicate=lambda d: d.get("path") == path)
-    if msg:
+    kind, msg = await _send_await(
+        conn, bus, cmd, "protect", lambda d: d.get("path") == path, 5.0)
+    if kind == "ok":
         raw = int(msg["bits"], 16)
         # Decode AmigaOS protection bits (active-low for RWED)
         flags = []
@@ -2228,11 +2223,9 @@ async def amiga_protect(path: str, bits: str | None = None) -> str:
         if raw & 0x20: flags.append("p")  # pure
         if raw & 0x10: flags.append("a")  # archive
         return f"File: {msg['path']}\nProtection: {msg['bits']} ({''.join(flags)})"
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "PROTECT")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("PROTECT")
 
 
 @mcp.tool()
@@ -2244,16 +2237,14 @@ async def amiga_rename(old_path: str, new_path: str) -> str:
         new_path: New file path
     """
     conn, state, bus = _require_connected()
-    conn.send({"type": "RENAME", "oldPath": old_path, "newPath": new_path})
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "RENAME")
-    if ok:
-        return f"Renamed: {old_path} -> {ok.get('message', new_path)}"
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "RENAME")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    kind, msg = await _send_await(
+        conn, bus, {"type": "RENAME", "oldPath": old_path, "newPath": new_path},
+        "ok", lambda d: d.get("context") == "RENAME", 5.0)
+    if kind == "ok":
+        return f"Renamed: {old_path} -> {msg.get('message', new_path)}"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("RENAME")
 
 
 @mcp.tool()
@@ -2265,16 +2256,14 @@ async def amiga_set_comment(path: str, comment: str) -> str:
         comment: Comment text to set
     """
     conn, state, bus = _require_connected()
-    conn.send({"type": "SETCOMMENT", "path": path, "comment": comment})
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "SETCOMMENT")
-    if ok:
+    kind, msg = await _send_await(
+        conn, bus, {"type": "SETCOMMENT", "path": path, "comment": comment},
+        "ok", lambda d: d.get("context") == "SETCOMMENT", 5.0)
+    if kind == "ok":
         return f"Comment set on {path}"
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "SETCOMMENT")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("SETCOMMENT")
 
 
 # ─── Server-Side Copy ───
@@ -2288,16 +2277,14 @@ async def amiga_copy(src: str, dst: str) -> str:
         dst: Destination file path on the Amiga
     """
     conn, state, bus = _require_connected()
-    conn.send({"type": "COPY", "src": src, "dst": dst})
-    ok = await bus.wait_for("ok", timeout=30.0,
-                            predicate=lambda d: d.get("context") == "COPY")
-    if ok:
-        return f"Copied: {src} -> {ok.get('message', dst)}"
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "COPY")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    kind, msg = await _send_await(
+        conn, bus, {"type": "COPY", "src": src, "dst": dst},
+        "ok", lambda d: d.get("context") == "COPY", 30.0)
+    if kind == "ok":
+        return f"Copied: {src} -> {msg.get('message', dst)}"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("COPY")
 
 
 # ─── File Append ───
@@ -2311,16 +2298,14 @@ async def amiga_append_file(path: str, hex_data: str) -> str:
         hex_data: Hex-encoded data to append (e.g. "48656c6c6f" for "Hello")
     """
     conn, state, bus = _require_connected()
-    conn.send({"type": "APPEND", "path": path, "hexData": hex_data})
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "APPEND")
-    if ok:
-        return f"Appended {ok.get('message', '?')} bytes to {path}"
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "APPEND")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    kind, msg = await _send_await(
+        conn, bus, {"type": "APPEND", "path": path, "hexData": hex_data},
+        "ok", lambda d: d.get("context") == "APPEND", 5.0)
+    if kind == "ok":
+        return f"Appended {msg.get('message', '?')} bytes to {path}"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("APPEND")
 
 
 # ─── System Commands ───
@@ -2369,16 +2354,14 @@ async def amiga_get_env(name: str, archive: bool = False) -> str:
 async def amiga_set_env(name: str, value: str, archive: bool = False) -> str:
     """Set an AmigaOS environment variable. Set archive=True to also save to ENVARC: (persistent)."""
     conn, state, bus = _require_connected()
-    conn.send({"type": "SETENV", "name": name, "value": value, "archive": archive})
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "SETENV")
-    if ok:
+    kind, msg = await _send_await(
+        conn, bus, {"type": "SETENV", "name": name, "value": value, "archive": archive},
+        "ok", lambda d: d.get("context") == "SETENV", 5.0)
+    if kind == "ok":
         return f"Set {name}={value}" + (" (archived)" if archive else "")
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "SETENV")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("SETENV")
 
 
 @mcp.tool()
@@ -2393,16 +2376,14 @@ async def amiga_set_date(path: str, date: str = "") -> str:
     else:
         dt = datetime.now()
     days, mins, ticks = date_to_amiga(dt)
-    conn.send({"type": "SETDATE", "path": path, "days": days, "mins": mins, "ticks": ticks})
-    ok = await bus.wait_for("ok", timeout=5.0,
-                            predicate=lambda d: d.get("context") == "SETDATE")
-    if ok:
+    kind, msg = await _send_await(
+        conn, bus, {"type": "SETDATE", "path": path, "days": days, "mins": mins, "ticks": ticks},
+        "ok", lambda d: d.get("context") == "SETDATE", 5.0)
+    if kind == "ok":
         return f"Date set on {path}: {dt.strftime('%Y-%m-%d %H:%M:%S')}"
-    err = await bus.wait_for("err", timeout=0.5,
-                             predicate=lambda d: d.get("context") == "SETDATE")
-    if err:
-        return f"Error: {err.get('message', '?')}"
-    return "No response (timeout)"
+    if kind == "err":
+        return f"Error: {msg.get('message', '?')}"
+    return _bridge_no_response("SETDATE")
 
 
 @mcp.tool()

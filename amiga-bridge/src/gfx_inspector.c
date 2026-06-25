@@ -18,6 +18,7 @@
 #include <proto/exec.h>
 #include <proto/intuition.h>
 #include <proto/graphics.h>
+#include <proto/dos.h>
 
 #include <string.h>
 #include <stdio.h>
@@ -29,6 +30,107 @@ extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase *GfxBase;
 
 static const char hex_chars[] = "0123456789abcdef";
+
+/* --- Screenshot output sink ---------------------------------------------
+ * The capture loop must run under LockIBase (the screen pixels have to be
+ * stable), but streaming the result over a slow transport — 115200 serial is
+ * ~2-3 minutes for a full screen — must NOT hold that lock, or all of
+ * Intuition freezes for the whole transfer. So we buffer the formatted
+ * protocol lines during the locked capture and drain them AFTER unlocking.
+ * Three tiers, chosen by what the machine can spare:
+ *   RAM    - hold the whole thing in fast/any RAM (any roomy machine: always)
+ *   FILE   - spool to a T: temp file when RAM is too tight (helps iff T: is on
+ *            real storage, e.g. a hard disk)
+ *   DIRECT - neither available (e.g. a low-mem box where T: is RAM:, or only a
+ *            floppy): fall back to sending under the lock — a brief freeze, but
+ *            correct. */
+#define SCRSINK_RAM    0
+#define SCRSINK_FILE   1
+#define SCRSINK_DIRECT 2
+
+struct ScrSink {
+    int   mode;
+    UBYTE *ram;
+    ULONG  cap;
+    ULONG  len;
+    BPTR   fh;
+};
+
+static const char SCRSINK_CACHE[] = "T:ab_scrshot.cache";
+
+/* estBytes: a generous upper bound on the total formatted output. */
+static void scrsink_init(struct ScrSink *s, ULONG estBytes)
+{
+    s->mode = SCRSINK_DIRECT;
+    s->ram = NULL; s->cap = 0; s->len = 0; s->fh = 0;
+
+    if (estBytes < 4096) estBytes = 4096;
+    /* Tier 1: RAM. Leave 256K headroom so we never grab the last of free mem
+     * (which would itself wedge the system). */
+    if (AvailMem(MEMF_ANY) > estBytes + (256UL * 1024)) {
+        s->ram = AllocMem(estBytes, MEMF_ANY);
+    }
+    if (s->ram) { s->mode = SCRSINK_RAM; s->cap = estBytes; return; }
+
+    /* Tier 2: disk spool (only a win if T: lives on real storage, not RAM:). */
+    s->fh = Open((CONST_STRPTR)SCRSINK_CACHE, MODE_NEWFILE);
+    if (s->fh) { s->mode = SCRSINK_FILE; return; }
+
+    /* Tier 3: DIRECT — scrsink_line() will send under the lock. */
+}
+
+/* Emit one already-formatted protocol line (no trailing newline). */
+static void scrsink_line(struct ScrSink *s, const char *line)
+{
+    ULONG n = (ULONG)strlen(line);
+    if (s->mode == SCRSINK_RAM) {
+        if (s->len + n + 1 <= s->cap) {
+            CopyMem((APTR)line, s->ram + s->len, (LONG)n);
+            s->ram[s->len + n] = '\n';
+            s->len += n + 1;
+        } else {
+            protocol_send_raw(line);   /* estimate too small: don't lose the row */
+        }
+    } else if (s->mode == SCRSINK_FILE) {
+        Write(s->fh, (APTR)line, (LONG)n);
+        Write(s->fh, (APTR)"\n", 1);
+    } else {
+        protocol_send_raw(line);       /* DIRECT: under the lock */
+    }
+}
+
+/* Call AFTER UnlockIBase: stream the buffered lines, then release resources. */
+static void scrsink_drain(struct ScrSink *s)
+{
+    if (s->mode == SCRSINK_RAM) {
+        ULONG i, start = 0;
+        for (i = 0; i < s->len; i++) {
+            if (s->ram[i] == '\n') {
+                s->ram[i] = '\0';
+                protocol_send_raw((char *)(s->ram + start));
+                start = i + 1;
+            }
+        }
+        FreeMem(s->ram, s->cap);
+        s->ram = NULL;
+    } else if (s->mode == SCRSINK_FILE) {
+        BPTR rf;
+        Close(s->fh);
+        s->fh = 0;
+        rf = Open((CONST_STRPTR)SCRSINK_CACHE, MODE_OLDFILE);
+        if (rf) {
+            static char rl[BRIDGE_MAX_LINE];
+            while (FGets(rf, (STRPTR)rl, BRIDGE_MAX_LINE)) {
+                int L = (int)strlen(rl);
+                while (L > 0 && (rl[L-1] == '\n' || rl[L-1] == '\r')) rl[--L] = '\0';
+                protocol_send_raw(rl);
+            }
+            Close(rf);
+        }
+        DeleteFile((CONST_STRPTR)SCRSINK_CACHE);
+    }
+    /* DIRECT: nothing buffered, already sent. */
+}
 
 /*
  * Hex-encode a byte buffer into a string.
@@ -141,6 +243,7 @@ void gfx_handle_screenshot(const char *args)
     UWORD i;
     UWORD clipLeft = 0, clipTop = 0, clipWidth = 0, clipHeight = 0;
     BOOL useClip = FALSE;
+    struct ScrSink sink;
 
     if (!IntuitionBase || !GfxBase) {
         protocol_send_raw("ERR|SCREENSHOT|Libraries not open");
@@ -206,8 +309,10 @@ void gfx_handle_screenshot(const char *args)
             static char  rlehex[((SCR_MAXW * 3 + SCR_MAXW / 128 + 8) * 4) / 3 + 8];
             UWORD w = width;
             if (w > SCR_MAXW) w = SCR_MAXW;
+            /* RGB after RLE+base64 is worst-case ~w*4 per row. */
+            scrsink_init(&sink, ((ULONG)w * 4 + 32) * (ULONG)height + 256);
             sprintf(linebuf, "SCRINFO|%ld|%ld|24|", (long)w, (long)height);
-            protocol_send_raw(linebuf);
+            scrsink_line(&sink, linebuf);
             for (row = 0; row < height; row++) {
                 UWORD srcRow = useClip ? (row + clipTop) : row;
                 UWORD srcX   = useClip ? clipLeft : 0;
@@ -224,9 +329,10 @@ void gfx_handle_screenshot(const char *args)
                 rlen = rle_encode(rgbrow, (ULONG)w, 3, rlebuf);
                 b64_encode(rlebuf, rlen, rlehex);   /* base64: 33% vs hex 100% */
                 sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, rlehex);
-                protocol_send_raw(linebuf);
+                scrsink_line(&sink, linebuf);
             }
-            UnlockIBase(lock);
+            UnlockIBase(lock);          /* release Intuition BEFORE the slow send */
+            scrsink_drain(&sink);
             return;
         }
         /* else fall through to the 8-bit / planar path */
@@ -267,8 +373,11 @@ void gfx_handle_screenshot(const char *args)
     }
     linebuf[pos] = '\0';
 
-    /* Send SCRINFO before unlocking - screen data is stable while locked */
-    protocol_send_raw(linebuf);
+    /* Buffer SCRINFO + all row data, then drain after UnlockIBase (below).
+     * Estimate covers both the 8-bit chunky (~width*2/row) and planar
+     * (~depth*520/row) paths generously. */
+    scrsink_init(&sink, ((ULONG)width * 2 + (ULONG)depth * 520 + 64) * (ULONG)height + 256);
+    scrsink_line(&sink, linebuf);
 
     /* Send bitplane data row by row, plane by plane.
      * Each row of a bitplane is bytesPerRow bytes.
@@ -305,10 +414,11 @@ void gfx_handle_screenshot(const char *args)
                 rlen = rle_encode(rowbuf, (ULONG)n, 1, crle);
                 b64_encode(crle, rlen, chunkhex);   /* base64: 33% vs hex 100% */
                 sprintf(linebuf, "SCRRLE|%ld|%s", (long)row, chunkhex);
-                protocol_send_raw(linebuf);
+                scrsink_line(&sink, linebuf);
             }
             FreeBitMap(tempbm);
-            UnlockIBase(lock);
+            UnlockIBase(lock);          /* release Intuition BEFORE the slow send */
+            scrsink_drain(&sink);
             return;
         }
         /* AllocBitMap failed: fall through to the planar path below */
@@ -335,11 +445,12 @@ void gfx_handle_screenshot(const char *args)
             hex_encode(planePtr, sendBytes, hexbuf);
             sprintf(linebuf, "SCRDATA|%ld|%ld|%s",
                     (long)row, (long)plane, hexbuf);
-            protocol_send_raw(linebuf);
+            scrsink_line(&sink, linebuf);
         }
     }
 
-    UnlockIBase(lock);
+    UnlockIBase(lock);                  /* release Intuition BEFORE the slow send */
+    scrsink_drain(&sink);
 }
 
 /*

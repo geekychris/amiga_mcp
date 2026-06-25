@@ -1,0 +1,11 @@
+# Normalize line endings: LF in the repo, on every platform.
+* text=auto eol=lf
+
+# Binaries — never touch.
+*.uae binary
+*.adf binary
+*.iff binary
+*.ilbm binary
+*.mod binary
+*.png binary
+*.o binary

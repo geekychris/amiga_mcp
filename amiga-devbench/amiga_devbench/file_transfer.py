@@ -6,6 +6,7 @@ remote setups where the shared folder is not available.
 
 from __future__ import annotations
 
+import asyncio
 import binascii
 import logging
 import os
@@ -18,9 +19,50 @@ from .state import EventBus
 
 logger = logging.getLogger(__name__)
 
-CHUNK_SIZE = 4000       # bytes per chunk (8000 hex chars, fits in 8192-char line)
-MAX_RETRIES = 3
+# 1024-byte chunks (2048 hex chars/line). Smaller than the 8192-char protocol
+# limit on purpose: over a lossy serial link a dropped byte corrupts the whole
+# line, so shorter lines transfer clean far more often and the per-chunk retry
+# below has to fire less. TCP doesn't care about the extra round-trips.
+CHUNK_SIZE = 1024
+MAX_RETRIES = 6
 CHUNK_TIMEOUT = 5.0
+
+
+async def _push_chunk(conn, bus, path: str, offset: int, chunk: bytes) -> bool:
+    """Write one chunk at an explicit offset and confirm the daemon wrote
+    exactly len(chunk) bytes, retrying on timeout/err/short-write.
+
+    Uses WRITEFILE with the real offset (never APPEND) so a retry overwrites the
+    same span — idempotent, so re-sending after a lost ack can't duplicate data.
+    The daemon echoes the byte count it wrote in the OK; a dropped byte yields an
+    odd-length hex line -> fewer bytes written -> count mismatch -> we retry,
+    instead of silently accepting corruption (caught only by the final CRC).
+    """
+    expect = len(chunk)
+    hex_data = chunk.hex()
+    for _ in range(MAX_RETRIES):
+        conn.send({"type": "WRITEFILE", "path": path, "offset": offset, "hexData": hex_data})
+        ok = await bus.wait_for(
+            "ok", timeout=CHUNK_TIMEOUT,
+            predicate=lambda d: d.get("context") == "WRITEFILE",
+        )
+        if ok:
+            try:
+                wrote = int(str(ok.get("message", "")).split("|")[0])
+            except (ValueError, TypeError):
+                wrote = -1
+            if wrote == expect:
+                return True
+            logger.warning("chunk@%d short write %d/%d, retrying", offset, wrote, expect)
+        else:
+            await bus.wait_for(
+                "err", timeout=0.3,
+                predicate=lambda d: d.get("context") == "WRITEFILE",
+            )
+        # Let any corrupt partial line flush through the daemon's line parser
+        # (its terminating newline resyncs the stream) before re-sending.
+        await asyncio.sleep(0.05)
+    return False
 
 
 @dataclass
@@ -62,60 +104,15 @@ async def push_file(
 
     while offset < total:
         chunk = data[offset:offset + chunk_size]
-        hex_data = chunk.hex()
-        retries = 0
-        success = False
-
-        while retries < MAX_RETRIES and not success:
-            if chunk_num == 0:
-                # First chunk: WRITEFILE creates/truncates file
-                conn.send({
-                    "type": "WRITEFILE",
-                    "path": amiga_path,
-                    "offset": 0,
-                    "hexData": hex_data,
-                })
-                ok = await bus.wait_for(
-                    "ok", timeout=CHUNK_TIMEOUT,
-                    predicate=lambda d: d.get("context") == "WRITEFILE",
-                )
-            else:
-                # Subsequent chunks: APPEND
-                conn.send({
-                    "type": "APPEND",
-                    "path": amiga_path,
-                    "hexData": hex_data,
-                })
-                ok = await bus.wait_for(
-                    "ok", timeout=CHUNK_TIMEOUT,
-                    predicate=lambda d: d.get("context") == "APPEND",
-                )
-
-            if ok:
-                success = True
-            else:
-                # Check for error
-                err = await bus.wait_for(
-                    "err", timeout=0.5,
-                    predicate=lambda d: d.get("context") in ("WRITEFILE", "APPEND"),
-                )
-                retries += 1
-                if retries < MAX_RETRIES:
-                    logger.warning(
-                        "Chunk %d retry %d: %s",
-                        chunk_num, retries,
-                        err.get("message", "timeout") if err else "timeout",
-                    )
-
-        if not success:
+        if not await _push_chunk(conn, bus, amiga_path, offset, chunk):
             elapsed = time.monotonic() - t0
             return TransferResult(
                 False,
-                f"Failed at chunk {chunk_num} (offset {offset}/{total})",
+                f"Failed at chunk {chunk_num} (offset {offset}/{total}) "
+                f"after {MAX_RETRIES} retries",
                 bytes_transferred=offset,
                 elapsed=elapsed,
             )
-
         offset += len(chunk)
         chunk_num += 1
 
@@ -192,71 +189,94 @@ async def pull_file(
     if remote_size == 0:
         return TransferResult(False, f"Remote file is empty or not found: {amiga_path}")
 
-    # Download chunks
+    # Download chunks. Outer loop re-downloads the whole file if the assembled
+    # CRC doesn't match — a value-corrupted (not dropped) byte keeps the hex
+    # length right and slips past the per-chunk check, but fails the final CRC.
     collected = bytearray()
-    offset = 0
-    chunk_num = 0
+    local_crc = None
+    crc_match = None
+    for file_attempt in range(3):
+        collected = bytearray()
+        offset = 0
+        chunk_num = 0
+        failed_chunk = None
 
-    while offset < remote_size:
-        remaining = remote_size - offset
-        req_size = min(chunk_size, remaining)
-        retries = 0
-        success = False
+        while offset < remote_size:
+            remaining = remote_size - offset
+            req_size = min(chunk_size, remaining)
+            chunk_bytes = None
 
-        while retries < MAX_RETRIES and not success:
-            conn.send({
-                "type": "READFILE",
-                "path": amiga_path,
-                "offset": offset,
-                "size": req_size,
-            })
-            msg = await bus.wait_for(
-                "file", timeout=CHUNK_TIMEOUT,
-                predicate=lambda d: d.get("path") == amiga_path,
-            )
-            got = 0
-            if msg:
+            for _ in range(MAX_RETRIES):
+                conn.send({
+                    "type": "READFILE",
+                    "path": amiga_path,
+                    "offset": offset,
+                    "size": req_size,
+                })
+                msg = await bus.wait_for(
+                    "file", timeout=CHUNK_TIMEOUT,
+                    predicate=lambda d: d.get("path") == amiga_path,
+                )
+                if not msg:
+                    await asyncio.sleep(0.05)
+                    continue
                 hex_data = msg.get("hexData", "")
-                if hex_data:
-                    chunk_bytes = bytes.fromhex(hex_data)
-                    collected.extend(chunk_bytes)
-                    got = len(chunk_bytes)
-                    success = True
-                else:
-                    retries += 1
-            else:
-                retries += 1
-                if retries < MAX_RETRIES:
-                    logger.warning("Read chunk %d retry %d", chunk_num, retries)
+                try:
+                    cb = bytes.fromhex(hex_data) if hex_data else b""
+                except ValueError:
+                    # dropped byte -> odd-length hex; retry the same offset
+                    await asyncio.sleep(0.05)
+                    continue
+                # With sub-line chunks the daemon never truncates, so a short
+                # read means transit loss -> retry rather than misalign.
+                if len(cb) != req_size:
+                    logger.warning("read@%d short %d/%d, retrying", offset, len(cb), req_size)
+                    await asyncio.sleep(0.05)
+                    continue
+                chunk_bytes = cb
+                break
 
-        if not success:
+            if chunk_bytes is None:
+                failed_chunk = chunk_num
+                break
+            collected.extend(chunk_bytes)
+            offset += len(chunk_bytes)
+            chunk_num += 1
+
+        if failed_chunk is not None:
             elapsed = time.monotonic() - t0
             return TransferResult(
                 False,
-                f"Failed reading chunk {chunk_num} (offset {offset}/{remote_size})",
+                f"Failed reading chunk {failed_chunk} (offset {offset}/{remote_size}) "
+                f"after {MAX_RETRIES} retries",
                 bytes_transferred=offset,
                 elapsed=elapsed,
             )
 
-        # Advance by bytes actually received: the daemon caps each chunk so the
-        # response line fits, which can be < req_size. (BUG2 fix)
-        offset += got
-        chunk_num += 1
+        local_crc = binascii.crc32(bytes(collected)) & 0xFFFFFFFF
+        if remote_crc_str:
+            try:
+                crc_match = int(remote_crc_str, 16) == local_crc
+            except (ValueError, TypeError):
+                crc_match = None
+        if crc_match is not False:
+            break   # matched, or no remote CRC to compare against
+        logger.warning("pull CRC mismatch, re-downloading (attempt %d)", file_attempt + 1)
+
+    if crc_match is False:
+        elapsed = time.monotonic() - t0
+        return TransferResult(
+            False,
+            f"CRC mismatch after retries: local={local_crc:08x} remote={remote_crc_str}",
+            bytes_transferred=len(collected),
+            elapsed=elapsed,
+            crc_match=False,
+        )
 
     # Write local file
     dest = Path(local_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(bytes(collected))
-
-    # Verify CRC
-    local_crc = binascii.crc32(bytes(collected)) & 0xFFFFFFFF
-    crc_match = None
-    if remote_crc_str:
-        try:
-            remote_crc = int(remote_crc_str, 16)
-            crc_match = remote_crc == local_crc
-        except (ValueError, TypeError):
-            pass
 
     elapsed = time.monotonic() - t0
     rate = len(collected) / elapsed if elapsed > 0 else 0

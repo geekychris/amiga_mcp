@@ -6,7 +6,7 @@ DOCKER_RUN = docker run --rm -v $(PWD):/work -w /work $(DOCKER_IMAGE)
 all: bridge examples
 
 bridge:
-	$(DOCKER_RUN) make -C amiga-bridge
+	$(DOCKER_RUN) make -C amiga-bridge all
 
 examples: bridge
 	$(DOCKER_RUN) make -C examples/hello_world
@@ -27,6 +27,7 @@ examples: bridge
 	$(DOCKER_RUN) make -C examples/starfield
 	$(DOCKER_RUN) make -C examples/rj_birthday
 	$(DOCKER_RUN) make -C examples/planet_patrol
+	$(DOCKER_RUN) make -C examples/aga3d
 
 clean:
 	$(DOCKER_RUN) make -C examples/hello_world clean
@@ -47,6 +48,7 @@ clean:
 	$(DOCKER_RUN) make -C examples/starfield clean
 	$(DOCKER_RUN) make -C examples/rj_birthday clean
 	$(DOCKER_RUN) make -C examples/planet_patrol clean
+	$(DOCKER_RUN) make -C examples/aga3d clean
 	$(DOCKER_RUN) make -C amiga-bridge clean
 
 setup:

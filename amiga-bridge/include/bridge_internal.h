@@ -11,7 +11,7 @@
 
 /* Daemon version - bump MAJOR/MINOR here ONLY; everything else derives from it. */
 #define BRIDGE_VERSION_MAJOR 1
-#define BRIDGE_VERSION_MINOR 16
+#define BRIDGE_VERSION_MINOR 18
 #define BRIDGE_STR_(x) #x
 #define BRIDGE_STR(x)  BRIDGE_STR_(x)
 #define BRIDGE_VERSION_STR \
