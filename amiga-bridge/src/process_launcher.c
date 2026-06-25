@@ -217,7 +217,8 @@ int proc_launch(ULONG cmdId, const char *command, char *resultBuf, int bufSize)
  */
 int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSize)
 {
-    BPTR nilFh;
+    BPTR nilOut;
+    BPTR nilIn;
     LONG rc;
     char logbuf[UI_MAX_LOG_LEN];
     static char exePath[256];
@@ -254,12 +255,17 @@ int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSiz
     oldWinPtr = pr->pr_WindowPtr;
     pr->pr_WindowPtr = (APTR)-1;
 
-    nilFh = Open((CONST_STRPTR)"NIL:", MODE_OLDFILE);
+    nilOut = Open((CONST_STRPTR)"NIL:", MODE_OLDFILE);
+    /* Give the child NIL: as stdin too: a command that reads input (e.g. `lha`
+     * with no args) then gets EOF immediately instead of blocking forever and
+     * wedging the whole bridge (BUG E). SYS_Input,0 used to inherit our own
+     * input, which is what hung. */
+    nilIn = Open((CONST_STRPTR)"NIL:", MODE_OLDFILE);
 
     /* Run the command asynchronously - returns immediately */
     rc = SystemTags((CONST_STRPTR)command,
-                    SYS_Output, (ULONG)nilFh,
-                    SYS_Input, 0,
+                    SYS_Output, (ULONG)nilOut,
+                    SYS_Input, (ULONG)nilIn,
                     SYS_Asynch, TRUE,
                     NP_StackSize, 8192,
                     TAG_DONE);
@@ -267,10 +273,11 @@ int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSiz
     /* Restore requester */
     pr->pr_WindowPtr = oldWinPtr;
 
-    /* With SYS_Asynch=TRUE, do NOT close nilFh - the system owns it now.
+    /* With SYS_Asynch=TRUE, do NOT close the handles - the system owns them now.
      * rc == -1 means error, otherwise the process was started. */
     if (rc == -1) {
-        if (nilFh) Close(nilFh);
+        if (nilOut) Close(nilOut);
+        if (nilIn) Close(nilIn);
         strcpy(resultBuf, "Failed to start process");
         return -1;
     }

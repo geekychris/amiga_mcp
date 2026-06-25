@@ -103,32 +103,50 @@ async def _still_running_when_sentinel_never_comes():
     assert "partial output" in output, repr(output)
 
 
-# ── list_dir_all paging (BUG1) ──
+# ── list_dir_all paging (BUG1) + not-found (BUG A) ──
 
-class _PagingConn:
+class _PageBus:
+    """subscribe()-style bus matching _send_await's usage."""
+    def __init__(self):
+        self.q = None
+
+    def subscribe(self, *events):
+        bus = self
+
+        class _CM:
+            async def __aenter__(self):
+                bus.q = asyncio.Queue()
+                return bus.q
+
+            async def __aexit__(self, *a):
+                bus.q = None
+                return False
+
+        return _CM()
+
+
+class _PageConn:
     connected = True
 
-    def __init__(self):
-        self.last_offset = 0
+    def __init__(self, bus, pages, err_at=None):
+        self.bus, self.pages, self.err_at = bus, pages, err_at
 
     def send(self, msg):
-        self.last_offset = msg.get("offset", 0)
-
-
-class _PagingBus:
-    def __init__(self, conn, pages):
-        self.conn, self.pages = conn, pages
-
-    async def wait_for(self, ev, timeout=5.0, predicate=None):
-        return self.pages.get(self.conn.last_offset)
+        off = msg.get("offset", 0)
+        if self.err_at is not None and off == self.err_at:
+            self.bus.q.put_nowait(("err", {"context": "LISTDIR failed", "message": "X:"}))
+            return
+        page = self.pages.get(off)
+        if page is not None:
+            self.bus.q.put_nowait(("dir", page))
 
 
 async def _paging_collects_all():
     # daemon returns 2 pages, total=5
     pages = {0: {"path": "X:", "count": 5, "entries": [{"name": c} for c in "ABC"]},
              3: {"path": "X:", "count": 5, "entries": [{"name": c} for c in "DE"]}}
-    conn = _PagingConn()
-    got = await mcp_tools.list_dir_all(conn, _PagingBus(conn, pages), "X:")
+    bus = _PageBus()
+    got = await mcp_tools.list_dir_all(_PageConn(bus, pages), bus, "X:")
     assert [e["name"] for e in got] == list("ABCDE"), got
 
 
@@ -136,9 +154,16 @@ async def _paging_stops_on_empty_page():
     # count claims 9 but the 2nd page is empty -> must NOT loop forever
     pages = {0: {"path": "Y:", "count": 9, "entries": [{"name": "Z"}]},
              1: {"path": "Y:", "count": 9, "entries": []}}
-    conn = _PagingConn()
-    got = await mcp_tools.list_dir_all(conn, _PagingBus(conn, pages), "Y:")
+    bus = _PageBus()
+    got = await mcp_tools.list_dir_all(_PageConn(bus, pages), bus, "Y:")
     assert [e["name"] for e in got] == ["Z"], got
+
+
+async def _listdir_notfound_returns_str():
+    # bridge replies ERR instantly for a missing path -> distinct str, no timeout
+    bus = _PageBus()
+    got = await mcp_tools.list_dir_all(_PageConn(bus, {}, err_at=0), bus, "X:Nope")
+    assert isinstance(got, str) and "Not found" in got, repr(got)
 
 
 def test_all():
@@ -151,6 +176,7 @@ def test_all():
         asyncio.run(_still_running_when_sentinel_never_comes())
         asyncio.run(_paging_collects_all())
         asyncio.run(_paging_stops_on_empty_page())
+        asyncio.run(_listdir_notfound_returns_str())
     finally:
         mcp_tools._read_amiga_file_text = orig
 

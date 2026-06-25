@@ -176,21 +176,50 @@ async def script_execute(conn, bus, script_line: str, timeout: float = 120.0):
     return "running", (last.split(SCRIPT_SENTINEL)[0].rstrip() if last else "")
 
 
+async def _send_await(conn, bus, msg, target: str, predicate, timeout: float):
+    """Send `msg` and wait for the first `target` event matching `predicate`,
+    OR an `err` event (the bridge replies ERR instantly for a missing path /
+    unreadable object). Returns ('ok', data) / ('err', data) / ('noresp', None).
+
+    Subscribing to both at once is the point: the old code waited only for the
+    success event, so the instant ERR was dropped and the call sat until the
+    timeout — then blamed a "busy/wedged" bridge for a plain "not found" (BUG A).
+    """
+    async with bus.subscribe(target, "err") as queue:
+        conn.send(msg)
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return "noresp", None
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return "noresp", None
+            if evt == "err":
+                return "err", data
+            if evt == target and (predicate is None or predicate(data)):
+                return "ok", data
+
+
 async def list_dir_all(conn, bus, path: str, timeout: float = 5.0):
     """List a whole directory, paging until every entry is received.
 
     The daemon serializes one BRIDGE_MAX_LINE page per LISTDIR and reports the
     TRUE total count, so we page (offset = entries so far) until we have them
     all — fixes the old silent truncation of large dirs (BUG1). Returns the
-    entry list, or None if the bridge never answered.
+    entry list, a str error message (path not found / unreadable, BUG A), or
+    None if the bridge never answered at all.
     """
     entries: list = []
     offset = 0
     while True:
-        conn.send({"type": "LISTDIR", "path": path, "offset": offset})
-        msg = await bus.wait_for(
-            "dir", timeout=timeout, predicate=lambda d: d.get("path") == path)
-        if not msg:
+        kind, msg = await _send_await(
+            conn, bus, {"type": "LISTDIR", "path": path, "offset": offset},
+            "dir", lambda d: d.get("path") == path, timeout)
+        if kind == "err":
+            return f"Not found or unreadable: {path}"
+        if kind != "ok":
             return entries if entries else None
         page = msg.get("entries", [])
         total = msg.get("count", len(page))
@@ -555,6 +584,8 @@ async def amiga_list_dir(path: str = "SYS:") -> str:
     entries = await list_dir_all(conn, bus, path)
     if entries is None:
         return _bridge_no_response("LISTDIR")
+    if isinstance(entries, str):
+        return entries          # not found / unreadable (BUG A)
     if not entries:
         return f"Empty directory: {path}"
     lines = [f"Directory: {path} ({len(entries)} entries)"]
@@ -569,12 +600,12 @@ async def amiga_list_dir(path: str = "SYS:") -> str:
 async def amiga_read_file(path: str, offset: int = 0, size: int = 4096) -> str:
     """Read a file from the Amiga filesystem."""
     conn, state, bus = _require_connected()
-    conn.send({"type": "READFILE", "path": path, "offset": offset, "size": size})
-    msg = await bus.wait_for(
-        "file", timeout=5.0,
-        predicate=lambda d: d.get("path") == path,
-    )
-    if msg:
+    kind, msg = await _send_await(
+        conn, bus, {"type": "READFILE", "path": path, "offset": offset, "size": size},
+        "file", lambda d: d.get("path") == path, 5.0)
+    if kind == "err":
+        return f"Not found or unreadable: {path}"      # BUG A: distinct, instant
+    if kind == "ok":
         hex_data = msg.get("hexData", "")
         if hex_data:
             return format_hex_dump(f"{offset:08x}", hex_data)
@@ -609,18 +640,24 @@ async def amiga_launch(command: str) -> str:
 
 
 @mcp.tool()
-async def amiga_dos_command(command: str) -> str:
-    """Execute an AmigaDOS command."""
-    conn, state, bus = _require_connected()
-    cmd_id = int(time.time() * 1000) % 100000
-    conn.send({"type": "DOSCOMMAND", "id": cmd_id, "command": command})
+async def amiga_dos_command(command: str, timeout: float = 30.0) -> str:
+    """Execute an AmigaDOS command and return its captured output.
 
-    msg = await bus.wait_for(
-        "cmd", timeout=5.0,
-        predicate=lambda d: d.get("id") == cmd_id,
-    )
-    if msg:
-        return f"[{msg['status']}] {msg['data']}"
+    Runs via the async SCRIPT path: the bridge executes the command with
+    stdin=NIL: (a child that waits on input can't wedge the bridge, BUG E) and
+    captures stdout/stderr to a temp file we read back (BUG B). The command runs
+    async on the bridge, so a long one doesn't block other requests (BUG D).
+    """
+    conn, state, bus = _require_connected()
+    status, output = await script_execute(conn, bus, command, timeout=timeout)
+    if status == "ok":
+        return output if output.strip() else "[OK] (no output)"
+    if status == "running":
+        return (f"[RUNNING] still going after {timeout:.0f}s — partial output:\n{output}"
+                if output.strip() else
+                f"[RUNNING] still going after {timeout:.0f}s (no output yet)")
+    if status == "error":
+        return f"[ERR] {output}"
     return _bridge_no_response("dos_command")
 
 

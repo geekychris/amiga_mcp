@@ -244,6 +244,8 @@ async def api_dir(request: Request) -> JSONResponse:
         return JSONResponse({"path": dir_path, "entries": [], "error": "Send failed"})
     if entries is None:
         return JSONResponse({"path": dir_path, "entries": [], "message": "No response"})
+    if isinstance(entries, str):
+        return JSONResponse({"path": dir_path, "entries": [], "error": entries})
     return JSONResponse({"path": dir_path, "entries": entries})
 
 
