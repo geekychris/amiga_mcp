@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""Drive hubert from the host — type commands, get output.
+
+Two usage modes:
+
+    hubert-drive run "dir DH2:Dev"
+        Uses the hubert `run` hook to execute a command line as if typed
+        at the prompt, and prints the captured output (exit code + stdout).
+        Fast, deterministic; the AmigaOS side runs it via SystemTagList().
+
+    hubert-drive type "hello world"
+        Injects the string one keystroke at a time via the bridge's
+        input.device tap. Handles shifted characters. Slower and only
+        useful when you specifically want to exercise the keyboard path
+        (e.g. testing hubert's line editor).
+
+Extra flags:
+    --host URL   devbench base URL (default: http://localhost:3000)
+    --client N   client name (default: hubert)
+    --timeout N  timeout in seconds for run mode (default: 60)
+    --key-delay F  seconds between key events for type mode (default: 0.06)
+    --screenshot PATH  after the command, save an Amiga screenshot
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+import urllib.request
+from typing import Optional
+
+
+# ─── Amiga raw-keycode map ──────────────────────────────────────────────
+# Only the characters we routinely need. Shift-modifiers are noted; the
+# driver holds down Left-Shift for any key marked shift=True.
+KEYMAP: dict[str, tuple[int, bool]] = {}
+
+
+def _init_keymap() -> None:
+    """Row-major keyboard, ASCII → (rawcode, shift?)."""
+    rows = {
+        # top number row
+        "`": (0x00, False), "~": (0x00, True),
+        "1": (0x01, False), "!": (0x01, True),
+        "2": (0x02, False), "@": (0x02, True),
+        "3": (0x03, False), "#": (0x03, True),
+        "4": (0x04, False), "$": (0x04, True),
+        "5": (0x05, False), "%": (0x05, True),
+        "6": (0x06, False), "^": (0x06, True),
+        "7": (0x07, False), "&": (0x07, True),
+        "8": (0x08, False), "*": (0x08, True),
+        "9": (0x09, False), "(": (0x09, True),
+        "0": (0x0A, False), ")": (0x0A, True),
+        "-": (0x0B, False), "_": (0x0B, True),
+        "=": (0x0C, False), "+": (0x0C, True),
+        # QWERTY row
+        "q": (0x10, False), "Q": (0x10, True),
+        "w": (0x11, False), "W": (0x11, True),
+        "e": (0x12, False), "E": (0x12, True),
+        "r": (0x13, False), "R": (0x13, True),
+        "t": (0x14, False), "T": (0x14, True),
+        "y": (0x15, False), "Y": (0x15, True),
+        "u": (0x16, False), "U": (0x16, True),
+        "i": (0x17, False), "I": (0x17, True),
+        "o": (0x18, False), "O": (0x18, True),
+        "p": (0x19, False), "P": (0x19, True),
+        "[": (0x1A, False), "{": (0x1A, True),
+        "]": (0x1B, False), "}": (0x1B, True),
+        # ASDF row
+        "a": (0x20, False), "A": (0x20, True),
+        "s": (0x21, False), "S": (0x21, True),
+        "d": (0x22, False), "D": (0x22, True),
+        "f": (0x23, False), "F": (0x23, True),
+        "g": (0x24, False), "G": (0x24, True),
+        "h": (0x25, False), "H": (0x25, True),
+        "j": (0x26, False), "J": (0x26, True),
+        "k": (0x27, False), "K": (0x27, True),
+        "l": (0x28, False), "L": (0x28, True),
+        ";": (0x29, False), ":": (0x29, True),
+        "'": (0x2A, False), '"': (0x2A, True),
+        # ZXCV row
+        "z": (0x31, False), "Z": (0x31, True),
+        "x": (0x32, False), "X": (0x32, True),
+        "c": (0x33, False), "C": (0x33, True),
+        "v": (0x34, False), "V": (0x34, True),
+        "b": (0x35, False), "B": (0x35, True),
+        "n": (0x36, False), "N": (0x36, True),
+        "m": (0x37, False), "M": (0x37, True),
+        ",": (0x38, False), "<": (0x38, True),
+        ".": (0x39, False), ">": (0x39, True),
+        "/": (0x3A, False), "?": (0x3A, True),
+        # Special
+        " ":  (0x40, False),
+        "\t": (0x42, False),
+        "\n": (0x44, False),
+    }
+    KEYMAP.update(rows)
+
+
+_init_keymap()
+
+LEFT_SHIFT = 0x60
+
+
+def _http_json(url: str, method: str, body: Optional[dict] = None,
+               timeout: float = 15.0) -> dict:
+    data = json.dumps(body or {}).encode() if body is not None else None
+    req = urllib.request.Request(
+        url, data=data, method=method,
+        headers={"Content-Type": "application/json"} if data is not None else {},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"raw": raw.decode(errors="replace")}
+
+
+# ─── run mode: use the hubert `run` hook ───────────────────────────────
+
+def do_run(host: str, client: str, command: str, timeout: float) -> int:
+    body = {
+        "client": client,
+        "hook": "run",
+        "args": command,
+        "timeout_ms": int(timeout * 1000),
+    }
+    try:
+        resp = _http_json(f"{host}/api/hooks/call", "POST", body,
+                          timeout=timeout + 5)
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    status = resp.get("status", "?")
+    data = resp.get("data", "")
+    if status == "timeout":
+        print(f"# TIMEOUT — no response after {timeout}s", file=sys.stderr)
+        return 3
+    if status == "error":
+        print(f"# ERROR {data}", file=sys.stderr)
+        return 4
+    # Data format: "exit=<N>\n<captured>"
+    lines = data.split("\n", 1)
+    exit_line = lines[0] if lines else ""
+    captured = lines[1] if len(lines) > 1 else ""
+    try:
+        exit_code = int(exit_line.replace("exit=", ""))
+    except ValueError:
+        exit_code = 0
+    if captured:
+        sys.stdout.write(captured)
+        if not captured.endswith("\n"):
+            sys.stdout.write("\n")
+    return exit_code
+
+
+# ─── type mode: keystroke injection ─────────────────────────────────────
+
+def _post_key(host: str, rawkey: int, direction: str) -> None:
+    _http_json(
+        f"{host}/api/tool/input/key",
+        "POST",
+        {"rawkey": f"{rawkey:x}", "direction": direction},
+        timeout=5.0,
+    )
+
+
+def do_type(host: str, text: str, delay: float) -> int:
+    for ch in text:
+        entry = KEYMAP.get(ch)
+        if entry is None:
+            print(f"warn: no keymap for {ch!r}", file=sys.stderr)
+            continue
+        rawkey, shift = entry
+        if shift:
+            _post_key(host, LEFT_SHIFT, "down")
+        _post_key(host, rawkey, "down")
+        _post_key(host, rawkey, "up")
+        if shift:
+            _post_key(host, LEFT_SHIFT, "up")
+        time.sleep(delay)
+    return 0
+
+
+# ─── screenshot helper ──────────────────────────────────────────────────
+
+def do_screenshot(host: str, path: str) -> None:
+    meta = _http_json(f"{host}/api/screenshot", "GET", timeout=30.0)
+    src = meta.get("path", "")
+    if not src:
+        print(f"screenshot: no path in response: {meta}", file=sys.stderr)
+        return
+    import shutil
+    shutil.copy(src, path)
+    print(f"screenshot -> {path}")
+
+
+# ─── CLI ─────────────────────────────────────────────────────────────────
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--host", default="http://localhost:3000",
+                    help="devbench URL")
+    ap.add_argument("--client", default="hubert",
+                    help="bridge client name (default: hubert)")
+    ap.add_argument("--timeout", type=float, default=60.0,
+                    help="run-mode timeout (seconds, default 60)")
+    ap.add_argument("--key-delay", type=float, default=0.06,
+                    help="type-mode inter-key delay (seconds, default 0.06)")
+    ap.add_argument("--screenshot", default=None, metavar="PATH",
+                    help="after the command, save an Amiga screenshot")
+    sub = ap.add_subparsers(dest="mode", required=True)
+
+    prun = sub.add_parser("run", help="execute via hubert run hook")
+    prun.add_argument("command", nargs="+", help="the command to run")
+
+    ptype = sub.add_parser("type", help="inject keystrokes")
+    ptype.add_argument("text", help="string to type (\\n for Enter)")
+
+    args = ap.parse_args()
+
+    if args.mode == "run":
+        cmd = " ".join(args.command)
+        rc = do_run(args.host, args.client, cmd, args.timeout)
+    elif args.mode == "type":
+        text = args.text.replace("\\n", "\n").replace("\\t", "\t")
+        rc = do_type(args.host, text, args.key_delay)
+    else:
+        ap.print_help()
+        return 1
+
+    if args.screenshot:
+        do_screenshot(args.host, args.screenshot)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

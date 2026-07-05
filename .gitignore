@@ -28,3 +28,4 @@ amiga-bridge/src/*.o
 
 # Runtime snapshots (encoded absolute paths)
 %2F*
+*.dSYM/
