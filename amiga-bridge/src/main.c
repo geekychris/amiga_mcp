@@ -37,6 +37,37 @@ static int g_top      = 2;    /* top margin inside the GZZ area */
 /* Last protocol command received from the host (for the status window). */
 char g_last_cmd[80] = "";
 
+/* ─── Wedge diagnostics ──────────────────────────────────────────────────
+ *
+ * The main loop sets a phase name each time it enters a distinct section.
+ * A counter increments so we can tell "loop is progressing" vs "loop is
+ * frozen inside the current phase".
+ *
+ * Also mirrored to SYS:BridgeLogs/live.log (truncate+write each tick) so
+ * we can `ssh chris@amiga.local cat` it after a wedge — no bridge protocol
+ * required. The file open/close per tick is intentional: on any freeze
+ * the last successful Close is on disk and readable.
+ */
+static char       g_phase[32]     = "boot";
+static ULONG      g_phase_counter = 0;
+
+static void phase_set(const char *name)
+{
+    int i;
+    for (i = 0; name[i] && i < (int)sizeof(g_phase) - 1; i++) g_phase[i] = name[i];
+    g_phase[i] = '\0';
+    g_phase_counter++;
+}
+
+/* Refresh the on-screen phase display every timer tick so a live viewer
+ * (or a screenshot at wedge time) sees the current phase + counter. We
+ * do NOT do file I/O here — Amiberry's DOS emulation wedges on the
+ * repeated open/write/close pattern.  */
+static void phase_log_tick(void)
+{
+    g_ui_dirty = TRUE;
+}
+
 /* UI state - global, accessed by other modules */
 char g_ui_logs[UI_MAX_LOG_LINES][UI_MAX_LOG_LEN];
 int g_ui_log_head = 0;
@@ -63,8 +94,8 @@ static BOOL timerOpen = FALSE;
 static ULONG timerSig = 0;
 
 /* Window dimensions */
-#define WIN_WIDTH  310
-#define WIN_HEIGHT 160
+#define WIN_WIDTH  330
+#define WIN_HEIGHT 210   /* room for Cmd + Phase lines below the log */
 #define WIN_LEFT   10
 #define WIN_TOP    20
 
@@ -217,6 +248,16 @@ static void ui_redraw(void)
         static char cmdline[96];
         sprintf(cmdline, "Cmd: %s", g_last_cmd[0] ? g_last_cmd : "-");
         draw_text_line(rp, 3 + UI_MAX_LOG_LINES + 1, cmdline);
+    }
+
+    /* Phase + counter — the counter proves the main loop is progressing.
+     * If a screenshot shows the same counter across two grabs, we're
+     * wedged and `phase` names the section we stalled in. */
+    {
+        static char phaseline[96];
+        sprintf(phaseline, "Phase: %s (%lu)",
+                g_phase, (unsigned long)g_phase_counter);
+        draw_text_line(rp, 3 + UI_MAX_LOG_LINES + 2, phaseline);
     }
 
     g_ui_dirty = FALSE;
@@ -419,10 +460,12 @@ int main(int argc, char **argv)
         ULONG arexxSig = arexx_get_signal();
         signals = serialSig | ipcSig | winSig | timerSig | arexxSig | SIGBREAKF_CTRL_C;
 
+        phase_set("wait");
         received = Wait(signals);
 
         /* Check CTRL-C */
         if (received & SIGBREAKF_CTRL_C) {
+            phase_set("ctrl_c");
             ui_add_log("CTRL-C received");
             running = FALSE;
             break;
@@ -430,6 +473,7 @@ int main(int argc, char **argv)
 
         /* Check shutdown request from protocol handler */
         if (g_shutdown_requested) {
+            phase_set("shutdown");
             ui_add_log("Shutdown requested");
             running = FALSE;
             break;
@@ -438,6 +482,7 @@ int main(int argc, char **argv)
         /* Check window events */
         if (received & winSig) {
             struct IntuiMessage *imsg;
+            phase_set("window");
             while ((imsg = (struct IntuiMessage *)GetMsg(win->UserPort)) != NULL) {
                 ULONG iclass = imsg->Class;
                 ReplyMsg((struct Message *)imsg);
@@ -460,7 +505,9 @@ int main(int argc, char **argv)
          * is non-blocking and returns 0 when there is nothing pending. */
         {
             char ch;
+            phase_set("transport");
             while (transport_check_read(&ch)) {
+                phase_set("transport_dispatch");
                 handle_serial_byte(ch);
                 transport_start_read();
             }
@@ -479,6 +526,7 @@ int main(int argc, char **argv)
 
         /* Check IPC messages */
         if (received & ipcSig) {
+            phase_set("ipc");
             ipc_process();
         }
 
@@ -486,34 +534,41 @@ int main(int argc, char **argv)
          * not just timer ticks, so we catch the first BP hit before
          * the target runs past additional breakpoints. */
         if (g_serial_connected) {
+            phase_set("dbg_poll");
             dbg_poll();
         }
 
         /* Check ARexx reply */
         if (arexxSig && (received & arexxSig)) {
+            phase_set("arexx");
             arexx_poll();
         }
 
         /* Timer tick — periodic 200ms wake-up */
         if (timerOpen && (received & timerSig)) {
+            phase_set("timer");
             /* Collect the timer message */
             GetMsg(timerPort);
 
             /* Drain snoop ring buffer */
             if (g_serial_connected && snoop_is_active()) {
+                phase_set("snoop_drain");
                 snoop_drain();
             }
 
             /* Poll chip logger for changes */
             if (g_serial_connected) {
+                phase_set("chiplog");
                 chiplog_poll();
             }
 
             /* Poll ARexx for timeout */
+            phase_set("arexx_poll");
             arexx_poll();
 
             /* Poll tail file streaming */
             if (g_serial_connected) {
+                phase_set("tail_poll");
                 tail_poll();
             }
 
@@ -521,10 +576,16 @@ int main(int argc, char **argv)
             hb_counter++;
             if (hb_counter >= 25 && g_serial_connected) {
                 hb_counter = 0;
+                phase_set("heartbeat");
                 send_heartbeat();
             }
 
+            /* Flush the wedge-diagnostics log once per timer tick. */
+            phase_set("phase_log");
+            phase_log_tick();
+
             /* Re-arm timer */
+            phase_set("timer_rearm");
             timerReq->tr_node.io_Command = TR_ADDREQUEST;
             timerReq->tr_time.tv_secs = 0;
             timerReq->tr_time.tv_micro = 200000;
@@ -533,6 +594,7 @@ int main(int argc, char **argv)
 
         /* Redraw UI if dirty */
         if (g_ui_dirty) {
+            phase_set("redraw");
             ui_redraw();
         }
     }

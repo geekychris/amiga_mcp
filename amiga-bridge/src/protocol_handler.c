@@ -1296,7 +1296,11 @@ static void handle_callhook(const char *args)
      * to reply to LOG, daemon waits for client to reply to HOOK. */
     {
         struct Message *reply = NULL;
-        int retries = 150; /* ~15 seconds (for slow hooks like disk I/O) */
+        /* 300s cap — big enough to accommodate an entire LLM turn (ask) or
+         * slow disk I/O. Delay(5) = 100ms, so 3000 retries * 100ms = 300s.
+         * Meanwhile we call ipc_process() each iteration so the hook can
+         * still ab_log / ab_push_var without deadlocking. */
+        int retries = 3000;
 
         while (retries > 0) {
             reply = GetMsg(tempPort);
