@@ -1,4 +1,16 @@
-"""Deploy built Amiga binaries to AmiKit shared folder."""
+"""Deploy built Amiga binaries to AmiKit shared folder.
+
+Two paths exist:
+- ``deploy()``: the traditional shared-folder copy. Fast (host filesystem
+  write) but requires the emulator (or the Amiga) to see the folder via a
+  mount / shared-directory config.
+- ``deploy_via_bridge()``: an async path that streams the file over the
+  bridge protocol using :mod:`file_transfer`. Works whenever the bridge is
+  connected — including remote emulators (pi-amikit) and real hardware on
+  the LAN.
+
+``deploy_smart()`` picks between them automatically.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +18,7 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +42,22 @@ class DeployResult:
 class Deployer:
     """Copy built binaries to AmiKit shared folder."""
 
-    def __init__(self, project_root: str | None = None, deploy_dir: str | None = None) -> None:
+    def __init__(
+        self,
+        project_root: str | None = None,
+        deploy_dir: str | None = None,
+        force_bridge: bool = False,
+    ) -> None:
         if project_root:
             self._root = Path(project_root).resolve()
         else:
             self._root = Path(__file__).resolve().parent.parent.parent
         self._deploy_dir = self._resolve_deploy_dir(deploy_dir)
+        # When the emulator is on another host (profile has ``emulator_ssh``),
+        # the local shared folder — even if auto-detected — points somewhere
+        # the target Amiga can't see. Callers set force_bridge=True in that
+        # case so deploy_smart always routes over the bridge.
+        self._force_bridge = force_bridge
 
     def _resolve_deploy_dir(self, deploy_dir: str | None) -> Path | None:
         if deploy_dir:
@@ -155,3 +178,95 @@ class Deployer:
         except Exception as e:
             logger.error("Deploy failed: %s -> %s: %s", src, dest, e)
             return None
+
+    @property
+    def has_shared_folder(self) -> bool:
+        """True if a shared deploy dir is configured and writable.
+
+        Returns False when ``force_bridge`` is set (typically because the
+        target Amiga lives on another host and can't see this Mac's disk),
+        so :meth:`deploy_smart` always takes the bridge path.
+        """
+        if self._force_bridge:
+            return False
+        if self._deploy_dir is None:
+            return False
+        try:
+            import os
+            return self._deploy_dir.is_dir() and os.access(self._deploy_dir, os.W_OK)
+        except Exception:
+            return False
+
+    async def deploy_via_bridge(
+        self,
+        project: str,
+        conn: Any,
+        bus: Any,
+        amiga_dest: str = "DH2:Dev",
+    ) -> DeployResult:
+        """Stream the project's built binary to the Amiga over the bridge.
+
+        Uses :mod:`file_transfer` (WRITEFILE + APPEND chunks, CRC32 verified).
+        The caller must supply a connected SerialConnection and its EventBus.
+        """
+        binary = self._find_binary(project)
+        if not binary:
+            return DeployResult(
+                success=False,
+                message=f"No binary found for project: {project}",
+                files=[],
+            )
+        amiga_path = amiga_dest.rstrip("/") + "/" + binary.name
+        # Import locally so a purely-shared-folder deploy has no dependency
+        # on the bridge module.
+        from . import file_transfer
+        result = await file_transfer.push_file(conn, bus, str(binary), amiga_path)
+        if result.success:
+            return DeployResult(
+                success=True,
+                message=f"Deployed via bridge -> {amiga_path} ({result.message})",
+                files=[amiga_path],
+            )
+        return DeployResult(
+            success=False,
+            message=f"Bridge deploy failed: {result.message}",
+            files=[],
+        )
+
+    async def deploy_smart(
+        self,
+        project: str | None,
+        conn: Any = None,
+        bus: Any = None,
+        amiga_dest: str = "DH2:Dev",
+    ) -> DeployResult:
+        """Prefer the shared-folder path; fall back to the bridge when the
+        shared folder isn't available or writable.
+
+        For multi-file deploy (``project is None``) we only use the shared
+        folder — the bridge path is per-file and doesn't currently loop the
+        examples tree the way the shared-folder path does.
+        """
+        if self.has_shared_folder:
+            logger.info("deploy_smart: using shared folder %s", self._deploy_dir)
+            return self.deploy(project)
+        if project is None:
+            return DeployResult(
+                success=False,
+                message=(
+                    "No shared folder configured and no project specified. "
+                    "Pass a specific project to deploy over the bridge."
+                ),
+                files=[],
+            )
+        if conn is None or bus is None or not getattr(conn, "connected", False):
+            return DeployResult(
+                success=False,
+                message=(
+                    "No shared folder configured and bridge is not connected. "
+                    "Either set [paths] deploy_dir, or connect the Amiga bridge."
+                ),
+                files=[],
+            )
+        logger.info("deploy_smart: no shared folder — falling back to bridge")
+        return await self.deploy_via_bridge(project, conn, bus, amiga_dest)

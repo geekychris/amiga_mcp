@@ -33,6 +33,7 @@ _deployer: Deployer | None = None
 _event_bus: EventBus | None = None
 _dbg_state: DebuggerState | None = None
 _fsuae_rpc: FsuaeRpcClient | None = None
+_emulator: Any = None  # EmulatorManager | RemoteEmulatorController | None
 
 mcp = FastMCP("amiga-dev")
 
@@ -44,15 +45,17 @@ def init_tools(
     deployer: Deployer,
     event_bus: EventBus,
     fsuae_rpc: FsuaeRpcClient | None = None,
+    emulator: Any = None,
 ) -> None:
     """Initialize module-level references for MCP tools."""
-    global _conn, _state, _builder, _deployer, _event_bus, _fsuae_rpc
+    global _conn, _state, _builder, _deployer, _event_bus, _fsuae_rpc, _emulator
     _conn = conn
     _state = state
     _builder = builder
     _deployer = deployer
     _event_bus = event_bus
     _fsuae_rpc = fsuae_rpc
+    _emulator = emulator
 
 
 def _require_connected() -> tuple[SerialConnection, AmigaState, EventBus]:
@@ -850,9 +853,11 @@ async def amiga_write_memory(address: str, hex_data: str) -> str:
 
 @mcp.tool()
 async def amiga_deploy(project: str | None = None) -> str:
-    """Deploy built binaries to AmiKit shared folder."""
+    """Deploy built binaries. Uses the AmiKit shared folder when configured;
+    otherwise transparently falls back to streaming over the bridge (works for
+    remote emulators and real Amigas without a shared folder)."""
     assert _deployer is not None
-    result = _deployer.deploy(project)
+    result = await _deployer.deploy_smart(project, conn=_conn, bus=_event_bus)
     parts = [result.message]
     if result.files:
         parts.append("Files: " + ", ".join(result.files))
@@ -869,8 +874,8 @@ async def amiga_build_deploy_run(project: str, command: str | None = None) -> st
     if not build_result.success:
         return f"Build FAILED ({build_result.duration}ms)\n{build_result.errors}"
 
-    # Deploy
-    deploy_result = _deployer.deploy(project)
+    # Deploy (auto shared-folder or bridge)
+    deploy_result = await _deployer.deploy_smart(project, conn=_conn, bus=_event_bus)
     if not deploy_result.success:
         return f"Build OK but deploy failed: {deploy_result.message}"
 
@@ -913,8 +918,8 @@ async def amiga_run(project: str, command: str | None = None) -> str:
             steps.append(f"Errors:\n{build_result.errors}")
         return "\n".join(steps)
 
-    # 2. Deploy
-    deploy_result = _deployer.deploy(project)
+    # 2. Deploy (auto shared-folder or bridge)
+    deploy_result = await _deployer.deploy_smart(project, conn=_conn, bus=_event_bus)
     steps.append(f"Deploy: {'OK' if deploy_result.success else 'FAILED'} - {deploy_result.message}")
     if not deploy_result.success:
         return "\n".join(steps)
@@ -3108,3 +3113,69 @@ async def amiga_fsuae_fd_libraries() -> str:
     if not _fsuae_rpc or not _fsuae_rpc.available:
         return _rpc_unavailable()
     return _rpc_render(await _fsuae_rpc.fd_libraries())
+
+
+# ─── Emulator lifecycle (local FS-UAE or remote SSH-driven) ─────────
+
+def _emu_or_error() -> str | None:
+    if _emulator is None:
+        return "No emulator manager configured."
+    return None
+
+
+@mcp.tool()
+async def amiga_emulator_status() -> str:
+    """Report whether the (local or remote) emulator is running and how it's controlled."""
+    err = _emu_or_error()
+    if err:
+        return err
+    s = _emulator.get_status()
+    kind = "remote (SSH)" if s.get("remote") else "local subprocess"
+    running = "RUNNING" if s.get("running") else "STOPPED"
+    parts = [f"Emulator: {running} ({kind})"]
+    if s.get("binary"):
+        parts.append(f"  binary: {s['binary']}")
+    if s.get("uptime") is not None:
+        parts.append(f"  uptime: {s['uptime']}s")
+    if s.get("ready_probe"):
+        parts.append(f"  ready probe: {s['ready_probe']}")
+    if s.get("pid"):
+        parts.append(f"  pid: {s['pid']}")
+    return "\n".join(parts)
+
+
+@mcp.tool()
+async def amiga_emulator_start() -> str:
+    """Bring the emulator up. For pi-amikit this SSHes the start_cmd and
+    falls back to a full reboot if the bridge port doesn't respond in time."""
+    err = _emu_or_error()
+    if err:
+        return err
+    if _emulator.is_running:
+        return "Emulator already running."
+    ok = await _emulator.start()
+    if ok:
+        return "Emulator started."
+    return "Emulator failed to start — check the devbench log for details."
+
+
+@mcp.tool()
+async def amiga_emulator_stop() -> str:
+    """Stop the emulator (local kill, or remote stop_cmd for pi-amikit)."""
+    err = _emu_or_error()
+    if err:
+        return err
+    if not _emulator.is_running:
+        return "Emulator already stopped."
+    ok = await _emulator.stop()
+    return "Emulator stopped." if ok else "Emulator did not stop cleanly."
+
+
+@mcp.tool()
+async def amiga_emulator_restart() -> str:
+    """Stop, wait, and start the emulator."""
+    err = _emu_or_error()
+    if err:
+        return err
+    ok = await _emulator.restart()
+    return "Emulator restarted." if ok else "Emulator restart failed."

@@ -1,18 +1,62 @@
 # Amiga DevBench Configuration
+#
+# Three deployment topologies are supported:
+#   1. local-fsuae  — FS-UAE on this Mac, PTY symlink transport
+#   2. real-amiga   — Real Amiga on the LAN, TCP via RoadShow bsdsocket
+#   3. pi-amikit    — AmiKit inside Amiberry on a Raspberry Pi, TCP via
+#                     Amiberry's built-in bsdsocket_emu
+#
+# Switch between them with:
+#     python -m amiga_devbench --profile <name>
+# or by setting `active_profile` below. List them with `--list-profiles`.
+# The flat [serial]/[emulator] sections act as defaults; profile fields
+# overlay on top of them.
+
+active_profile = "pi-amikit"
+
+[profiles.local-fsuae]
+description = "Local FS-UAE, PTY symlink"
+mode = "pty"
+pty_path = "/tmp/amiga-serial"
+auto_start_emulator = true
+
+[profiles.pi-amikit]
+description = "AmiKit inside Amiberry on chris@amiga.local"
+mode = "tcp"
+host = "amiga.local"
+port = 2345
+# Remote emulator control over SSH. The start command launches Amiberry as the
+# amikit user against that user's X session (works when the desktop is up); if
+# it doesn't come ready in time we escalate to a full reboot, which the Pi's
+# autologin+autostart uses to relaunch Amiberry from a clean session.
+auto_start_emulator = true
+emulator_ssh = "chris@amiga.local"
+emulator_start_cmd = "sudo -u amikit -H env DISPLAY=:0 XAUTHORITY=/home/amikit/.Xauthority sh -c 'cd /home/amikit/Amiberry && setsid ./amiberry -s use_gui=no </dev/null >/dev/null 2>&1 &'"
+emulator_stop_cmd = "sudo pkill -x amiberry"
+emulator_status_cmd = "pgrep -x amiberry >/dev/null"
+emulator_ready_probe = "amiga.local:2345"
+emulator_reboot_cmd = "sudo reboot"
+
+[profiles.real-amiga]
+description = "Real Amiga on LAN (RoadShow bsdsocket)"
+mode = "tcp"
+# Set this to the real Amiga's LAN IP (or hostname).
+host = "192.168.1.50"
+port = 2345
+auto_start_emulator = false
+
+# ─── Defaults (applied before the profile overlay) ────────────────────
 
 [serial]
 mode = "tcp"
-host = "127.0.0.1"   # real Amiga over network: set to the Amiga's LAN IP (run `amiga-bridge TCP 2345` there, RoadShow stack up)
-port = 2345          # must match the daemon's TCP listen port
+host = "127.0.0.1"
+port = 2345
 pty_path = "/tmp/amiga-serial"
 
 [emulator]
-# "auto" prefers the patched debugger build (~/.amiga-devbench/fs-uae,
-# /tmp/fsuae-src/fs-uae) when present, else falls back to fs-uae on PATH.
-# Set to an explicit path to pin a specific binary.
 binary = "auto"
 config = "/Users/chris/Documents/FS-UAE/Configurations/AmiKit-Debug.fs-uae"
-auto_start = true
+auto_start = false
 
 [server]
 port = 3000
@@ -24,11 +68,26 @@ deploy_dir = "/Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/Ami
 [bridge]
 crash_handler_auto_enable = true
 
+[llm]
+# LLM proxy for amiterm's `ask` builtin. When enabled, LLM_ASK CLOG events
+# from an "amiterm" client are streamed to an Ollama-compatible endpoint
+# and the token deltas + tool calls flow back via CALLHOOK llm_event.
+enabled = true
+host = "spark.hitorro.com"
+port = 11434
+scheme = "http"
+model = "nemotron"
+
 [fsuae_rpc]
 # Remote-debug HTTP API exposed by the patched fs-uae build
-# (see https://github.com/geekychris/fsuae_remote_patch). Stock fs-uae ignores
-# these env vars, so leaving this enabled is safe either way.
-enabled = "auto"          # "auto" | "on" | "off"
+# (see https://github.com/geekychris/fsuae_remote_patch). Stock fs-uae
+# ignores these env vars, so leaving this enabled is safe either way.
+enabled = "auto"  # "auto" | "on" | "off"
 port = 8765
 pause_at_boot = false
-gdb_port = 0              # 0 disables the in-emulator GDB stub
+gdb_port = 0  # 0 disables the in-emulator GDB stub
+auto_pause_on_crash = true
+# Auto-snapshot ring buffer — OFF by default. Set to e.g. 30 for a snap every 30s.
+# Each save is ~19MB / ~200ms and DOES affect emulator throughput while saving.
+auto_snapshot_interval_s = 0  # 0 disables
+auto_snapshot_ring_size = 5    # rotating slots

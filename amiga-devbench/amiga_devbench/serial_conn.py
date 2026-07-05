@@ -154,6 +154,19 @@ class SerialConnection:
         self._first_data = True
         self._line_buf = ""
 
+        # Drain the previous read-loop task before we start a new one. Without
+        # this, an old task blocked in reader.read() from the dying connection
+        # can wake up AFTER we've opened the new socket, run its `finally`,
+        # and clobber `_connected = True` back to False — leaving us
+        # permanently disconnected even though the wire is healthy again.
+        if self._tcp_task and not self._tcp_task.done():
+            self._tcp_task.cancel()
+            try:
+                await asyncio.wait_for(self._tcp_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                pass
+            self._tcp_task = None
+
         # Clean up any leftover socket from previous connection
         if self._writer:
             try:
@@ -812,14 +825,24 @@ class SerialConnection:
         self._reconnect_task = asyncio.ensure_future(self._reconnect_loop(delay))
 
     async def _reconnect_loop(self, delay: float) -> None:
+        """Keep trying to reconnect until we succeed (or auto_reconnect is
+        turned off). Previously this ran connect() at most once, then relied
+        on `_schedule_reconnect()` to arm the next attempt — but calling that
+        from inside the running reconnect task is a self-referencing no-op
+        (``self._reconnect_task`` is us, not-done, so the guard returns
+        early). A single transient failure (DNS blip during a Pi reboot, port
+        not open yet) left us permanently disconnected. Loop instead."""
         await asyncio.sleep(delay)
-        if not self._connected and self._auto_reconnect:
+        while not self._connected and self._auto_reconnect:
             logger.info("Attempting %s reconnect...", self._mode)
             try:
                 await self.connect()
+                if self._connected:
+                    return
             except Exception as e:
                 logger.error("Reconnect failed: %s", e)
-                self._schedule_reconnect()
+            # Wait before the next attempt so we don't hammer.
+            await asyncio.sleep(delay)
 
     def get_status(self) -> dict[str, Any]:
         now = time.time()

@@ -572,6 +572,14 @@ async def api_call_hook(request: Request) -> JSONResponse:
     client = body.get("client", "")
     hook = body.get("hook", "")
     hook_args = body.get("args", "")
+    # Some hooks (agent runs, LLM ask, long DOS commands) legitimately need
+    # more than the historical 5s ceiling. Callers can bump it; we clamp at
+    # 300s so a runaway hook doesn't hold devbench open forever.
+    try:
+        timeout_ms = int(body.get("timeout_ms", 5000))
+    except (TypeError, ValueError):
+        timeout_ms = 5000
+    timeout_ms = max(1000, min(timeout_ms, 300000))
     if not client or not hook:
         return JSONResponse({"error": "Missing client or hook"}, status_code=400)
     cmd_id = int(time.time() * 1000) % 100000
@@ -581,7 +589,7 @@ async def api_call_hook(request: Request) -> JSONResponse:
                         "hook": hook, "args": hook_args})
         except Exception as e:
             return JSONResponse({"error": str(e)})
-        deadline = asyncio.get_event_loop().time() + 5.0
+        deadline = asyncio.get_event_loop().time() + (timeout_ms / 1000.0)
         while True:
             remaining = deadline - asyncio.get_event_loop().time()
             if remaining <= 0:
@@ -784,8 +792,8 @@ async def api_run_cycle(request: Request) -> JSONResponse:
     if not build_result.success:
         return JSONResponse(result)
 
-    # 2. Deploy
-    deploy_result = _deployer.deploy(project)
+    # 2. Deploy (auto shared-folder or bridge fallback)
+    deploy_result = await _deployer.deploy_smart(project, conn=_conn, bus=_event_bus)
     result["deploy"] = {
         "success": deploy_result.success,
         "message": deploy_result.message,
@@ -932,6 +940,99 @@ async def api_disconnect(request: Request) -> JSONResponse:
     return JSONResponse({"message": "Disconnected"})
 
 
+# ─── LLM proxy listener ──────────────────────────────────────────────────
+
+async def _amiga_call_hook(client: str, hook: str, args: str) -> str:
+    """Send CALLHOOK to the Amiga and return the tool result string.
+
+    Used by :class:`LLMProxy` — kept at module scope so it can hold a
+    stable reference to the running :data:`_conn` even across the (short)
+    reconnect blips the amiga bridge occasionally does mid-turn.
+    """
+    if _conn is None or not _conn.connected or _event_bus is None:
+        raise RuntimeError("bridge not connected")
+    cmd_id = int(time.time() * 1000) % 100000
+    async with _event_bus.subscribe("cmd") as queue:
+        _conn.send({
+            "type": "CALLHOOK", "id": cmd_id,
+            "client": client, "hook": hook, "args": args,
+        })
+        # Give the amiga up to 30s per callhook — tool commands can take a
+        # while, TOKEN events are near-instant.
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return ""
+            evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+            if data.get("id") != cmd_id:
+                continue
+            result = data.get("data", "") or ""
+            return result.replace("\\n", "\n").replace("\\|", "|")
+
+
+async def _run_llm_proxy_listener(cfg: DevBenchConfig) -> None:
+    """Subscribe to CLOG events; when an amiterm client sends LLM_ASK,
+    drive one turn of :class:`LLMProxy` in a background task."""
+    from .llm_proxy import (
+        LLMProxy, LLMProxyConfig, OllamaBackend, parse_ask,
+    )
+    llm_cfg = LLMProxyConfig()
+    # Config lives in cfg.llm_* attributes (see config.py). Copy the ones
+    # that exist so we don't crash on older devbench.toml layouts.
+    for src, dst in [
+        ("llm_enabled",       "enabled"),
+        ("llm_host",          "host"),
+        ("llm_port",          "port"),
+        ("llm_scheme",        "scheme"),
+        ("llm_model",         "model"),
+        ("llm_system_prompt", "system_prompt"),
+        ("llm_client_name",   "client_name"),
+        ("llm_hook_name",     "hook_name"),
+    ]:
+        if hasattr(cfg, src):
+            setattr(llm_cfg, dst, getattr(cfg, src))
+    if not llm_cfg.enabled:
+        logger.info("LLM proxy disabled (set [llm] enabled=true in "
+                    "devbench.toml to turn on)")
+        return
+    logger.info("LLM proxy armed — %s://%s:%d model=%s",
+                llm_cfg.scheme, llm_cfg.host, llm_cfg.port, llm_cfg.model)
+    backend = OllamaBackend(
+        host=llm_cfg.host, port=llm_cfg.port,
+        scheme=llm_cfg.scheme, model=llm_cfg.model,
+    )
+    proxy = LLMProxy(backend, llm_cfg, _amiga_call_hook)
+
+    # Fire off turns without blocking the subscribe loop.
+    active: set[asyncio.Task] = set()
+
+    def _spawn(session: int, prompt: str) -> None:
+        task = asyncio.ensure_future(proxy.run_turn(session, prompt))
+        active.add(task)
+        task.add_done_callback(active.discard)
+
+    try:
+        assert _event_bus is not None
+        async with _event_bus.subscribe("clog") as queue:
+            while True:
+                _, data = await queue.get()
+                client = data.get("client", "")
+                message = data.get("message", "")
+                if client != llm_cfg.client_name:
+                    continue
+                parsed = parse_ask(message)
+                if not parsed:
+                    continue
+                session, prompt = parsed
+                logger.info("LLM_ASK session=%d prompt=%r", session, prompt[:120])
+                _spawn(session, prompt)
+    except asyncio.CancelledError:
+        for t in active:
+            t.cancel()
+        raise
+
+
 async def health(request: Request) -> JSONResponse:
     assert _conn is not None
     return JSONResponse({
@@ -1019,10 +1120,21 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     deploy_dir = cfg.deploy_dir if cfg else args.deploy_dir
 
     _builder = Builder(project_root)
-    _deployer = Deployer(project_root, deploy_dir)
+    # When the emulator lives on a remote host (config has emulator_ssh), any
+    # locally-visible AmiKit folder is a false positive — the target Amiga
+    # can't see it. Force the deploy through the bridge in that case.
+    _force_bridge_deploy = bool(cfg and getattr(cfg, "emulator_ssh", ""))
+    _deployer = Deployer(project_root, deploy_dir, force_bridge=_force_bridge_deploy)
 
-    # Emulator manager
-    if cfg:
+    # Emulator manager. If the active profile points at a remote emulator via
+    # SSH, use RemoteEmulatorController; otherwise the traditional local
+    # subprocess-driven EmulatorManager for FS-UAE.
+    from .remote_emulator import build_from_config as _build_remote_emu
+    _remote_emu = _build_remote_emu(cfg, _event_bus) if cfg else None
+    if _remote_emu is not None:
+        _emulator = _remote_emu
+        logger.info("Using remote emulator control: %s", _remote_emu._ssh)
+    elif cfg:
         _emulator = EmulatorManager(
             binary=cfg.emulator_binary,
             config_file=cfg.emulator_config,
@@ -1043,7 +1155,10 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         _fsuae_rpc = FsuaeRpcClient(event_bus=_event_bus)
 
     # Initialize MCP tools with shared state
-    init_tools(_conn, _state, _builder, _deployer, _event_bus, fsuae_rpc=_fsuae_rpc)
+    init_tools(
+        _conn, _state, _builder, _deployer, _event_bus,
+        fsuae_rpc=_fsuae_rpc, emulator=_emulator,
+    )
 
     # Add an INFO Logs-tab line for EVERY tool call (Claude's via /mcp and the
     # web UI's). Traffic-view recording already happens in McpLoggingWrapper
@@ -1250,8 +1365,105 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             if _plog:
                 _plog.start(_event_bus)
 
+            # LLM proxy — listens for LLM_ASK CLOG events from amiterm and
+            # routes them to a remote LLM (Ollama-compatible). Disabled by
+            # default; opt in with [llm] enabled = true in devbench.toml.
+            llm_task = None
+            if cfg is not None:
+                llm_task = asyncio.ensure_future(_run_llm_proxy_listener(cfg))
+
+            # Bridge-health watchdog with emulator-restart escalation.
+            #
+            # The SerialConnection already has a per-connection watchdog that
+            # detects `bridge_silent` and cycles the TCP connection. That
+            # handles half-dead sockets. But we've observed the AmigaOS-side
+            # amiga-bridge daemon itself go wedged: TCP listener stays up,
+            # heartbeats stop, all commands time out. Reconnecting doesn't
+            # help because the daemon inside the emulator is still frozen.
+            #
+            # This second-tier watchdog escalates: if we have a remote
+            # emulator (SSH-driven) AND the bridge has been silent for
+            # significantly longer than the TCP watchdog's timeout, restart
+            # the emulator itself and let the auto-reconnect below pick it
+            # back up. Only fires when we've SEEN heartbeats at least once
+            # since the process started — a permanently-cold state is a
+            # different failure mode (bad config, wrong host, …).
+            _bridge_hard_silent_sec = 90.0
+            # After we fire a restart, hold off for this long before considering
+            # another one. Must be well longer than the AmigaOS boot chain
+            # (Amiberry launch + KS boot + Startup-Sequence + User-Startup +
+            # amiga-bridge open — 60–120s in practice), otherwise the watchdog
+            # cascade-kills a healthy boot before it can settle.
+            _bridge_restart_cooldown_sec = 240.0
+
+            async def _bridge_health_watchdog():
+                if _emulator is None or not getattr(
+                    _emulator, "_ssh", None
+                ):
+                    return  # local emulator has no SSH restart path
+                logger.info(
+                    "Bridge-health watchdog armed (fire after %.0fs silent, "
+                    "cooldown %.0fs post-restart)",
+                    _bridge_hard_silent_sec, _bridge_restart_cooldown_sec,
+                )
+                # Track our own "last time the bridge looked healthy" — the
+                # SerialConnection resets _state.last_bridge_message_at on
+                # each reconnect, so we can't rely on it. Instead, watch the
+                # heartbeat event bus and remember the last one locally.
+                last_healthy = time.time()
+                cooldown = 0.0
+
+                async def _track_heartbeats():
+                    nonlocal last_healthy
+                    # emulator_status is included so a manual /api/emulator/restart
+                    # (or any external control action) treats the emulator as
+                    # freshly booting — otherwise the watchdog fires 90s later
+                    # thinking the bridge is silent, kicking off a cascade.
+                    async with _event_bus.subscribe(
+                        "heartbeat", "connected", "emulator_status"
+                    ) as queue:
+                        while True:
+                            try:
+                                await queue.get()
+                                last_healthy = time.time()
+                            except asyncio.CancelledError:
+                                return
+
+                hb_task = asyncio.ensure_future(_track_heartbeats())
+                try:
+                    while True:
+                        try:
+                            await asyncio.sleep(15.0)
+                        except asyncio.CancelledError:
+                            return
+                        if cooldown > 0:
+                            cooldown -= 15.0
+                            continue
+                        silence = time.time() - last_healthy
+                        if silence < _bridge_hard_silent_sec:
+                            continue
+                        logger.warning(
+                            "Bridge unhealthy for %.0fs — restarting remote emulator",
+                            silence,
+                        )
+                        try:
+                            await _emulator.restart()
+                        except Exception as e:
+                            logger.error("Emulator restart failed: %s", e)
+                        # Reset so we don't immediately re-fire while the
+                        # emulator boots and a fresh heartbeat is en route.
+                        last_healthy = time.time()
+                        cooldown = _bridge_restart_cooldown_sec
+                finally:
+                    hb_task.cancel()
+
+            bridge_health_task = asyncio.ensure_future(_bridge_health_watchdog())
+
             yield
 
+            bridge_health_task.cancel()
+            if llm_task is not None:
+                llm_task.cancel()
             ready_task.cancel()
             dbg_listener_task.cancel()
             crash_pause_task.cancel()
