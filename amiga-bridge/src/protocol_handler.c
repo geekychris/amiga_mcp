@@ -1669,17 +1669,26 @@ static void handle_script(const char *args)
     /* FailAt so a failing command can't abort Execute before the sentinel. */
     Write(fh, (APTR)"FailAt 255\n", 11);
     {
+        /* Convert ';' back to newlines in chunks so scripts of any length
+         * (up to BRIDGE_MAX_LINE) survive - a fixed 480-byte copy used to
+         * silently truncate long scripts. */
         const char *src = sep + 1;
         int len = strlen(src);
         static char tmpBuf[480];
-        int i;
-        if (len > 479) len = 479;
-        memcpy(tmpBuf, src, len);
-        for (i = 0; i < len; i++) {
-            if (tmpBuf[i] == ';') tmpBuf[i] = '\n';
+        char last = '\0';
+        while (len > 0) {
+            int chunk = len > (int)sizeof(tmpBuf) ? (int)sizeof(tmpBuf) : len;
+            int i;
+            memcpy(tmpBuf, src, chunk);
+            for (i = 0; i < chunk; i++) {
+                if (tmpBuf[i] == ';') tmpBuf[i] = '\n';
+            }
+            Write(fh, (APTR)tmpBuf, (LONG)chunk);
+            last = tmpBuf[chunk - 1];
+            src += chunk;
+            len -= chunk;
         }
-        Write(fh, (APTR)tmpBuf, (LONG)len);
-        if (len == 0 || tmpBuf[len - 1] != '\n') Write(fh, (APTR)"\n", 1);
+        if (last != '\n') Write(fh, (APTR)"\n", 1);
     }
     /* Completion sentinel - its own output lands in the capture file. */
     Write(fh, (APTR)("Echo " SCRIPT_SENTINEL "\n"),
