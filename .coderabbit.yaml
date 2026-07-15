@@ -1,0 +1,348 @@
+# CodeRabbit configuration for Amiga DevBench
+# See: https://docs.coderabbit.ai/guides/configuration-overview
+#
+# This repo has two very different halves:
+#   * amiga-devbench/  -> Python 3.10+ on modern macOS / Linux / Windows.
+#   * amiga-bridge/, examples/  -> C for classic AmigaOS (m68k or PowerPC).
+# Reviews must not apply modern-C / POSIX assumptions to the Amiga side.
+
+language: en-US
+early_access: false
+
+tone_instructions: >-
+  C targets classic AmigaOS (m68k/PowerPC) - no POSIX or modern-C suggestions
+  there. Python targets modern macOS/Linux/Windows. Call out public-API,
+  wire-protocol, or config changes that break existing users.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  collapse_walkthrough: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_reviewers: false
+  auto_apply_labels: false
+  suggested_labels: true
+
+  labeling_instructions:
+    - label: breaking-change
+      instructions: >-
+        Apply when a PR changes a public surface in a way that breaks existing
+        users: renamed/removed bridge_client.h API, changed struct layout,
+        renamed/removed MCP tool, renamed/removed devbench.toml key, or a
+        wire-protocol command that only one side (Amiga or host) implements.
+    - label: architectural
+      instructions: >-
+        Apply when a PR changes cross-cutting behavior: bridge protocol shape,
+        IPC model, daemon<->client coupling, deploy layout, or the boundary
+        between amiga-bridge and amiga-devbench.
+    - label: amiga-c
+      instructions: Apply when the PR touches C code targeting AmigaOS.
+    - label: host-python
+      instructions: Apply when the PR touches host-side Python only.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_filters:
+    # Deprecated per CLAUDE.md - not to be reviewed.
+    - "!amiga-debug-lib/**"
+    - "!mcp-server/**"
+    # Build artifacts.
+    - "!**/*.o"
+    - "!**/*.d"
+    - "!**/*.a"
+    - "!**/*.lib"
+    - "!**/__pycache__/**"
+    - "!**/*.egg-info/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    # Binary / large assets.
+    - "!**/*.uss"
+    - "!**/*.adf"
+    - "!**/*.hdf"
+    - "!**/*.mod"
+    - "!**/*.iff"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+    - "!doc_images/**"
+    - "!logs/**"
+    # URL-encoded emulator snapshot artefacts that live at the repo root.
+    - "!%2F*"
+
+  path_instructions:
+    # --------------------------------------------------------------
+    # Amiga-side C (bridge daemon + client lib + examples).
+    # Target: classic AmigaOS, m68k or PowerPC. No POSIX. No libc.
+    # --------------------------------------------------------------
+    - path: "amiga-bridge/**/*.{c,h}"
+      instructions: |
+        This is code for **classic AmigaOS** (m68k or PowerPC), NOT a modern OS.
+        Do NOT suggest changes based on POSIX, glibc, C11/C17, threads, mmap,
+        fork, epoll, or modern-security-hardening idioms. Do NOT suggest
+        replacing Amiga APIs (Exec, DOS, Intuition, exec/ports/signals, amiga.lib)
+        with portable equivalents.
+
+        Prioritise these AmigaOS-specific concerns:
+        - Format specifiers: amiga.lib `%d` reads a 16-bit WORD. Flag any int
+          printed without `%ld` + explicit `(long)` cast. `%c` causes stack
+          misalignment - `%s` with a 2-char string is the workaround.
+        - amiga.lib `sprintf` returns `char*`, not `int`. Flag any use of the
+          return value as a length.
+        - No memory protection. Any buffer overflow, use-after-free, off-by-one,
+          or wild pointer crashes the whole OS. Treat these as high severity.
+        - Forbid()/Permit(), Disable()/Enable(), ObtainSemaphore()/ReleaseSemaphore()
+          MUST be balanced on every path (including error returns and early exits).
+          A missed Permit() freezes the machine.
+        - AllocSignal() must be paired with FreeSignal() on every exit path.
+          AllocMem/AllocVec/CreateMsgPort/CreateIORequest/CreatePort/OpenLibrary/
+          OpenDevice/Lock/Open etc. must each be paired with the matching free/close
+          on every exit path.
+        - WaitPort() blocks forever - flag any WaitPort() whose sender could die
+          without notifying. Polling with a timeout signal is the pattern the
+          bridge uses for daemon<->client IPC.
+        - Compile flags must include `-noixemul` and `-m68020` (on m68k). Flag
+          any Makefile change that drops these.
+        - The bridge wire protocol is line-based, pipe-delimited, `:`-separated
+          in some records, 1024 chars max per line. Flag any change that could
+          produce a longer line or push an unescaped `|` / `:` into a field.
+        - Ignore complaints from clang/cppcheck about "unknown identifier" for
+          Amiga types (APTR, ULONG, UWORD, STRPTR, BPTR, struct Task, struct
+          MsgPort, struct Library, etc.) - the cross-compiler resolves these.
+
+    - path: "examples/**/*.{c,h}"
+      instructions: |
+        Same AmigaOS review rules as amiga-bridge. These are sample apps that
+        ship as documentation for the client API, so flag anything that would
+        teach users a bad pattern (missing `ab_cleanup`, dropped Permit(),
+        unbounded WaitPort, leaked signals, un-freed AllocMem, etc.).
+        Do NOT flag modern-C style nits like "prefer stdbool", "use snprintf",
+        or "use size_t" - those don't apply on this target.
+
+    # --------------------------------------------------------------
+    # Public / architectural surface - highlight breaking changes.
+    # --------------------------------------------------------------
+    - path: "amiga-bridge/include/bridge_client.h"
+      instructions: |
+        **PUBLIC CLIENT API.** Every function signature, struct layout, and enum
+        value here is consumed by user code (examples/ plus any third-party
+        Amiga app linking libbridge.a). Treat changes here as ARCHITECTURAL:
+        - Flag any signature change, removed function, or reordered / renumbered
+          enum as a **breaking change for existing users** and call it out at
+          the top of the review. Suggest the `breaking-change` label.
+        - Struct layouts are ABI. Reordering fields, changing widths, or
+          inserting fields breaks binary compatibility with already-compiled
+          example binaries that users may have deployed to their Amigas.
+        - Additive functions are fine; deprecations should be marked, not
+          silently removed.
+
+    - path: "amiga-bridge/include/bridge_ipc.h"
+      instructions: |
+        **PRIVATE IPC PROTOCOL** between the daemon and libbridge.a in-process.
+        Any change here requires a coordinated rebuild of BOTH the daemon AND
+        every client - flag this coupling and check that a version bump on
+        libbridge.a / the daemon is included in the PR.
+
+    - path: "amiga-bridge/client/bridge_client.c"
+      instructions: |
+        Client library linked into every Amiga app. Bugs here affect all users.
+        Watch specifically for:
+        - The single-port IPC race: `reply_port` is shared between our own
+          reply and daemon-initiated messages (hooks, GETVAR/SETVAR). Any
+          `send_and_wait`-like function MUST loop and dispatch daemon messages
+          that arrive before our own reply. This was fixed once and must not
+          regress - see the CLAUDE.md gotcha note.
+        - Reference counting on ab_init/ab_cleanup.
+        - Timeout handling - the client must never block indefinitely waiting
+          on the daemon.
+
+    - path: "amiga-bridge/src/protocol_handler.c"
+      instructions: |
+        Amiga side of the wire protocol. Any command added / removed / renamed
+        here MUST be mirrored in `amiga-devbench/amiga_devbench/protocol.py`.
+        Flag the PR if only one side was changed.
+        The parser also runs on serial input from the host - there is no memory
+        protection on Amiga, so bounds checks and NUL-termination matter.
+
+    - path: "amiga-devbench/amiga_devbench/protocol.py"
+      instructions: |
+        **Wire protocol - host side of the bridge.** Any new / removed / renamed
+        command or field is a coordinated change with the Amiga daemon in
+        `amiga-bridge/src/protocol_handler.c`. Flag the PR if only one side
+        changed.
+        Removing or renaming an existing command breaks any older Amiga bridge
+        daemon binary a user may already have deployed - treat as a breaking
+        change. New commands should be additive.
+
+    # --------------------------------------------------------------
+    # Host-side Python (modern hardware, cross-platform).
+    # --------------------------------------------------------------
+    - path: "amiga-devbench/**/*.py"
+      instructions: |
+        Modern Python 3.10+ running on macOS, Linux, and Windows. Standard
+        modern practices apply (type hints, f-strings, pathlib, async/await).
+        Cross-platform is a HARD requirement - flag any use of POSIX-only
+        paths, `os.fork`, `os.uname`, `signal.SIGKILL`, `select` on Windows
+        sockets, hardcoded `/tmp`, or shell-outs that assume BSD vs GNU
+        userland.
+        The serial/TCP layer is async - flag any blocking I/O called from an
+        async context (open file reads, `time.sleep`, blocking `socket.recv`,
+        etc.).
+
+    - path: "amiga-devbench/amiga_devbench/mcp_tools.py"
+      instructions: |
+        **MCP tool surface** exposed to Claude Code. Tool names, parameter
+        schemas, and return shapes are a public contract with existing user
+        `.mcp.json` configs. Flag any renamed / removed tool or changed
+        parameter as a breaking change for existing users and suggest the
+        `breaking-change` label. Additive tools are fine.
+
+    - path: "amiga-devbench/amiga_devbench/config.py"
+      instructions: |
+        Loads `devbench.toml` - user-facing config schema. Any renamed or
+        removed key is a breaking change for existing user configs; flag it
+        and suggest a migration path or a deprecation alias.
+        New keys should be documented in `devbench.toml`, README, and CLAUDE.md.
+
+    - path: "amiga-devbench/amiga_devbench/emulator.py"
+      instructions: |
+        Manages FS-UAE / WinUAE / Amiberry lifecycle across macOS, Linux,
+        Windows, and remote Pi. Flag OS-specific assumptions (paths, process
+        management, signal handling). Any change to how the emulator is
+        launched or discovered can silently break existing user setups -
+        call it out.
+
+    - path: "amiga-devbench/amiga_devbench/web/**"
+      instructions: |
+        Web UI served at :3000. Any REST / SSE endpoint the frontend or an
+        external tool may hit is a compatibility surface - flag renamed /
+        removed endpoints as breaking. The web UI editable-config feature
+        means devbench.toml key names surface here too.
+
+    - path: "amiga-devbench/tests/**/*.py"
+      instructions: |
+        Test code - style rules are relaxed. Prefer clarity over brevity.
+        Do NOT flag missing docstrings, magic numbers, or long test functions.
+        DO flag tests that would only pass on one OS.
+
+    # --------------------------------------------------------------
+    # Build system & config.
+    # --------------------------------------------------------------
+    - path: "**/Makefile"
+      instructions: |
+        Amiga cross-compilation runs inside the `amigadev/crosstools:m68k-amigaos`
+        Docker image. Flag any change that:
+        - drops `-noixemul` or `-m68020` from Amiga C flags,
+        - assumes host tools (specific gcc/clang/make versions) that differ
+          across macOS / Linux / Windows,
+        - changes the deploy path (AmiKit `Dropbox/Dev/`) without updating
+          README.md and CLAUDE.md,
+        - reorders / renames top-level targets (`make setup`, `make start`,
+          `make bridge`, `make examples`, `make all`, `make clean`) that
+          users invoke directly.
+
+    - path: "docker/**"
+      instructions: |
+        The `amigadev/crosstools:m68k-amigaos` image pin is a compatibility
+        surface for reproducible builds. Flag unpinned tags or image changes
+        that break the m68k toolchain, and any switch of base image that
+        drops PowerPC support.
+
+    - path: "devbench.toml"
+      instructions: |
+        Reference user config. Every key is a public contract - check that any
+        renamed / removed key also has a migration or deprecation path in
+        `amiga_devbench/config.py`, and that the README and CLAUDE.md are
+        updated.
+
+    - path: "devbench-ppc.toml"
+      instructions: |
+        PowerPC-target variant of the user config. Same contract rules as
+        devbench.toml. Flag if only one of the two config samples was updated
+        when a schema change lands.
+
+    - path: "scripts/**/*.sh"
+      instructions: |
+        Shell scripts must run on macOS (default zsh, BSD userland) AND Linux
+        (bash, GNU userland). Prefer POSIX sh idioms; flag GNU-only flags
+        (e.g. `sed -i''`, `readlink -f`, `grep -P`, `date -d`) without a
+        macOS-compatible fallback. Windows users run these under WSL or Git
+        Bash - flag anything that would fail there.
+
+    - path: "**/*.fs-uae"
+      instructions: |
+        FS-UAE emulator config. `serial_port = tcp://0.0.0.0:1234` is what
+        enables the bridge - flag any change that removes it or changes the
+        default port without also updating devbench.toml and the docs.
+
+    - path: "CLAUDE.md"
+      instructions: |
+        Project instructions for Claude Code sessions. If the codebase changed
+        (new module, moved directory, removed deprecated dir, new build
+        target, new bridge command), CLAUDE.md should reflect it.
+
+    - path: "README.md"
+      instructions: |
+        User-facing setup guide covering macOS, Linux, and Windows. Flag any
+        code / config change that would break the documented Quick Start on
+        any of the three platforms.
+
+  tools:
+    # Python.
+    ruff:
+      enabled: true
+    # C static analysis. These will produce noise on AmigaOS code because they
+    # don't know about APTR/ULONG/exec types; the tone_instructions and per-path
+    # instructions above tell the reviewer to filter that noise but keep real
+    # memory-safety findings (which matter more on Amiga than modern OSes).
+    cppcheck:
+      enabled: true
+    # Security / config / docs.
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
+    # Not applicable to this repo.
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    oxc:
+      enabled: false
+    golangci-lint:
+      enabled: false
+    rubocop:
+      enabled: false
+    phpstan:
+      enabled: false
+    swiftlint:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
