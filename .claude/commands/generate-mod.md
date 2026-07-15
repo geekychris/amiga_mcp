@@ -70,7 +70,7 @@ def gen_kick(length=128, volume=64):
 ```
 
 ### Example script structure
-See `examples/ace_pilot/gen_mod.py` or `examples/tetris/generate_mod.py` for complete working examples in this repo.
+See `examples/ace_pilot/gen_mod.py` or `examples/stakattack/generate_mod.py` for complete working examples in this repo.
 
 ## Steps
 1. Create a Python script at `examples/PROJECT/gen_mod.py`

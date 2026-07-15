@@ -396,7 +396,9 @@ graph LR
 ```bash
 make all          # Build everything (lib + bridge + examples)
 make bridge       # Build daemon + libbridge.a
-make examples     # Build hello_world, bouncing_ball, system_monitor
+make examples     # Build every project under examples/ (auto-discovered)
+                  # examples/ is a submodule — run
+                  # `git submodule update --init` first if empty
 make clean        # Clean all artifacts
 ```
 

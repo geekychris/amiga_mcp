@@ -11,7 +11,7 @@ and provides real-time debug monitoring over serial/TCP.
 - **amiga-devbench/**: Host-side Python server (MCP + web UI + serial protocol).
   - Run: `python3 -m amiga_devbench` or `make start`
   - Serves web UI at http://localhost:3000/, MCP at /mcp
-- **examples/**: Sample Amiga programs (games, demos, tools) using bridge client lib.
+- **examples/**: Git submodule — sample Amiga programs (games, demos, tools) using bridge client lib. Lives at [github.com/geekychris/amiga_games](https://github.com/geekychris/amiga_games). Clone with `--recurse-submodules` or run `git submodule update --init` after cloning.
 - **docker/**: Dockerfile for cross-compilation environment.
 - **scripts/**: Build, deploy, and test scripts.
 
@@ -105,7 +105,7 @@ python3 -m amiga_devbench --simulator   # Starts with fake Amiga on TCP 1234
 ## Windows Quick Start
 1. Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
 2. Install Python 3.10+ from [python.org](https://www.python.org/downloads/)
-3. Clone the repo: `git clone <repo-url> && cd amiga_mcp`
+3. Clone the repo (with submodules): `git clone --recurse-submodules <repo-url> && cd amiga_mcp` — or after cloning, run `git submodule update --init` to fetch the `examples/` submodule
 4. Install devbench: `pip install -e amiga-devbench`
 5. Pull cross-compiler: `docker pull amigadev/crosstools:m68k-amigaos`
 6. Build everything: `make all` (or use Docker directly on Windows: `docker run --rm -v %cd%:/work -w /work amigadev/crosstools:m68k-amigaos make -C amiga-bridge`)

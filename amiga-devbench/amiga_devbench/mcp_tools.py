@@ -2124,7 +2124,7 @@ async def amiga_serial_deploy(project: str, amiga_dest: str = "DH2:Dev") -> str:
     Builds the project, finds the binary, and transfers it over serial.
 
     Args:
-        project: Project path (e.g. "examples/red_baron")
+        project: Project path (e.g. "examples/dot_chase")
         amiga_dest: Destination directory on Amiga (default: DH2:Dev)
     """
     conn, state, bus = _require_connected()

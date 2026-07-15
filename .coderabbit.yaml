@@ -82,7 +82,9 @@ reviews:
 
   path_instructions:
     # --------------------------------------------------------------
-    # Amiga-side C (bridge daemon + client lib + examples).
+    # Amiga-side C (bridge daemon + client lib).
+    # examples/ is a git submodule pointing at
+    # github.com/geekychris/amiga_games and is reviewed there, not here.
     # Target: classic AmigaOS, m68k or PowerPC. No POSIX. No libc.
     # --------------------------------------------------------------
     - path: "amiga-bridge/**/*.{c,h}"
@@ -119,15 +121,6 @@ reviews:
         - Ignore complaints from clang/cppcheck about "unknown identifier" for
           Amiga types (APTR, ULONG, UWORD, STRPTR, BPTR, struct Task, struct
           MsgPort, struct Library, etc.) - the cross-compiler resolves these.
-
-    - path: "examples/**/*.{c,h}"
-      instructions: |
-        Same AmigaOS review rules as amiga-bridge. These are sample apps that
-        ship as documentation for the client API, so flag anything that would
-        teach users a bad pattern (missing `ab_cleanup`, dropped Permit(),
-        unbounded WaitPort, leaked signals, un-freed AllocMem, etc.).
-        Do NOT flag modern-C style nits like "prefer stdbool", "use snprintf",
-        or "use size_t" - those don't apply on this target.
 
     # --------------------------------------------------------------
     # Public / architectural surface - highlight breaking changes.
