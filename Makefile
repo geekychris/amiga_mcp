@@ -1,55 +1,31 @@
 DOCKER_IMAGE = amigadev/crosstools:m68k-amigaos
 DOCKER_RUN = docker run --rm -v $(PWD):/work -w /work $(DOCKER_IMAGE)
 
-.PHONY: all examples bridge clean start setup
+# Discover example projects at build time. Each subdir of examples/ with a
+# Makefile is treated as an example. examples/ is a git submodule pointing at
+# github.com/geekychris/amiga_games — run `git submodule update --init` after
+# cloning if the directory is empty.
+EXAMPLES := $(patsubst examples/%/Makefile,%,$(wildcard examples/*/Makefile))
+
+.PHONY: all examples bridge clean start setup $(EXAMPLES) $(addsuffix .clean,$(EXAMPLES))
 
 all: bridge examples
 
 bridge:
 	$(DOCKER_RUN) make -C amiga-bridge all
 
-examples: bridge
-	$(DOCKER_RUN) make -C examples/hello_world
-	$(DOCKER_RUN) make -C examples/bouncing_ball
-	$(DOCKER_RUN) make -C examples/system_monitor
-	$(DOCKER_RUN) make -C examples/plasma
-	$(DOCKER_RUN) make -C examples/sfx_player
-	$(DOCKER_RUN) make -C examples/game_of_life
-	$(DOCKER_RUN) make -C examples/memory_monitor
-	$(DOCKER_RUN) make -C examples/disk_benchmark
-	$(DOCKER_RUN) make -C examples/shell_proxy
-	$(DOCKER_RUN) make -C examples/foo
-	$(DOCKER_RUN) make -C examples/symbol_demo
-	$(DOCKER_RUN) make -C examples/arexx_test
-	$(DOCKER_RUN) make -C examples/test_example
-	$(DOCKER_RUN) make -C examples/test_new_features
-	$(DOCKER_RUN) make -C examples/boing_ball
-	$(DOCKER_RUN) make -C examples/starfield
-	$(DOCKER_RUN) make -C examples/rj_birthday
-	$(DOCKER_RUN) make -C examples/planet_patrol
-	$(DOCKER_RUN) make -C examples/aga3d
+examples: bridge $(EXAMPLES)
 
-clean:
-	$(DOCKER_RUN) make -C examples/hello_world clean
-	$(DOCKER_RUN) make -C examples/bouncing_ball clean
-	$(DOCKER_RUN) make -C examples/system_monitor clean
-	$(DOCKER_RUN) make -C examples/plasma clean
-	$(DOCKER_RUN) make -C examples/sfx_player clean
-	$(DOCKER_RUN) make -C examples/game_of_life clean
-	$(DOCKER_RUN) make -C examples/memory_monitor clean
-	$(DOCKER_RUN) make -C examples/disk_benchmark clean
-	$(DOCKER_RUN) make -C examples/shell_proxy clean
-	$(DOCKER_RUN) make -C examples/foo clean
-	$(DOCKER_RUN) make -C examples/symbol_demo clean
-	$(DOCKER_RUN) make -C examples/arexx_test clean
-	$(DOCKER_RUN) make -C examples/test_example clean
-	$(DOCKER_RUN) make -C examples/test_new_features clean
-	$(DOCKER_RUN) make -C examples/boing_ball clean
-	$(DOCKER_RUN) make -C examples/starfield clean
-	$(DOCKER_RUN) make -C examples/rj_birthday clean
-	$(DOCKER_RUN) make -C examples/planet_patrol clean
-	$(DOCKER_RUN) make -C examples/aga3d clean
+# Per-example build target: `make dot_chase`
+$(EXAMPLES):
+	$(DOCKER_RUN) make -C examples/$@
+
+clean: $(addsuffix .clean,$(EXAMPLES))
 	$(DOCKER_RUN) make -C amiga-bridge clean
+
+# Per-example clean target: `make dot_chase.clean`
+$(addsuffix .clean,$(EXAMPLES)):
+	$(DOCKER_RUN) make -C examples/$(basename $@) clean
 
 setup:
 	pip install -e amiga-devbench
