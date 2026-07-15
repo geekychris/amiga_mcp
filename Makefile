@@ -7,7 +7,7 @@ DOCKER_RUN = docker run --rm -v $(PWD):/work -w /work $(DOCKER_IMAGE)
 # cloning if the directory is empty.
 EXAMPLES := $(patsubst examples/%/Makefile,%,$(wildcard examples/*/Makefile))
 
-.PHONY: all examples bridge clean start setup $(EXAMPLES) $(addsuffix .clean,$(EXAMPLES))
+.PHONY: all examples bridge clean start setup host-tests $(EXAMPLES) $(addsuffix .clean,$(EXAMPLES))
 
 all: bridge examples
 
@@ -32,3 +32,8 @@ setup:
 
 start:
 	python3 -m amiga_devbench
+
+# Host-buildable unit tests for pure-C bridge logic (no Docker / Amiga cross-
+# compiler needed). See amiga-bridge/host/README.md.
+host-tests:
+	$(MAKE) -C amiga-bridge/host test
