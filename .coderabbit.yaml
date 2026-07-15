@@ -53,6 +53,11 @@ reviews:
       - main
 
   path_filters:
+    # examples/ is a git submodule pointing at github.com/geekychris/amiga_games.
+    # Reviews for that code happen in that repo — the parent PR just sees a
+    # gitlink update. Exclude the submodule tree so PRs that touch it don't
+    # blow past the CodeRabbit file-count limit.
+    - "!examples/**"
     # Deprecated per CLAUDE.md - not to be reviewed.
     - "!amiga-debug-lib/**"
     - "!mcp-server/**"
