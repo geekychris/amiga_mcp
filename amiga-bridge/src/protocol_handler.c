@@ -17,8 +17,17 @@
 #include <stdlib.h>
 
 #include "bridge_internal.h"
+#include "script_util.h"
 
 /* Version is defined once in bridge_internal.h (BRIDGE_VERSION_MAJOR/MINOR). */
+
+/* DOS Write() adapter for script_write_semicolon_delimited(). Lets the pure-C
+ * chunker in script_util.c stream bytes to a DOS file handle without knowing
+ * anything about DOS. */
+static void dos_write_fh(const void *buf, size_t n, void *ctx)
+{
+    Write((BPTR)ctx, (APTR)buf, (LONG)n);
+}
 
 ULONG g_tx_count = 0;
 ULONG g_rx_count = 0;
@@ -1673,26 +1682,14 @@ static void handle_script(const char *args)
     /* FailAt so a failing command can't abort Execute before the sentinel. */
     Write(fh, (APTR)"FailAt 255\n", 11);
     {
-        /* Convert ';' back to newlines in chunks so scripts of any length
-         * (up to BRIDGE_MAX_LINE) survive - a fixed 480-byte copy used to
-         * silently truncate long scripts. */
-        const char *src = sep + 1;
-        int len = strlen(src);
+        /* Convert ';' back to newlines and stream to DOS. The pure-C
+         * chunker lives in script_util.c so it can be unit-tested on the
+         * host — see amiga-bridge/host/test_bridge.c. */
         static char tmpBuf[480];
-        char last = '\0';
-        while (len > 0) {
-            int chunk = len > (int)sizeof(tmpBuf) ? (int)sizeof(tmpBuf) : len;
-            int i;
-            memcpy(tmpBuf, src, chunk);
-            for (i = 0; i < chunk; i++) {
-                if (tmpBuf[i] == ';') tmpBuf[i] = '\n';
-            }
-            Write(fh, (APTR)tmpBuf, (LONG)chunk);
-            last = tmpBuf[chunk - 1];
-            src += chunk;
-            len -= chunk;
-        }
-        if (last != '\n') Write(fh, (APTR)"\n", 1);
+        const char *src = sep + 1;
+        script_write_semicolon_delimited(src, strlen(src),
+                                         tmpBuf, sizeof(tmpBuf),
+                                         dos_write_fh, (void *)fh);
     }
     /* Completion sentinel - its own output lands in the capture file. */
     Write(fh, (APTR)("Echo " SCRIPT_SENTINEL "\n"),
