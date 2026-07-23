@@ -57,9 +57,12 @@ emulator_config = ""
 auto_start_emulator = false   # Manual until dev HDF deploy is wired
 arch = "ppc"
 docker_image = "walkero/amigagccondocker:os4-gcc11-arm64"
-# Deploy path becomes meaningful once the dev HDF has a FAT32 partition
-# mounted on the host — see docs/amigaos4-setup.md "Mounting the dev HDF".
-deploy_dir = ""
+# Deploy path is the dev HDF itself — devbench should shell out to
+# `scripts/deploy-os4.sh <file>` (via xdftool) instead of a directory
+# copy. Consuming code that treats deploy_dir as a raw filesystem path
+# needs to detect the .hdf suffix and switch strategy. See
+# docs/amigaos4-setup.md "Sharing files with OS4 via the dev HDF".
+deploy_dir = "~/AmigaOS4/amigaos4-dev.hdf"
 
 # ─── Defaults (applied before the profile overlay) ────────────────────
 
