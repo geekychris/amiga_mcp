@@ -53,11 +53,14 @@ fi
 echo "→ install RDB"
 rdbtool "$HDF" init
 
-echo "→ add whole-disk DOS3 partition"
+echo "→ add whole-disk DOS3 partition (device name DH1)"
 # `add` with no size takes the full remaining space. Default DOS type is DOS3
-# (FFS International + Directory Cache) which OS4 mounts natively. Suppress
+# (FFS International + Directory Cache) which OS4 mounts natively. Name the
+# partition DH1 explicitly — the rdbtool default (DH0) collides with the
+# system HDF's partition name, so OS4 mounts the system drive and treats the
+# dev drive as an unavailable "please insert DevDrive:" reference. Suppress
 # the trailing traceback that comes from an implicit `free` on a full disk.
-rdbtool "$HDF" add 2>/dev/null || true
+rdbtool -p DH "$HDF" add name=DH1 2>/dev/null || true
 
 echo "→ format partition as '$VOL_LABEL'"
 xdftool "$HDF" open part=0 + format "$VOL_LABEL"
