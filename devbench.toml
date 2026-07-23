@@ -45,6 +45,22 @@ host = "192.168.1.50"
 port = 2345
 auto_start_emulator = false
 
+[profiles.qemu-os4]
+description = "AmigaOS 4.1 (PPC) on QEMU sam460ex"
+mode = "tcp"
+host = "127.0.0.1"
+port = 2346
+# Devbench treats emulator_binary as-is when it's not "auto". Point it at
+# the launcher script that knows the sam460ex drive layout + auto-resize.
+emulator_binary = "scripts/start-qemu-os4.sh"
+emulator_config = ""
+auto_start_emulator = false   # Manual until dev HDF deploy is wired
+arch = "ppc"
+docker_image = "walkero/amigagccondocker:os4-gcc11-arm64"
+# Deploy path becomes meaningful once the dev HDF has a FAT32 partition
+# mounted on the host — see docs/amigaos4-setup.md "Mounting the dev HDF".
+deploy_dir = ""
+
 # ─── Defaults (applied before the profile overlay) ────────────────────
 
 [serial]

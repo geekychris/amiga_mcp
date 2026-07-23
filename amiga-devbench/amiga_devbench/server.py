@@ -3505,6 +3505,14 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             "bridge": {
                 "crash_handler_auto_enable": _config.crash_handler_auto_enable,
             },
+            "build": {
+                "arch": _config.arch,
+                "docker_image": _config.docker_image,
+            },
+            "profile": {
+                "active": _config.active_profile,
+                "available": sorted(_config.profiles.keys()),
+            },
             "fsuae_rpc": {
                 "enabled": _config.fsuae_rpc_enabled,
                 "port": _config.fsuae_rpc_port,

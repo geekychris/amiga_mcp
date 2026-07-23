@@ -174,13 +174,19 @@ class EmulatorManager:
             logger.error("Emulator binary not found: %s", self._binary)
             return False
 
-        # Validate config exists
-        config_path = Path(self._config_file).expanduser()
-        if not config_path.exists():
-            logger.error("Emulator config not found: %s", config_path)
-            return False
-
-        logger.info("Starting emulator: %s %s", self._binary, config_path)
+        # Config file is optional. FS-UAE takes a .fs-uae config path
+        # argument; QEMU launcher scripts don't. If empty, we invoke
+        # the binary with no arg; if provided, it must exist on disk.
+        config_arg: list[str] = []
+        if self._config_file:
+            config_path = Path(self._config_file).expanduser()
+            if not config_path.exists():
+                logger.error("Emulator config not found: %s", config_path)
+                return False
+            config_arg = [str(config_path)]
+            logger.info("Starting emulator: %s %s", self._binary, config_path)
+        else:
+            logger.info("Starting emulator: %s", self._binary)
 
         env = os.environ.copy()
         env.update(self._extra_env)
@@ -190,7 +196,7 @@ class EmulatorManager:
 
         try:
             self._process = await asyncio.create_subprocess_exec(
-                self._binary, str(config_path),
+                self._binary, *config_arg,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
                 # Create new process group so we can cleanly kill it
