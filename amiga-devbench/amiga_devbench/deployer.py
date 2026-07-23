@@ -52,6 +52,7 @@ class Deployer:
             self._root = Path(project_root).resolve()
         else:
             self._root = Path(__file__).resolve().parent.parent.parent
+        self._is_hdf = False  # set by _resolve_deploy_dir
         self._deploy_dir = self._resolve_deploy_dir(deploy_dir)
         # When the emulator is on another host (profile has ``emulator_ssh``),
         # the local shared folder — even if auto-detected — points somewhere
@@ -62,7 +63,15 @@ class Deployer:
     def _resolve_deploy_dir(self, deploy_dir: str | None) -> Path | None:
         if deploy_dir:
             p = Path(deploy_dir).expanduser().resolve()
+            # An .hdf path is a hardfile — write via xdftool, not shutil.
+            # See _copy_file: presence of _is_hdf routes through the
+            # scripts/deploy-os4.sh wrapper.
+            if p.suffix.lower() == ".hdf" and p.is_file():
+                self._is_hdf = True
+                logger.info("Deploy target is a hardfile: %s (will use xdftool)", p)
+                return p
             if p.is_dir():
+                self._is_hdf = False
                 return p
             logger.warning("Deploy dir does not exist: %s", p)
             return None
@@ -71,9 +80,11 @@ class Deployer:
             p = Path(candidate).expanduser().resolve()
             if p.is_dir():
                 logger.info("Auto-detected deploy dir: %s", p)
+                self._is_hdf = False
                 return p
 
         logger.info("No deploy directory found; deploy will fail until configured")
+        self._is_hdf = False
         return None
 
     def deploy(self, project: str | None = None) -> DeployResult:
@@ -167,9 +178,12 @@ class Deployer:
         return None
 
     def _copy_file(self, src: Path, dest_name: str) -> str | None:
-        """Copy a file to the deploy directory."""
+        """Copy a file to the deploy target — either a shared folder or
+        an .hdf hardfile (via scripts/deploy-os4.sh → xdftool)."""
         if self._deploy_dir is None:
             return None
+        if self._is_hdf:
+            return self._copy_file_hdf(src, dest_name)
         dest = self._deploy_dir / dest_name
         try:
             shutil.copy2(src, dest)
@@ -177,6 +191,37 @@ class Deployer:
             return str(dest)
         except Exception as e:
             logger.error("Deploy failed: %s -> %s: %s", src, dest, e)
+            return None
+
+    def _copy_file_hdf(self, src: Path, dest_name: str) -> str | None:
+        """Write ``src`` into the deploy HDF as ``dest_name``.
+
+        Uses ``scripts/deploy-os4.sh`` (which shells out to xdftool). The
+        script must live at ``<project_root>/scripts/deploy-os4.sh``. If
+        QEMU has the HDF open the write will still land on disk but OS4's
+        cached view of the drive may be stale until a reboot.
+        """
+        import subprocess
+        script = self._root / "scripts" / "deploy-os4.sh"
+        if not script.is_file():
+            logger.error("deploy-os4.sh not found at %s", script)
+            return None
+        try:
+            env = {"OS4_DEV_HDF": str(self._deploy_dir)}
+            import os as _os
+            env = {**_os.environ, **env}
+            result = subprocess.run(
+                ["bash", str(script), str(src), dest_name],
+                capture_output=True, text=True, timeout=30, env=env,
+            )
+            if result.returncode != 0:
+                logger.error("HDF deploy failed: %s", result.stderr.strip())
+                return None
+            logger.info("Deployed to HDF: %s -> %s:%s",
+                        src, self._deploy_dir, dest_name)
+            return f"{self._deploy_dir}:{dest_name}"
+        except Exception as e:
+            logger.error("HDF deploy exception: %s", e)
             return None
 
     @property
@@ -193,6 +238,9 @@ class Deployer:
             return False
         try:
             import os
+            if self._is_hdf:
+                # HDF is a regular file; still writable via xdftool wrapper.
+                return self._deploy_dir.is_file() and os.access(self._deploy_dir, os.W_OK)
             return self._deploy_dir.is_dir() and os.access(self._deploy_dir, os.W_OK)
         except Exception:
             return False
