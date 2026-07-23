@@ -147,21 +147,68 @@ Route them into OS4 via the dev HDD:
 5. In OS4: open the dev drive, extract each update in order (`LhA x
    Update1.lha`) and run its installer icon.
 
-## Mounting the dev HDF from macOS
+## Sharing files with OS4 via the dev HDF
 
-The 512 MB `amigaos4-dev.hdf` is raw disk. macOS doesn't understand
-SFS or FFS natively, but you can either:
+The 512 MB `amigaos4-dev.hdf` is a raw disk container. macOS doesn't
+understand SFS/FFS natively, but the Python **amitools** package gives
+you `rdbtool` + `xdftool` which read/write Amiga hardfiles directly —
+no emulator required. This is the shortest path for macOS → OS4 file
+transfer.
 
-- **Use `xdftool`** (from amitools) to write to it as an Amiga
-  filesystem: `pip install amitools`
-- **Or share via QEMU's built-in TFTP / SMB** (network file server
-  setup — heavier)
-- **Or use a plain FAT32 partition** on the dev HDD when partitioning
-  in Media Toolbox: OS4 reads FAT via `crossdostype`, and macOS reads
-  it natively via `hdiutil attach`
+### One-time host setup
 
-The FAT32 route is the smoothest for iterating on binaries — treat the
-dev HDD like a USB stick both sides read.
+```
+scripts/install-amitools.sh    # pip install amitools + verify
+```
+
+### One-time HDF init (from macOS)
+
+```
+scripts/init-dev-hdf.sh        # RDB + whole-disk DOS3 partition + format
+```
+
+Under the hood: `rdbtool init` writes a Rigid Disk Block, `rdbtool add`
+carves the whole disk into one partition (DOS3 = FFS-Int-Dircache which
+OS4 mounts natively), and `xdftool format` gives it a filesystem
+labelled `DevDrive:`.
+
+You do **not** need Media Toolbox on the OS4 side for this route —
+saves you the wizard clickthrough.
+
+### Deploy files
+
+```
+scripts/deploy-os4.sh <local-path> [target-name]   # write
+scripts/deploy-os4.sh --list                       # list
+scripts/deploy-os4.sh --rm <target-name>           # remove
+```
+
+Example round-trip:
+
+```
+$ echo "hello" > /tmp/probe.txt
+$ scripts/deploy-os4.sh /tmp/probe.txt hello.txt
+→ /tmp/probe.txt (6 bytes) → DevDrive:hello.txt
+```
+
+**Caveat:** don't write to the HDF while QEMU is running against it —
+the script warns you when it detects an attached QEMU. Shut OS4 down
+first (or at least detach the drive) before deploys during heavy dev.
+
+### On OS4
+
+The dev drive shows up as `DevDrive:` in Workbench (or `DH1:` depending
+on device order). Copy binaries out with `Copy DevDrive:hello_world
+RAM:` and run.
+
+### Alternative routes (if amitools isn't an option)
+
+- **Bridge file transfer** — once `amiga-bridge` is running on OS4,
+  push files via the `amiga_write_file` MCP tool (over serial TCP).
+  Slower (~1 KB/s) but no partition dance.
+- **FAT32 via Media Toolbox + hdiutil** — partition as CrossDOS in
+  Media Toolbox, mount raw HDF on macOS at the partition offset. More
+  fiddly than amitools; only worth it if you refuse a terminal.
 
 ## Video driver troubleshooting
 
