@@ -50,17 +50,18 @@ if rdbtool -r "$HDF" info >/dev/null 2>&1; then
     echo "  RDB already present — FORCE=1 set, overwriting."
 fi
 
-echo "→ install RDB"
-rdbtool "$HDF" init
-
-echo "→ add whole-disk DOS3 partition (device name DH1)"
-# `add` with no size takes the full remaining space. Default DOS type is DOS3
-# (FFS International + Directory Cache) which OS4 mounts natively. Name the
-# partition DH1 explicitly — the rdbtool default (DH0) collides with the
-# system HDF's partition name, so OS4 mounts the system drive and treats the
-# dev drive as an unavailable "please insert DevDrive:" reference. Suppress
-# the trailing traceback that comes from an implicit `free` on a full disk.
-rdbtool -p DH "$HDF" add name=DH1 2>/dev/null || true
+echo "→ recreate HDF with realistic CHS geometry + install RDB"
+# amitools' auto-geometry (heads=1, secs=32) makes OS4's Media Toolbox
+# refuse the disk with "serious errors" and its sii3112 SATA driver skips
+# the RDB scan entirely. Force classic PC-style CHS (16 heads × 63 sectors)
+# so OS4 trusts the layout. 1040 cyls × 16 × 63 × 512 = exactly 512 MB.
+#
+# Note: chs= must be set at CREATE time, not at open — subsequent opens on
+# an existing file re-detect geometry from size and pick the same silly
+# default. So we delete the HDF (safe: called only after FORCE=1 gate) and
+# create afresh with the right geometry embedded.
+if [ "$FORCE" = "1" ]; then rm -f "$HDF"; fi
+rdbtool -f "$HDF" create size=512Mi chs=1040,16,63 + init + add name=DH1 2>/dev/null || true
 
 echo "→ format partition as '$VOL_LABEL'"
 xdftool "$HDF" open part=0 + format "$VOL_LABEL"
