@@ -25,9 +25,11 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
+#endif
 
 /* Layout metrics derived at runtime from the inherited screen font. */
 static int g_line_h   = 12;   /* per-line cell height (font height + leading) */

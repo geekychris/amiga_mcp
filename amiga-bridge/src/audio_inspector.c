@@ -16,7 +16,9 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
+#endif
 
 /*
  * Read Paula audio channel status.

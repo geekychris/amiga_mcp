@@ -21,7 +21,9 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
+#endif
 static struct MsgPort *g_replyPort = NULL;
 
 /* Pending ARexx command state */

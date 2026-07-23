@@ -14,7 +14,9 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
+#endif
 
 /* Register definitions: offset from $DFF000 and name */
 struct ChipReg {

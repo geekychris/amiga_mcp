@@ -26,8 +26,10 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase *GfxBase;
+#endif
 
 static const char hex_chars[] = "0123456789abcdef";
 

@@ -19,7 +19,9 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
+#endif
 static struct MsgPort *g_clipPort = NULL;
 static struct IOClipReq *g_clipIO = NULL;
 static BOOL g_device_open = FALSE;
