@@ -23,7 +23,9 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 struct Library *SocketBase = NULL;
+#endif
 
 static LONG  listen_sock = -1;
 static LONG  client_sock = -1;

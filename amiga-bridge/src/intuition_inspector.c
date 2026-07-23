@@ -21,8 +21,10 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase *GfxBase;
+#endif
 
 /* Safe buffer append: appends src to buf at *pos, respecting bufSize.
  * Returns 1 if appended, 0 if it didn't fit. */

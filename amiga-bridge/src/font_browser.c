@@ -19,7 +19,9 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct GfxBase *GfxBase;
+#endif
 
 /*
  * Initialize font browser - open diskfont.library.

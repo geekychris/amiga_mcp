@@ -28,7 +28,9 @@
 #define MEMF_TOTAL (1UL << 17)
 #endif
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
+#endif
 
 /* Safe buffer append: appends src to buf at *pos, respecting bufSize.
  * Returns 1 if appended, 0 if it didn't fit. */
