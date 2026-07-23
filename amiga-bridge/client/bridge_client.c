@@ -8,6 +8,7 @@
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <exec/ports.h>
+#include <dos/dos.h>       /* SIGBREAKF_CTRL_* — pulled in transitively on classic AmigaOS, not on OS4 */
 #include <proto/exec.h>
 
 #include <string.h>
