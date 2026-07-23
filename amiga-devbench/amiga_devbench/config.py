@@ -64,6 +64,14 @@ class DevBenchConfig:
     # Bridge options
     crash_handler_auto_enable: bool = True
 
+    # Target architecture — decides which toolchain Docker image is used
+    # for cross-compilation and which serial/deploy defaults apply.
+    #   "m68k" — classic AmigaOS 3.x on 680x0 (default)
+    #   "ppc"  — AmigaOS 4.1 on PowerPC (sam460ex under QEMU)
+    arch: str = "m68k"
+    # Docker image for cross-compilation. Empty = pick the arch default.
+    docker_image: str = ""
+
     # GDB RSP server
     gdb_port: int = 2159
 
@@ -111,6 +119,17 @@ class DevBenchConfig:
             self.project_root = str(Path(self.project_root).resolve())
         if self.deploy_dir:
             self.deploy_dir = str(Path(self.deploy_dir).expanduser())
+        # If emulator_binary is a relative path (e.g. "scripts/start-qemu-os4.sh"
+        # from the qemu-os4 profile), anchor it to project_root. Otherwise leave
+        # things like "auto", absolute paths, or bare command names alone.
+        if (
+            self.emulator_binary
+            and self.emulator_binary != "auto"
+            and "/" in self.emulator_binary
+            and not Path(self.emulator_binary).is_absolute()
+            and self.project_root
+        ):
+            self.emulator_binary = str(Path(self.project_root) / self.emulator_binary)
 
 
 def load_config(
@@ -189,6 +208,11 @@ def apply_profile(cfg: DevBenchConfig, name: str) -> None:
     # Paths
     if "deploy_dir" in p:
         cfg.deploy_dir = str(p["deploy_dir"])
+    # Arch + build settings
+    if "arch" in p:
+        cfg.arch = str(p["arch"]).lower()
+    if "docker_image" in p:
+        cfg.docker_image = str(p["docker_image"])
     # Remember which profile was applied
     cfg.active_profile = name
 
@@ -235,6 +259,12 @@ def _apply_toml(cfg: DevBenchConfig, data: dict[str, Any]) -> None:
     bridge = data.get("bridge", {})
     if "crash_handler_auto_enable" in bridge:
         cfg.crash_handler_auto_enable = bool(bridge["crash_handler_auto_enable"])
+
+    build = data.get("build", {})
+    if "arch" in build:
+        cfg.arch = str(build["arch"]).lower()
+    if "docker_image" in build:
+        cfg.docker_image = str(build["docker_image"])
 
     llm = data.get("llm", {})
     if "enabled" in llm:       cfg.llm_enabled = bool(llm["enabled"])
