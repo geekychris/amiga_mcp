@@ -104,8 +104,15 @@ if [ $INSTALL_MODE -eq 1 ]; then
     echo "=== INSTALL MODE ==="
     echo "Booting from CDROM: $CDROM"
 else
+    # sam460ex's sii3112 SATA controller exposes TWO IDE-like buses
+    # (ide.0 and ide.1), each supporting exactly one device. QEMU
+    # attaches an empty ide-cd on ide.1 by default. To land the dev
+    # HDF on ide.1 we attach it explicitly with if=none + ide-hd,
+    # which overrides the default CD-ROM. System HDD stays on ide.0
+    # via the simpler if=ide,index=0 shorthand.
     DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
-                -drive file=$HDD_DEV,format=raw,if=ide,index=1"
+                -drive file=$HDD_DEV,format=raw,if=none,id=devdrv \
+                -device ide-hd,drive=devdrv,bus=ide.1,unit=0"
     BOOT_ARGS=""
 fi
 
