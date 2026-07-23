@@ -26,6 +26,18 @@ extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase *GfxBase;
 #endif
 
+/* IntuitionBase and GfxBase are opaque (struct Library *) on OS4 —
+ * alias through a cast so classic 68k builds keep direct field access. */
+#ifdef __PPC__
+static inline struct IntuitionBase *_intu_base(void) { return (struct IntuitionBase *)IntuitionBase; }
+static inline struct GfxBase *_gfx_base(void) { return (struct GfxBase *)GfxBase; }
+#define INTUB _intu_base()
+#define GFXB  _gfx_base()
+#else
+#define INTUB IntuitionBase
+#define GFXB  GfxBase
+#endif
+
 /* Safe buffer append: appends src to buf at *pos, respecting bufSize.
  * Returns 1 if appended, 0 if it didn't fit. */
 static int buf_append(char *buf, int *pos, int bufSize, const char *src)
@@ -73,7 +85,7 @@ static void sanitize_text(char *dst, const char *src, int maxLen)
  * List all screens.
  * Command: LISTSCREENS
  *
- * Walk IntuitionBase->FirstScreen linked list.
+ * Walk INTUB->FirstScreen linked list.
  * Response: SCREENS|count|title:width:height:depth:viewmodes:flags:addr,...
  */
 void intui_handle_screens(void)
@@ -103,7 +115,7 @@ void intui_handle_screens(void)
 
     Forbid();
 
-    for (scr = IntuitionBase->FirstScreen; scr; scr = scr->NextScreen) {
+    for (scr = INTUB->FirstScreen; scr; scr = scr->NextScreen) {
         /* Validate screen pointer */
         if ((ULONG)scr < 0x100 || (ULONG)scr > 0x10000000) break;
 
@@ -195,7 +207,7 @@ void intui_handle_windows(const char *args)
         scr = NULL;
         {
             struct Screen *s;
-            for (s = IntuitionBase->FirstScreen; s; s = s->NextScreen) {
+            for (s = INTUB->FirstScreen; s; s = s->NextScreen) {
                 if ((ULONG)s == scrAddr) {
                     scr = s;
                     break;
@@ -208,7 +220,7 @@ void intui_handle_windows(const char *args)
             return;
         }
     } else {
-        scr = IntuitionBase->FirstScreen;
+        scr = INTUB->FirstScreen;
         if (!scr) {
             Permit();
             protocol_send_raw("ERR|WINDOWS|No screen found");
@@ -312,7 +324,7 @@ void intui_handle_gadgets(const char *args)
     Forbid();
 
     /* Validate the address is actually a window by walking all screens/windows */
-    for (scr = IntuitionBase->FirstScreen; scr; scr = scr->NextScreen) {
+    for (scr = INTUB->FirstScreen; scr; scr = scr->NextScreen) {
         struct Window *w;
         if ((ULONG)scr < 0x100 || (ULONG)scr > 0x10000000) break;
         for (w = scr->FirstWindow; w; w = w->NextWindow) {
@@ -408,7 +420,7 @@ static struct Window *find_window_by_addr(ULONG winAddr)
 
     if (winAddr < 0x100 || winAddr > 0x10000000) return NULL;
 
-    for (scr = IntuitionBase->FirstScreen; scr; scr = scr->NextScreen) {
+    for (scr = INTUB->FirstScreen; scr; scr = scr->NextScreen) {
         if ((ULONG)scr < 0x100 || (ULONG)scr > 0x10000000) break;
         for (w = scr->FirstWindow; w; w = w->NextWindow) {
             if ((ULONG)w < 0x100 || (ULONG)w > 0x10000000) break;
@@ -424,7 +436,7 @@ static struct Screen *find_screen_by_addr(ULONG scrAddr)
 
     if (scrAddr < 0x100 || scrAddr > 0x10000000) return NULL;
 
-    for (s = IntuitionBase->FirstScreen; s; s = s->NextScreen) {
+    for (s = INTUB->FirstScreen; s; s = s->NextScreen) {
         if ((ULONG)s < 0x100 || (ULONG)s > 0x10000000) break;
         if ((ULONG)s == scrAddr) return s;
     }

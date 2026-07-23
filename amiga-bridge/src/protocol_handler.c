@@ -19,6 +19,13 @@
 #include "bridge_internal.h"
 #include "script_util.h"
 
+/* OS4 renames / obsoletes several dos.library entry points — map the classic
+ * names back so the shared code compiles unchanged. */
+#ifdef __PPC__
+#define Seek(fh, pos, off) OBSOLETESeek((fh), (pos), (off))
+#define DeleteFile(name)   Delete((name))
+#endif
+
 /* Version is defined once in bridge_internal.h (BRIDGE_VERSION_MAJOR/MINOR). */
 
 /* DOS Write() adapter for script_write_semicolon_delimited(). Lets the pure-C

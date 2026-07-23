@@ -24,6 +24,14 @@
 #ifndef __PPC__
 extern struct ExecBase *SysBase;
 #endif
+
+/* SysBase is opaque (struct Library *) on OS4 — alias through a cast. */
+#ifdef __PPC__
+static inline struct ExecBase *_exec_base(void) { return (struct ExecBase *)SysBase; }
+#define SYSB _exec_base()
+#else
+#define SYSB SysBase
+#endif
 static struct MsgPort *g_replyPort = NULL;
 
 /* Pending ARexx command state */
@@ -184,7 +192,7 @@ void arexx_handle_ports(void)
     portlist[0] = '\0';
 
     Forbid();
-    for (node = SysBase->PortList.lh_Head;
+    for (node = SYSB->PortList.lh_Head;
          node->ln_Succ;
          node = node->ln_Succ)
     {

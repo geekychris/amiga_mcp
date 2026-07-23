@@ -19,7 +19,7 @@
 
 /* ---- crash_handler stubs ---------------------------------------- */
 
-int  crash_init(void)     { return 0; }
+void crash_init(void)     {}
 void crash_cleanup(void)  {}
 int  crash_get_last(char *buf, int max)
 {
@@ -34,7 +34,7 @@ int  crash_get_last(char *buf, int max)
 
 /* ---- snoop stubs ------------------------------------------------- */
 
-int  snoop_is_active(void)     { return 0; }
+BOOL snoop_is_active(void)     { return FALSE; }
 void snoop_drain(void)         {}
 void snoop_start(void)         {}
 void snoop_stop(void)          {}
@@ -42,7 +42,39 @@ void snoop_handle_status(void) {}
 
 /* ---- debugger stubs --------------------------------------------- */
 
-/* Kept intentionally empty for now — protocol_handler.c doesn't call
- * debugger_* symbols directly; the FS-UAE-integrated debugger path is
- * host-side. If future code paths link against debugger_* here, add
- * matching no-ops. */
+/* protocol_handler.c dispatches DEBUG_ / BP / STEP / etc. commands into
+ * these entry points unconditionally. On PPC OS4 the classic breakpoint /
+ * exception-frame implementation does not apply, so provide not-implemented
+ * replies that keep the daemon linkable and give the host a clear failure
+ * signal. Replace with a real PPC debugger backend when one exists. */
+static void dbg_not_impl(const char *cmd)
+{
+    static char buf[64];
+    int n = 0;
+    const char *prefix = "ERR|";
+    const char *suffix = "|not implemented on OS4";
+    while (*prefix && n < (int)sizeof(buf) - 1) buf[n++] = *prefix++;
+    while (*cmd    && n < (int)sizeof(buf) - 1) buf[n++] = *cmd++;
+    while (*suffix && n < (int)sizeof(buf) - 1) buf[n++] = *suffix++;
+    buf[n] = '\0';
+    protocol_send_raw(buf);
+}
+
+void dbg_handle_attach(const char *args)   { (void)args; dbg_not_impl("DEBUG_ATTACH"); }
+void dbg_handle_detach(void)               { dbg_not_impl("DEBUG_DETACH"); }
+void dbg_handle_bpset(const char *args)    { (void)args; dbg_not_impl("BPSET"); }
+void dbg_handle_bpclear(const char *args)  { (void)args; dbg_not_impl("BPCLEAR"); }
+void dbg_handle_bplist(void)               { dbg_not_impl("BPLIST"); }
+void dbg_handle_step(void)                 { dbg_not_impl("STEP"); }
+void dbg_handle_next(void)                 { dbg_not_impl("NEXT"); }
+void dbg_handle_continue(void)             { dbg_not_impl("CONTINUE"); }
+void dbg_handle_regs(void)                 { dbg_not_impl("REGS"); }
+void dbg_handle_setreg(const char *args)   { (void)args; dbg_not_impl("SETREG"); }
+void dbg_handle_backtrace(void)            { dbg_not_impl("BACKTRACE"); }
+void dbg_handle_clearall(void)             { dbg_not_impl("CLEARALL"); }
+void dbg_poll(void)                        {}
+void dbg_handle_break(void)                { dbg_not_impl("BREAK"); }
+void dbg_handle_status(void)               { dbg_not_impl("DEBUG_STATUS"); }
+void dbg_handle_launch(const char *args)   { (void)args; dbg_not_impl("DEBUG_LAUNCH"); }
+void dbg_cleanup(void)                     {}
+BOOL dbg_should_pause_on_launch(void)      { return FALSE; }

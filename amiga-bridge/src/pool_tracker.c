@@ -75,8 +75,16 @@ static struct PoolEntry *alloc_pool_entry(void)
     return NULL;
 }
 
-/* ---- Patch functions ---- */
-
+/* ---- Patch functions ----
+ *
+ * TODO OS4/PPC: this whole subsystem relies on 68k SetFunction() LVO patching
+ * with __asm("dN")/__asm("aN") register captures. OS4 uses interface method
+ * tables (IExec->CreatePool, etc.) instead of the classic LVO jump table, so
+ * SetFunction-based patching doesn't apply. The four patch_* functions and the
+ * install/uninstall paths in pool_handle_start / pool_handle_stop are
+ * classic-only for now; the PPC build turns POOLSTART into a no-op stub.
+ */
+#ifndef __PPC__
 /*
  * CreatePool patch (LVO -696)
  * Register args: D0=memFlags, D1=puddleSize, D2=threshSize, A6=SysBase
@@ -235,6 +243,7 @@ static void patch_FreePooled(void)
                        LVO_FreePooled, (ULONG (*)())patch_FreePooled);
     Enable();
 }
+#endif /* !__PPC__ */
 
 /* ---- Public API ---- */
 
@@ -267,6 +276,12 @@ void pool_cleanup(void)
  */
 void pool_handle_start(void)
 {
+#ifdef __PPC__
+    /* OS4 uses IExec interface methods, not classic LVO jump tables — the
+     * SetFunction() patch approach in the 68k build does not translate.
+     * Report unsupported rather than pretending to install patches. */
+    protocol_send_raw("ERR|POOL|not supported on OS4 (interface-based exec)");
+#else
     if (g_active) {
         protocol_send_raw("OK|POOL|already tracking");
         return;
@@ -292,6 +307,7 @@ void pool_handle_start(void)
     protocol_send_raw("OK|POOL|tracking started");
     ui_add_log("PoolTracker: started");
     printf("PoolTracker: 4 functions patched\n");
+#endif
 }
 
 /*
@@ -302,6 +318,10 @@ void pool_handle_start(void)
  */
 void pool_handle_stop(void)
 {
+#ifdef __PPC__
+    /* Symmetric with pool_handle_start(): no-op on OS4. */
+    protocol_send_raw("OK|POOL|not tracking (unsupported on OS4)");
+#else
     if (!g_active) {
         protocol_send_raw("OK|POOL|not tracking");
         return;
@@ -335,6 +355,7 @@ void pool_handle_stop(void)
     protocol_send_raw("OK|POOL|tracking stopped");
     ui_add_log("PoolTracker: stopped");
     printf("PoolTracker: all patches removed\n");
+#endif
 }
 
 /*

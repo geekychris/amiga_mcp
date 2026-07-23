@@ -19,6 +19,15 @@
 
 #include "bridge_internal.h"
 
+/* ACCESS_READ was removed on OS4; SHARED_LOCK is the replacement. */
+#ifdef __PPC__
+#ifndef ACCESS_READ
+#define ACCESS_READ SHARED_LOCK
+#endif
+/* DeleteFile → Delete on OS4 (see fs_access.c preamble for full note). */
+#define DeleteFile(name) Delete((name))
+#endif
+
 /* Output capture buffer */
 #define PROC_OUTPUT_SIZE 480
 
