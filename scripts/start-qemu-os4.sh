@@ -76,42 +76,50 @@ if [ ! -f "$HDD_DEV" ]; then
     echo "  Created: $HDD_DEV"
 fi
 
-# Check for U-Boot firmware
-if [ ! -f "$UBOOT" ]; then
-    echo "Warning: U-Boot firmware not found at $UBOOT"
-    echo "The sam460ex machine requires U-Boot firmware."
-    echo "You may need to obtain it from A-EON or build it."
-    echo ""
-    echo "Trying without explicit firmware (QEMU may have built-in)..."
-    BIOS_ARG=""
-else
+# Check for U-Boot firmware. Recent QEMU ships u-boot-sam460.bin in
+# its share dir and auto-loads it for sam460ex; only pass -bios if a
+# custom firmware is provided in $OS4_DIR.
+if [ -f "$UBOOT" ]; then
     BIOS_ARG="-bios $UBOOT"
+    echo "Using custom U-Boot: $UBOOT"
+else
+    BIOS_ARG=""
 fi
 
-# Build QEMU command
-QEMU_CMD="$QEMU \
-    -machine sam460ex \
-    -m 512 \
-    $BIOS_ARG \
-    -drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
-    -drive file=$HDD_DEV,format=raw,if=ide,index=1 \
-    -serial tcp::${SERIAL_PORT},server,nowait \
-    -net nic,model=rtl8139 \
-    -net user \
-    -display default \
-    -name 'AmigaOS 4.1 - DevBench'"
-
-# Add CDROM for install mode
+# The sam460ex machine has ONE IDE bus with two slots (bus 0 / units
+# 0-1). QEMU's implicit -cdrom would place the CD on bus 1 which
+# doesn't exist, so we have to explicitly attach drives via if=ide
+# with slot indexes. Install mode uses slot 1 for the CD and drops
+# the dev HDD until after install completes. Normal mode uses slot
+# 0 for the system HDD and slot 1 for the dev HDD.
 if [ $INSTALL_MODE -eq 1 ]; then
     if [ ! -f "$CDROM" ]; then
         echo "Error: CDROM image not found at $CDROM"
         echo "Download AmigaOS 4.1 FE from hyperion-entertainment.com"
         exit 1
     fi
-    QEMU_CMD="$QEMU_CMD -cdrom $CDROM -boot d"
+    DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
+                -drive file=$CDROM,format=raw,if=ide,index=1,media=cdrom"
+    BOOT_ARGS="-boot d"
     echo "=== INSTALL MODE ==="
     echo "Booting from CDROM: $CDROM"
+else
+    DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
+                -drive file=$HDD_DEV,format=raw,if=ide,index=1"
+    BOOT_ARGS=""
 fi
+
+QEMU_CMD="$QEMU \
+    -machine sam460ex \
+    -m 512 \
+    $BIOS_ARG \
+    $DRIVE_ARGS \
+    $BOOT_ARGS \
+    -serial tcp::${SERIAL_PORT},server,nowait \
+    -net nic,model=rtl8139 \
+    -net user \
+    -display default \
+    -name 'AmigaOS 4.1 - DevBench'"
 
 echo "=== Starting QEMU sam460ex ==="
 echo "  Machine:    sam460ex (PowerPC 460EX)"
