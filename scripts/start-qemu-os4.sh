@@ -109,16 +109,18 @@ else
     BOOT_ARGS=""
 fi
 
+# 1 GB — 512 MB left AmigaOS 4.1 wedged mid-boot on the CD. sam460ex
+# supports up to 2 GB. Networking is disabled (rtl8139 isn't a
+# sam460ex-supported NIC and QEMU warned it wouldn't be created).
 QEMU_CMD="$QEMU \
     -machine sam460ex \
-    -m 512 \
+    -m 1024 \
     $BIOS_ARG \
     $DRIVE_ARGS \
     $BOOT_ARGS \
     -serial tcp::${SERIAL_PORT},server,nowait \
-    -net nic,model=rtl8139 \
-    -net user \
-    -display default \
+    -nic none \
+    -display cocoa,zoom-to-fit=on,show-cursor=on \
     -name 'AmigaOS 4.1 - DevBench'"
 
 echo "=== Starting QEMU sam460ex ==="
@@ -133,4 +135,18 @@ echo "DevBench connection:"
 echo "  python3 -m amiga_devbench --serial-host 127.0.0.1 --serial-port $SERIAL_PORT"
 echo ""
 
-eval $QEMU_CMD
+# QEMU Cocoa doesn't have a way to set an initial window size, so
+# launch in the background and use System Events to resize once the
+# window shows up. Falls back silently if osascript isn't available.
+eval "$QEMU_CMD &"
+QEMU_PID=$!
+if command -v osascript >/dev/null; then
+    (
+        for i in 1 2 3 4 5; do
+            sleep 1
+            osascript -e 'tell application "System Events" to tell process "qemu-system-ppc" to set size of first window to {960, 720}' 2>/dev/null && break
+        done
+        osascript -e 'tell application "System Events" to tell process "qemu-system-ppc" to set position of first window to {200, 80}' 2>/dev/null
+    ) &
+fi
+wait "$QEMU_PID"
