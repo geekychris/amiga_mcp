@@ -9,7 +9,13 @@ ifeq ($(ARCH),ppc)
   AR = ppc-amigaos-ar
   # PPC OS4: -mcrt=newlib links against the standard C runtime; drop the
   # 68k-specific -noixemul flag. -mcpu=440 matches the sam460ex CPU.
-  CFLAGS = -mcrt=newlib -O2 -mcpu=440 -Wall -Iinclude -MMD -MP -D__PPC__
+  # -D__USE_INLINE__      makes <proto/*> pull in inline4/*.h so classic
+  #                       names like GetMsg() work as macros for IExec->GetMsg().
+  # -D__USE_OLD_TIMEVAL__ keeps `struct timerequest`/`struct timeval` with
+  #                       tr_node/tr_time/tv_secs/tv_micro layout (OS4 renamed
+  #                       to TimeRequest/TimeVal to avoid POSIX collision).
+  CFLAGS = -mcrt=newlib -O2 -mcpu=440 -Wall -Iinclude -MMD -MP \
+           -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
   LDFLAGS = -mcrt=newlib -lauto
 else
   CC = m68k-amigaos-gcc
@@ -79,7 +85,8 @@ $(CLIENT_LIB): $(CLIENT_OBJS)
 # implementations are 68k-only — they'll need per-arch stubs when we port
 # to PPC. For now build both files with -O2 using the arch-appropriate CFLAGS.
 ifeq ($(ARCH),ppc)
-  ASM_CAPTURE_FLAGS = -mcrt=newlib -O2 -mcpu=440 -Wall -Iinclude -MMD -MP -D__PPC__
+  ASM_CAPTURE_FLAGS = -mcrt=newlib -O2 -mcpu=440 -Wall -Iinclude -MMD -MP \
+                      -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
 else
   ASM_CAPTURE_FLAGS = -noixemul -O2 -m68020 -Wall -Iinclude -MMD -MP
 endif
