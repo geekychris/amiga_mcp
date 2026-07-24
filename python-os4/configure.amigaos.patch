@@ -1,0 +1,24 @@
+--- /dev/fd/12	2026-07-24 11:51:54
++++ Python-3.12.7/configure	2026-07-24 11:35:12
+@@ -4279,6 +4279,11 @@
+ 	*-*-wasi)
+ 	    ac_sys_system=WASI
+ 	    ;;
++	*-*-amigaos*)
++	    # AmigaOS 4.x on PowerPC via ppc-amigaos-gcc + newlib.
++	    # Added for the amiga_mcp python-os4 port.
++	    ac_sys_system=AmigaOS
++	    ;;
+ 	*)
+ 		# for now, limit cross builds to known configurations
+ 		MACHDEP="unknown"
+@@ -4339,6 +4344,9 @@
+ 		_host_cpu=$host_cpu
+ 		;;
+ 	wasm32-*-* | wasm64-*-*)
++		_host_cpu=$host_cpu
++		;;
++	*-*-amigaos*)
+ 		_host_cpu=$host_cpu
+ 		;;
+ 	*)
