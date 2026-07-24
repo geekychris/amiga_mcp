@@ -92,7 +92,9 @@ What the script does:
 - Attaches `AmigaOS4.1-FE.iso` on IDE slot 1 (source)
 - Sets `-boot d` to boot from the CD
 - 1 GB RAM (512 MB wedged mid-boot in testing)
-- Uses `-nic none` (sam460ex doesn't emulate rtl8139)
+- Networking off by default. Pass `--net` for a QEMU-emulated
+  RTL8139 PCI card that OS4's shipped `rtl8139.device` can bind to
+  — see [Networking](#networking) for the Roadshow config.
 - Serial port exposed on TCP `127.0.0.1:2346`
 - Cocoa display with `zoom-to-fit=on` and auto-resize to 960×720
 
@@ -172,6 +174,60 @@ Route them into OS4 via the dev HDD:
 4. Boot OS4 (`start-qemu-os4.sh`).
 5. In OS4: open the dev drive, extract each update in order (`LhA x
    Update1.lha`) and run its installer icon.
+
+## Networking
+
+Base OS4.1 FE installs *have* Roadshow (the OS4 TCP/IP stack) shipped
+but no NIC hardware to bind it to. The sam460ex machine as QEMU
+emulates it presents just the built-in PCI RAID + display controllers
+by default — no Ethernet. We add one manually as a PCI RTL8139.
+
+### Enable QEMU networking
+
+```bash
+bash scripts/start-qemu-os4.sh --net
+```
+
+Under the hood this appends `-netdev user,id=n0 -device rtl8139,netdev=n0`
+to the QEMU command line — QEMU's user-mode NAT (DNS + DHCP + outbound
+IP through the host, no bridging or host-side config needed) behind a
+PCI RTL8139 card that OS4's shipped driver can drive.
+
+**Do NOT use the `-nic user,model=rtl8139` shorthand.** QEMU rejects it
+silently on sam460ex: "requested NIC was not created (not supported
+by this machine?)". The explicit `-netdev` + `-device` form is what
+works.
+
+### Configure Roadshow (one-time on OS4 side)
+
+1. Open `SYS:Prefs/Internet` (this is Roadshow's prefs tool — not
+   named "Network" or "TCP/IP").
+2. Interface tab → add a new interface:
+   - **Device**: `Devs:Networks/rtl8139.device`
+   - **Unit**: `0`
+   - **Configure with**: DHCP
+3. Save → activate.
+4. Verify from a Shell:
+   ```
+   ping google.com
+   ping 8.8.8.8
+   ```
+
+The `rtl8139.device` shipped with OS4.1 FE base install works with
+QEMU's RTL8139 emulation as-is — no driver update needed.
+
+### AmiUpdate (needs networking)
+
+Base OS4.1 FE does not include AmiUpdate. Download it once from
+[os4depot.net → network/misc/amiupdate.lha](http://os4depot.net/index.php?function=showfile&file=network/misc/amiupdate.lha),
+extract with LhA on OS4, run the installer. After that, AmiUpdate
+handles fetching newer libraries (newlib, dos, etc.), drivers,
+and OS4 subsystem updates over the network.
+
+This matters especially for the [python-amigaos4](https://github.com/geekychris/python-amigaos4)
+port — its interpreter binary links against `newlib.library 53.68`,
+newer than what base OS4.1 FE (53.30) or Update 3 (53.34) ships.
+AmiUpdate is currently the only way to reach 53.68+.
 
 ## Sharing files with OS4 via the dev HDF
 
@@ -277,9 +333,11 @@ The script creates fresh sparse HDF containers when they're missing.
 - **sam460ex has only one IDE bus** with two slots. `-cdrom` implicitly
   maps to bus 1 which doesn't exist — the script uses
   `-drive if=ide,index=1,media=cdrom` explicitly.
-- **rtl8139 NIC is not supported** on sam460ex. Networking needs the
-  built-in EMAC or a supported PCI card; the script disables NIC with
-  `-nic none` to keep the boot clean.
+- **`-nic user,model=rtl8139` is silently rejected** on sam460ex —
+  QEMU emits "requested NIC was not created (not supported by this
+  machine?)". The `-netdev` + `-device` two-flag form works fine
+  though; that's what `start-qemu-os4.sh --net` uses. See the
+  [Networking](#networking) section.
 - **CPU stays at 100 % during boot** — normal. QEMU emulates PPC on
   Apple Silicon or x86 without hardware assist. First boot to
   Workbench is ~2 min.
