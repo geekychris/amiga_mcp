@@ -1,0 +1,43 @@
+# CPython Modules/Setup.local for the OS4 Phase-1 bootstrap.
+# Copied into build-ppc-amigaos/Modules/Setup.local before make.
+#
+# Disable everything that needs a shim we haven't written yet.
+# Anything commented back in for Phase 2/3/4 stays as-is on rerun.
+*disabled*
+_posixsubprocess
+_socket
+_ssl
+_hashlib
+syslog
+termios
+grp
+pwd
+nis
+spwd
+resource
+_multiprocessing
+_posixshmem
+_curses
+_curses_panel
+_dbm
+_gdbm
+_lzma
+_sqlite3
+_tkinter
+zlib
+_bz2
+audioop
+ossaudiodev
+mmap
+fcntl
+_crypt
+readline
+_ctypes
+_decimal
+_elementtree
+pyexpat
+_uuid
+_asyncio
+_queue
+_zoneinfo
+xxsubtype

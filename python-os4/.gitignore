@@ -1,0 +1,10 @@
+# Build artifacts
+build-ppc-amigaos/
+
+# Source tarball (fetched by curl, ~20MB — not worth versioning)
+Python-3.12.7.tar.xz
+
+# Extracted source tree — huge and largely unmodified. Only our
+# configure patches matter; capture those as configure.amigaos.patch
+# for review, not the whole tree.
+Python-3.12.7/
