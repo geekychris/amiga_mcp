@@ -30,25 +30,30 @@ SERIAL_PORT="${SERIAL_PORT:-2346}"
 
 # Parse arguments
 INSTALL_MODE=0
+GDB_MODE=0
+GDB_PORT=${GDB_PORT:-1234}
 while [[ $# -gt 0 ]]; do
     case $1 in
         --install) INSTALL_MODE=1; shift ;;
         --serial) SERIAL_PORT="$2"; shift 2 ;;
+        --gdb)     GDB_MODE=1; shift ;;
+        --gdb-port) GDB_PORT="$2"; GDB_MODE=1; shift 2 ;;
         --help|-h)
-            echo "Usage: $0 [--install] [--serial PORT]"
-            echo ""
-            echo "  --install     Boot from CDROM for OS installation"
-            echo "  --serial PORT Serial TCP port (default: 2346)"
-            echo ""
-            echo "Environment variables:"
-            echo "  OS4_DIR       Directory containing OS4 files (default: ~/AmigaOS4)"
-            echo "  SERIAL_PORT   Serial TCP port (default: 2346)"
-            echo ""
-            echo "Required files in OS4_DIR:"
-            echo "  amigaos4-system.hdf  - System hard drive image"
-            echo "  amigaos4-dev.hdf     - Development shared drive"
-            echo "  u-boot-sam460ex.bin  - U-Boot firmware"
-            echo "  AmigaOS4.1-FE.iso   - OS install CD (for --install)"
+            cat <<EOH
+Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]]
+
+  --install         Boot from CDROM for OS installation
+  --serial PORT     Serial TCP port for bridge (default: 2346)
+  --gdb             Enable QEMU's built-in GDB stub for CPU-level
+                    debugging (registers, memory, breakpoints on any
+                    address). Attach with scripts/gdb-os4.sh
+  --gdb-port N      Port for GDB stub (default: 1234)
+
+Environment variables:
+  OS4_DIR           Directory containing OS4 files (default: ~/AmigaOS4)
+  SERIAL_PORT       Serial TCP port (default: 2346)
+  GDB_PORT          GDB stub port (default: 1234, needs --gdb to activate)
+EOH
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -116,6 +121,16 @@ else
     BOOT_ARGS=""
 fi
 
+# GDB stub for CPU-level debugging (registers, memory, breakpoints).
+# Not started (nowait) so QEMU still boots without a GDB attached; when
+# scripts/gdb-os4.sh connects, it lands wherever the CPU is at that moment.
+if [ $GDB_MODE -eq 1 ]; then
+    GDB_ARGS="-gdb tcp::${GDB_PORT},server,nowait"
+    echo "  GDB stub:   TCP port ${GDB_PORT} (attach with scripts/gdb-os4.sh)"
+else
+    GDB_ARGS=""
+fi
+
 # 1 GB — 512 MB left AmigaOS 4.1 wedged mid-boot on the CD. sam460ex
 # supports up to 2 GB. Networking is disabled (rtl8139 isn't a
 # sam460ex-supported NIC and QEMU warned it wouldn't be created).
@@ -126,6 +141,7 @@ QEMU_CMD="$QEMU \
     $DRIVE_ARGS \
     $BOOT_ARGS \
     -serial tcp::${SERIAL_PORT},server,nowait \
+    $GDB_ARGS \
     -nic none \
     -display cocoa,zoom-to-fit=on,show-cursor=on \
     -name 'AmigaOS 4.1 - DevBench'"

@@ -2,8 +2,18 @@
 
 ## Project Overview
 Amiga cross-development environment with MCP server integration for Claude Code.
-Compiles C code on macOS/Linux/Windows via Docker, deploys to AmiKit emulator,
+Compiles C code on macOS/Linux/Windows via Docker, deploys to Amiga emulators,
 and provides real-time debug monitoring over serial/TCP.
+
+**Two target architectures supported:**
+- **Classic 68k** (AmigaOS 3.x) on FS-UAE / AmiKit — the original path
+- **PowerPC OS4** (AmigaOS 4.1) on QEMU sam460ex — newer path, see
+  [`docs/amigaos4-setup.md`](docs/amigaos4-setup.md) and
+  [`docs/quickstart.md`](docs/quickstart.md)
+
+Switch between them with `python3 -m amiga_devbench --profile <name>`
+(profiles live in `devbench.toml`). The web UI header shows the active
+profile + target arch as a coloured badge.
 
 ## Architecture (Current)
 - **amiga-bridge/**: Amiga-side daemon + client library (libbridge.a). Owns serial.device, IPC via MsgPorts.
@@ -20,27 +30,92 @@ and provides real-time debug monitoring over serial/TCP.
 - `mcp-server/` — Old TypeScript MCP server, replaced by amiga-devbench.
 
 ## Build Requirements
+
+**Classic 68k target:**
 - Docker with `amigadev/crosstools:m68k-amigaos` image
 - Python 3.10+ for devbench (`pip install -e amiga-devbench`)
 - AmiKit or FS-UAE with serial port exposed as TCP (default: `127.0.0.1:1234`)
 
+**PowerPC OS4 target (additional):**
+- Docker with `walkero/amigagccondocker:os4-gcc11-{arm64,amd64}` (host-arch-dependent)
+- QEMU with sam460ex machine (`brew install qemu`)
+- `lha` for extracting the OS4 install ISO from Hyperion (`brew install lha`)
+- Python `amitools` (via pip, for reading/writing HDF hardfiles from macOS)
+- AmigaOS 4.1 Final Edition — commercial, from Hyperion Entertainment
+
+**One-shot install of all Docker images (both arches + gdb-multiarch):**
+```
+scripts/install-toolchains.sh
+```
+
 ## Build Commands
+
+**Classic 68k (default):**
 ```bash
 make setup        # One-time: pip install devbench
 make start        # Start devbench (reads devbench.toml)
-make bridge       # Build amiga-bridge daemon + libbridge.a
-make examples     # Build example apps via Docker
-make all          # Build everything
+make bridge       # Build amiga-bridge daemon + libbridge.a (68k)
+make examples     # Build example apps via Docker (68k)
+make all          # Build everything (68k)
 make clean        # Clean all build artifacts
 ```
 
-## Amiga C Conventions
+**PowerPC OS4:**
+```bash
+scripts/install-toolchains.sh                     # one-time: docker pulls
+scripts/build-bridge-ppc.sh                       # build amiga-bridge daemon + libbridge (PPC)
+scripts/build-example-ppc.sh hello_world          # build a single example (PPC)
+scripts/build-example-ppc.sh void_trader          # ditto (needs OS4-porting per example)
+
+# Devbench with the OS4 profile
+python3 -m amiga_devbench --profile qemu-os4
+
+# Boot the OS4 emulator (QEMU sam460ex)
+scripts/start-qemu-os4.sh                         # normal boot
+scripts/start-qemu-os4.sh --install               # boot install CD (first time)
+scripts/start-qemu-os4.sh --gdb                   # boot + open GDB stub on TCP 1234
+
+# Deploy into the dev HDF (works while OS4 is running — auto diskchange)
+scripts/deploy-os4.sh path/to/binary target-name
+
+# Debug PPC binary via QEMU's GDB stub (from --gdb launch)
+scripts/gdb-os4.sh amiga-bridge/amiga-bridge      # gdb-multiarch attached
+```
+
+## Amiga C Conventions (classic 68k)
 - Always use `-noixemul` flag (no Unix emulation, pure AmigaOS)
 - Target 68020 with `-m68020`
 - Include paths: `-I../../amiga-bridge/include`
 - Link with: `-L../../amiga-bridge -lbridge -lamiga`
 - Use `%ld` with `(long)` cast for printf (amiga.lib `%d` reads 16-bit WORD)
 - Use `(long)` cast for all integer format specifiers
+
+## Amiga C Conventions (PPC OS4)
+- Compile with `-mcrt=newlib -O2 -mcpu=440 -Wall -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__`
+- Link with `-mcrt=newlib -L../../amiga-bridge -lbridge -lauto` (drop `-noixemul`, `-lamiga`)
+- `-D__USE_INLINE__` pulls in inline4/*.h so classic call names
+  (`GetMsg`, `OpenWindow`, etc.) work as macros that dispatch to
+  `IExec->GetMsg()` etc. Without it, you get "implicit declaration" wall.
+- `-D__USE_OLD_TIMEVAL__` keeps `struct timerequest` fields `tr_node`
+  / `tr_time` / `tv_secs` / `tv_micro` intact (OS4 renamed the base
+  struct to `TimeRequest`/`TimeVal` to avoid POSIX collision).
+- **Never** declare `struct ExecBase *SysBase`, `struct IntuitionBase
+  *IntuitionBase`, `struct GfxBase *GfxBase`, or `struct DosLibrary
+  *DOSBase` on PPC — OS4's `<proto/*>` already declares them as
+  `struct Library *`. Gate any such declarations with `#ifndef __PPC__`.
+- **Do not use `Delay(1)`** as a frame-pacing primitive — triggers DSI
+  under our current -lauto / newlib setup. Root cause TBD; use
+  `WaitTOF()` for VBlank sync or timer.device IORequest for reliable
+  small delays.
+- **No direct chip register access** (`custom.color[]`, `custom.dmacon`,
+  `$DFF000`). sam460ex has no chip RAM. Use `graphics.library`
+  (`WritePixel`, `RectFill`, `Draw`) or CGX APIs.
+- **No inline `__asm("dN")` register captures** — 68k-only. If a
+  source file uses these, gate it out of the PPC build (see how the
+  amiga-bridge Makefile splits `DAEMON_SRCS_PORTABLE` vs
+  `DAEMON_SRCS_68K_ONLY`).
+- Same `%ld` + `(long)` cast rule applies — OS4 sprintf isn't any
+  more forgiving of int-vs-long mixups than classic amiga.lib.
 
 ## Bridge Client API
 ```c
@@ -81,9 +156,19 @@ Line-based text protocol over serial/TCP, pipe-delimited fields.
 - See `/fsuae-setup` skill for detailed walkthrough
 
 ## Deploy
-Binaries deploy to AmiKit shared folder:
+
+**Classic 68k (AmiKit shared folder):**
 `/Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/Dropbox/Dev/`
-Amiga sees this as `DH2:Dev/`
+Amiga sees this as `DH2:Dev/`.
+
+**PowerPC OS4 (dev HDF via amitools):**
+`~/AmigaOS4/amigaos4-dev.hdf` — devbench + `scripts/deploy-os4.sh`
+write straight into the raw hardfile via `xdftool`. OS4 sees this as
+`DH1:` (labelled `DevDrive:` after `init-dev-hdf.sh`).
+
+The `qemu-os4` profile in `devbench.toml` already points `deploy_dir`
+at that HDF; MCP's `amiga_deploy` tool and the web UI's Deploy button
+detect the `.hdf` suffix and shell out to `deploy-os4.sh` transparently.
 
 ## Testing Without Emulator
 ```bash
