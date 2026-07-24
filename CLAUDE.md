@@ -25,6 +25,9 @@ profile + target arch as a coloured badge.
 - **docker/**: Dockerfile for cross-compilation environment.
 - **scripts/**: Build, deploy, and test scripts.
 
+### Related repos (separate from this checkout)
+- **[github.com/geekychris/python-amigaos4](https://github.com/geekychris/python-amigaos4)** — CPython 3.12 port for AmigaOS 4.1 PPC. Uses the same walkero cross-compile toolchain; will eventually integrate with the bridge client for scriptable Amiga automation from devbench.
+
 ### Deprecated (do NOT use)
 - `amiga-debug-lib/` — Old C library, replaced by amiga-bridge client lib.
 - `mcp-server/` — Old TypeScript MCP server, replaced by amiga-devbench.
