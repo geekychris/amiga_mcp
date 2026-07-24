@@ -164,8 +164,10 @@ read -ra _gdb_arr   <<<"$GDB_ARGS";  QEMU_CMD+=( "${_gdb_arr[@]}" )
 # handled by Roadshow. Guest sees DNS/NAT via QEMU's built-in stack;
 # no host-side setup needed.
 if [ "$NET_MODE" -eq 1 ]; then
-    QEMU_CMD+=( -nic user,model=e1000 )
-    NET_STATUS="user-mode NAT (e1000)"
+    # RTL8139 chosen because base OS4.1 FE ships rtl8139.device out
+    # of the box. e1000 needs a driver install (not present in base).
+    QEMU_CMD+=( -nic user,model=rtl8139 )
+    NET_STATUS="user-mode NAT (rtl8139)"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
