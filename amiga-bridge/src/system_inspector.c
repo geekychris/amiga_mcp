@@ -858,6 +858,16 @@ void sys_handle_devinfo(const char *name)
  */
 void sys_handle_libfuncs(const char *args)
 {
+#ifdef __PPC__
+    /* Classic LIBFUNCS reads the 68k jump table (6-byte JMP+addr entries
+     * growing downward from lib base). OS4 libraries use interface method
+     * tables addressed via IExec-> pointers, not a linear negative-offset
+     * jump table. Reporting fake data here would mislead host clients, so
+     * fail loudly. Removed from CAPABILITIES on PPC too. */
+    (void)args;
+    protocol_send_raw("ERR|LIBFUNCS|not supported on OS4 (interface-based exec)");
+    return;
+#else
     static char linebuf[BRIDGE_MAX_LINE];
     static char namebuf[64];
     static char entry[20];
@@ -1019,6 +1029,7 @@ void sys_handle_libfuncs(const char *args)
     }
 
     protocol_send_raw(linebuf);
+#endif /* __PPC__ */
 }
 
 /*
@@ -1232,6 +1243,14 @@ void sys_handle_capabilities(void)
 {
     static char linebuf[BRIDGE_MAX_LINE];
 
+    /* LIBFUNCS is 68k-only — it reads the jump-table format that OS4
+     * doesn't have (interface method tables instead). Drop it from
+     * PPC's advertised capability list so hosts don't try to call it. */
+#ifdef __PPC__
+    #define LIBFUNCS_CAP ""
+#else
+    #define LIBFUNCS_CAP "LIBFUNCS,"
+#endif
     sprintf(linebuf,
         "CAPABILITIES|" BRIDGE_VERSION_STR "|1|%ld|"
         "PING,INSPECT,GETVAR,SETVAR,EXEC,LISTCLIENTS,LISTTASKS,LISTLIBS,"
@@ -1241,7 +1260,8 @@ void sys_handle_capabilities(void)
         "SCRIPT,WRITEMEM,SCREENSHOT,PALETTE,SETPALETTE,COPPERLIST,SPRITES,"
         "LISTRESOURCES,GETPERF,LASTCRASH,CRASHINIT,CRASHREMOVE,CRASHTEST,"
         "MEMMAP,STACKINFO,CHIPREGS,READREGS,SEARCH,LIBINFO,DEVINFO,"
-        "LIBFUNCS,SNOOPSTART,SNOOPSTOP,SNOOPSTATUS,AUDIOCHANNELS,"
+        LIBFUNCS_CAP
+        "SNOOPSTART,SNOOPSTOP,SNOOPSTATUS,AUDIOCHANNELS,"
         "AUDIOSAMPLE,LISTSCREENS,LISTWINDOWS,LISTWINDOWS2,LISTGADGETS,"
         "WINACTIVATE,WINTOFRONT,WINTOBACK,WINZIP,WINMOVE,WINSIZE,"
         "SCRTOFRONT,SCRTOBACK,INPUTKEY,INPUTMOVE,INPUTCLICK,"
@@ -1251,6 +1271,7 @@ void sys_handle_capabilities(void)
         "CHECKSUM,ASSIGNS,ASSIGN,PROTECT,RENAME,SETCOMMENT,COPY,APPEND,"
         "VERSION,GETENV,SETENV,SETDATE,VOLUMES,PORTS,SYSINFO,UPTIME,REBOOT",
         (long)BRIDGE_MAX_LINE);
+#undef LIBFUNCS_CAP
 
     protocol_send_raw(linebuf);
 }
@@ -1477,7 +1498,15 @@ void sys_handle_sysinfo(void)
     vblankHz = SYSB->VBlankFrequency;
     attnFlags = SYSB->AttnFlags;
 
-    /* Determine CPU type from AttnFlags bits */
+#ifdef __PPC__
+    /* On OS4/PowerPC, AttnFlags is a 68k-CPU-detection bitfield and
+     * would mis-report "68000" via the fallback below. Skip the whole
+     * ladder and just say what we are — SDK/host can query more detail
+     * via IExec->GetCPUInfoTags if it needs specifics. */
+    (void)attnFlags;
+    cpuType = "PowerPC";
+#else
+    /* Determine CPU type from AttnFlags bits (68k). */
     if (attnFlags & (1 << 4)) {
         cpuType = "68060";
     } else if (attnFlags & (1 << 3)) {
@@ -1491,6 +1520,7 @@ void sys_handle_sysinfo(void)
     } else {
         cpuType = "68000";
     }
+#endif
 
     sprintf(linebuf, "SYSINFO|%lu|%lu|%lu|%lu|%ld|%ld|%s|%ld",
         (unsigned long)chipFree,

@@ -29,9 +29,16 @@ if ! command -v xdftool >/dev/null; then
 fi
 
 if pgrep -f "qemu-system-ppc.*$HDF" >/dev/null; then
-    echo "WARNING: QEMU is currently attached to this HDF."
-    echo "         Writes may collide with QEMU's cached view."
-    echo "         Consider shutting OS4 down first."
+    if [ "$FORCE" != "1" ]; then
+        echo "ERROR: QEMU is currently attached to this HDF."
+        echo "       Concurrent writes can corrupt the raw HDF because"
+        echo "       QEMU + OS4 hold their own cached view of the disk."
+        echo "       Shut down OS4 first (or set FORCE=1 to override —"
+        echo "       'diskchange DH1:' after the write only refreshes OS4's"
+        echo "       directory view, it does not make the write atomic)."
+        exit 1
+    fi
+    echo "WARNING: QEMU attached — proceeding under FORCE=1."
     echo ""
 fi
 
@@ -55,7 +62,7 @@ case "$CMD" in
             echo "ERROR: local file not found: $LOCAL"
             exit 1
         fi
-        SIZE=$(stat -f%z "$LOCAL")
+        SIZE=$(wc -c < "$LOCAL" | tr -d ' ')
         echo "→ $LOCAL ($SIZE bytes) → DevDrive:$TARGET"
         # -f overwrites an existing entry; without it xdftool complains.
         xdftool -f "$HDF" open part=0 + write "$LOCAL" "$TARGET"

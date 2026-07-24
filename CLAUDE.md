@@ -166,6 +166,16 @@ Amiga sees this as `DH2:Dev/`.
 write straight into the raw hardfile via `xdftool`. OS4 sees this as
 `DH1:` (labelled `DevDrive:` after `init-dev-hdf.sh`).
 
+**⚠️ Concurrency:** the deploy writes to the raw HDF from macOS while
+OS4 (inside QEMU) has the same file open as a block device. Both sides
+maintain their own cache of the filesystem, so a write from macOS
+during OS4 operation can corrupt the on-disk state. `deploy-os4.sh`
+detects an attached QEMU with `pgrep` and refuses by default; set
+`FORCE=1` only when you accept the risk. The `diskchange DH1:` nudge
+the script fires after a write only refreshes OS4's directory
+listing — it does **not** make the write atomic or safe against a
+concurrent read from OS4.
+
 The `qemu-os4` profile in `devbench.toml` already points `deploy_dir`
 at that HDF; MCP's `amiga_deploy` tool and the web UI's Deploy button
 detect the `.hdf` suffix and shell out to `deploy-os4.sh` transparently.

@@ -14,6 +14,7 @@ Two paths exist:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 from dataclasses import dataclass
@@ -297,7 +298,11 @@ class Deployer:
         """
         if self.has_shared_folder:
             logger.info("deploy_smart: using shared folder %s", self._deploy_dir)
-            return self.deploy(project)
+            # self.deploy() is sync — for HDF targets it spawns a xdftool
+            # subprocess with a 30-second timeout, which would freeze the
+            # ASGI event loop. Hop to a worker thread so other requests
+            # keep flowing.
+            return await asyncio.to_thread(self.deploy, project)
         if project is None:
             return DeployResult(
                 success=False,

@@ -283,14 +283,31 @@ class EmulatorManager:
             pass
 
     def read_config(self) -> str:
-        """Read the FS-UAE config file contents."""
+        """Read the FS-UAE config file contents.
+
+        Returns "" when no config file is configured (empty _config_file);
+        without that guard Path("") resolves to CWD and .exists() returns
+        True — .read_text() then dies with IsADirectoryError. QEMU
+        profiles like qemu-os4 launch a shell script that takes no config,
+        so an empty value is a legitimate "no config" state.
+        """
+        if not self._config_file:
+            return ""
         config_path = Path(self._config_file).expanduser()
-        if config_path.exists():
+        if config_path.exists() and config_path.is_file():
             return config_path.read_text()
         return ""
 
     def write_config(self, content: str) -> None:
-        """Write new content to the FS-UAE config file."""
+        """Write new content to the FS-UAE config file.
+
+        No-op when no config file is configured — matches read_config's
+        empty-string return. Prevents the web UI's Config → Save from
+        landing at CWD/`.tmp` on a QEMU-style profile.
+        """
+        if not self._config_file:
+            logger.info("write_config: skipped (no emulator_config set)")
+            return
         config_path = Path(self._config_file).expanduser()
         # Atomic write
         tmp_path = config_path.with_suffix(".tmp")
