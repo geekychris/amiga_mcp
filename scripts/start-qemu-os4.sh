@@ -165,9 +165,12 @@ read -ra _gdb_arr   <<<"$GDB_ARGS";  QEMU_CMD+=( "${_gdb_arr[@]}" )
 # no host-side setup needed.
 if [ "$NET_MODE" -eq 1 ]; then
     # RTL8139 chosen because base OS4.1 FE ships rtl8139.device out
-    # of the box. e1000 needs a driver install (not present in base).
-    QEMU_CMD+=( -nic user,model=rtl8139 )
-    NET_STATUS="user-mode NAT (rtl8139)"
+    # of the box. IMPORTANT: the `-nic user,model=rtl8139` shorthand
+    # is silently rejected by the sam460ex machine ("not supported by
+    # this machine?"). The explicit -netdev + -device form works — it
+    # attaches to sam460ex's PCI bus as a card OS4 can enumerate.
+    QEMU_CMD+=( -netdev user,id=n0 -device rtl8139,netdev=n0 )
+    NET_STATUS="user-mode NAT (rtl8139 via -device)"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
