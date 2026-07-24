@@ -61,5 +61,18 @@ case "$CMD" in
         xdftool -f "$HDF" open part=0 + write "$LOCAL" "$TARGET"
         echo ""
         xdftool -r "$HDF" open part=0 + list "$TARGET"
+
+        # If a running devbench is on port 3000, poke it to run
+        # `diskchange DH1:` on the Amiga so OS4 re-reads the directory
+        # and sees the newly-written file. Silent if devbench isn't up.
+        if command -v curl >/dev/null && \
+           curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/status 2>/dev/null | grep -q 200; then
+            echo "→ nudging OS4 (diskchange DH1:) via bridge..."
+            curl -s -X POST http://127.0.0.1:3000/api/dos/exec \
+                 -H 'Content-Type: application/json' \
+                 -d '{"command":"diskchange DH1:","timeout":10}' \
+                 >/dev/null 2>&1 || \
+                 echo "  (bridge nudge failed — run 'diskchange DH1:' from OS4 shell)"
+        fi
         ;;
 esac
