@@ -2069,6 +2069,106 @@ async def amiga_pull_file(amiga_path: str, local_path: str) -> str:
 
 
 @mcp.tool()
+async def amiga_fetch_url(
+    url: str,
+    amiga_path: str,
+    timeout: float = 120.0,
+) -> str:
+    """Download a URL on the host and push the file to the Amiga via bridge.
+
+    The host does the HTTP work (better bandwidth, real DNS/TLS,
+    handles redirects). The Amiga receives the bytes over the serial
+    bridge and lands them at `amiga_path`. Useful for pulling .lha
+    archives from os4depot.net into RAM: or DH1: without needing
+    working networking on the OS4 side.
+
+    Args:
+        url: HTTP(S) URL to fetch (redirects followed).
+        amiga_path: Where to land the file on Amiga (e.g. "RAM:amiupdate.lha").
+        timeout: Seconds to wait for the download (default 120).
+    """
+    import urllib.request
+    import tempfile
+    import os
+
+    _require_connected()   # fail early if the bridge isn't up
+
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "amiga-devbench/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+    except Exception as e:
+        return f"Fetch failed for {url}: {e}"
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dl")
+    try:
+        tmp.write(data)
+        tmp.close()
+        conn, state, bus = _require_connected()
+        result = await file_transfer.push_file(conn, bus, tmp.name, amiga_path)
+        return f"Fetched {len(data)} bytes from {url}\n{result.message}"
+    finally:
+        os.unlink(tmp.name)
+
+
+@mcp.tool()
+async def amiga_install_lha(
+    url_or_path: str,
+    extract_to: str = "RAM:",
+    run_installer: bool = False,
+) -> str:
+    """Fetch an .lha archive (URL or local path), transfer it to the
+    Amiga, and extract it with LhA.
+
+    Composes amiga_fetch_url / amiga_push_file + `lha x` via the DOS
+    command bridge. If `run_installer` is set and the archive contains
+    an `Installer` icon or script in its top-level dir, invokes it.
+
+    Args:
+        url_or_path: HTTP(S) URL to download OR a local host path to
+            an existing .lha file.
+        extract_to: Amiga path to extract into (default RAM:).
+        run_installer: If True, look for and run an Installer script
+            after extraction. Off by default because installers often
+            want user interaction (screen prompts, EULA acceptance).
+    """
+    conn, state, bus = _require_connected()
+
+    # Step 1 — get the .lha onto the Amiga at a scratch path.
+    scratch = "T:_install.lha"
+    if url_or_path.startswith(("http://", "https://")):
+        r1 = await amiga_fetch_url(url_or_path, scratch)  # type: ignore
+        if "failed" in r1.lower() or "error" in r1.lower():
+            return f"Fetch step failed:\n{r1}"
+    else:
+        result = await file_transfer.push_file(conn, bus, url_or_path, scratch)
+        if "error" in result.message.lower() or "fail" in result.message.lower():
+            return f"Push step failed:\n{result.message}"
+
+    # Step 2 — extract via LhA. Redirect stdout so devbench captures
+    # the "extracting..." lines for the tool response.
+    cmd = f'lha x {scratch} {extract_to}'
+    from .protocol import Message
+    from . import protocol as _p
+    # Fall back to amiga_dos_command via the same script_execute path.
+    extract_out = await script_execute(conn, bus, cmd, timeout=180.0)
+
+    if run_installer:
+        # Look for an Installer script in the extract dir. Convention:
+        # first-level dir with `Install-<Name>` or `Installer` script.
+        find_cmd = f'echo "extract done: {extract_to}"; list {extract_to}#? PAT #?Install#?'
+        find_out = await script_execute(conn, bus, find_cmd, timeout=15.0)
+        return (f"Fetched + extracted to {extract_to}\n\n"
+                f"--- lha output ---\n{extract_out}\n\n"
+                f"--- installer files ---\n{find_out}\n\n"
+                f"Run the Installer manually from Workbench (they usually "
+                f"need interactive prompts).")
+    return f"Fetched + extracted to {extract_to}\n\n{extract_out}"
+
+
+@mcp.tool()
 async def amiga_transfer(
     source: str,
     dest: str,
