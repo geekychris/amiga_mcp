@@ -32,15 +32,17 @@ SERIAL_PORT="${SERIAL_PORT:-2346}"
 INSTALL_MODE=0
 GDB_MODE=0
 GDB_PORT=${GDB_PORT:-1234}
+NET_MODE=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         --install) INSTALL_MODE=1; shift ;;
         --serial) SERIAL_PORT="$2"; shift 2 ;;
         --gdb)     GDB_MODE=1; shift ;;
         --gdb-port) GDB_PORT="$2"; GDB_MODE=1; shift 2 ;;
+        --net)     NET_MODE=1; shift ;;
         --help|-h)
             cat <<EOH
-Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]]
+Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]] [--net]
 
   --install         Boot from CDROM for OS installation
   --serial PORT     Serial TCP port for bridge (default: 2346)
@@ -48,6 +50,10 @@ Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]]
                     debugging (registers, memory, breakpoints on any
                     address). Attach with scripts/gdb-os4.sh
   --gdb-port N      Port for GDB stub (default: 1234)
+  --net             Enable QEMU user-mode NAT networking (e1000
+                    driver). Needed for AmiUpdate / web browsing on
+                    the OS4 side. Off by default because base
+                    installs may not have TCP/IP configured yet.
 
 Environment variables:
   OS4_DIR           Directory containing OS4 files (default: ~/AmigaOS4)
@@ -153,7 +159,18 @@ read -ra _drive_arr <<<"$DRIVE_ARGS";QEMU_CMD+=( "${_drive_arr[@]}" )
 read -ra _boot_arr  <<<"$BOOT_ARGS"; QEMU_CMD+=( "${_boot_arr[@]}" )
 QEMU_CMD+=( -serial "tcp::${SERIAL_PORT},server,nowait" )
 read -ra _gdb_arr   <<<"$GDB_ARGS";  QEMU_CMD+=( "${_gdb_arr[@]}" )
-QEMU_CMD+=( -nic none -display "$DISPLAY_ARG" -name "AmigaOS 4.1 - DevBench" )
+# Networking off by default (base OS4 has no TCP/IP configured). --net
+# adds a user-mode NAT e1000 NIC which OS4 sees as an e1000 device
+# handled by Roadshow. Guest sees DNS/NAT via QEMU's built-in stack;
+# no host-side setup needed.
+if [ "$NET_MODE" -eq 1 ]; then
+    QEMU_CMD+=( -nic user,model=e1000 )
+    NET_STATUS="user-mode NAT (e1000)"
+else
+    QEMU_CMD+=( -nic none )
+    NET_STATUS="disabled (-nic none)"
+fi
+QEMU_CMD+=( -display "$DISPLAY_ARG" -name "AmigaOS 4.1 - DevBench" )
 
 echo "=== Starting QEMU sam460ex ==="
 echo "  Machine:    sam460ex (PowerPC 460EX)"
@@ -161,7 +178,7 @@ echo "  RAM:        1024 MB"
 echo "  System HDD: $HDD_SYSTEM"
 echo "  Dev HDD:    $HDD_DEV"
 echo "  Serial:     TCP port $SERIAL_PORT"
-echo "  Network:    disabled (-nic none)"
+echo "  Network:    $NET_STATUS"
 echo "  Display:    $DISPLAY_ARG"
 echo ""
 echo "DevBench connection:"
