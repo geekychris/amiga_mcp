@@ -131,39 +131,50 @@ else
     GDB_ARGS=""
 fi
 
+# Display backend — cocoa on macOS, gtk (or sdl fallback) on Linux.
+# Both support zoom-to-fit; on Linux the window is resizable natively.
+case "$(uname -s)" in
+    Darwin) DISPLAY_ARG="cocoa,zoom-to-fit=on,show-cursor=on" ;;
+    Linux)  DISPLAY_ARG="gtk,zoom-to-fit=on,show-cursor=on"   ;;
+    *)      DISPLAY_ARG="sdl" ;;
+esac
+
 # 1 GB — 512 MB left AmigaOS 4.1 wedged mid-boot on the CD. sam460ex
 # supports up to 2 GB. Networking is disabled (rtl8139 isn't a
 # sam460ex-supported NIC and QEMU warned it wouldn't be created).
-QEMU_CMD="$QEMU \
-    -machine sam460ex \
-    -m 1024 \
-    $BIOS_ARG \
-    $DRIVE_ARGS \
-    $BOOT_ARGS \
-    -serial tcp::${SERIAL_PORT},server,nowait \
-    $GDB_ARGS \
-    -nic none \
-    -display cocoa,zoom-to-fit=on,show-cursor=on \
-    -name 'AmigaOS 4.1 - DevBench'"
+#
+# Build the QEMU invocation as a Bash array so paths with spaces / quotes
+# survive without eval-quoting hazards. The BIOS_ARG / DRIVE_ARGS /
+# BOOT_ARGS / GDB_ARGS shell-string variables are expanded once via a
+# helper `read -ra` split — each is a small, controlled list.
+QEMU_CMD=( "$QEMU" -machine sam460ex -m 1024 )
+read -ra _bios_arr  <<<"$BIOS_ARG";  QEMU_CMD+=( "${_bios_arr[@]}" )
+read -ra _drive_arr <<<"$DRIVE_ARGS";QEMU_CMD+=( "${_drive_arr[@]}" )
+read -ra _boot_arr  <<<"$BOOT_ARGS"; QEMU_CMD+=( "${_boot_arr[@]}" )
+QEMU_CMD+=( -serial "tcp::${SERIAL_PORT},server,nowait" )
+read -ra _gdb_arr   <<<"$GDB_ARGS";  QEMU_CMD+=( "${_gdb_arr[@]}" )
+QEMU_CMD+=( -nic none -display "$DISPLAY_ARG" -name "AmigaOS 4.1 - DevBench" )
 
 echo "=== Starting QEMU sam460ex ==="
 echo "  Machine:    sam460ex (PowerPC 460EX)"
-echo "  RAM:        512MB"
+echo "  RAM:        1024 MB"
 echo "  System HDD: $HDD_SYSTEM"
 echo "  Dev HDD:    $HDD_DEV"
 echo "  Serial:     TCP port $SERIAL_PORT"
-echo "  Network:    User-mode (NAT)"
+echo "  Network:    disabled (-nic none)"
+echo "  Display:    $DISPLAY_ARG"
 echo ""
 echo "DevBench connection:"
 echo "  python3 -m amiga_devbench --serial-host 127.0.0.1 --serial-port $SERIAL_PORT"
 echo ""
 
-# QEMU Cocoa doesn't have a way to set an initial window size, so
-# launch in the background and use System Events to resize once the
-# window shows up. Falls back silently if osascript isn't available.
-eval "$QEMU_CMD &"
+# Launch in background so we can post-launch-resize the window on macOS.
+"${QEMU_CMD[@]}" &
 QEMU_PID=$!
-if command -v osascript >/dev/null; then
+if [ "$(uname -s)" = "Darwin" ] && command -v osascript >/dev/null; then
+    # QEMU Cocoa can't set initial window size — poll for the window
+    # then resize/reposition. Fails silently if it never opens (headless
+    # or QEMU exits early).
     (
         for i in 1 2 3 4 5; do
             sleep 1

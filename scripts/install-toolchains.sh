@@ -40,13 +40,10 @@ pull_if_missing amigadev/crosstools:m68k-amigaos
 # --- PPC OS4 ---
 echo ""
 echo "--- PowerPC (AmigaOS 4.1) ---"
-UNAME_M="$(uname -m)"
-case "$UNAME_M" in
-    arm64|aarch64) PPC_TAG="os4-gcc11-arm64" ;;
-    x86_64|amd64)  PPC_TAG="os4-gcc11-amd64" ;;
-    *)             PPC_TAG="os4-gcc11-arm64"; echo "  Unknown host arch $UNAME_M, defaulting to arm64" ;;
-esac
-pull_if_missing "walkero/amigagccondocker:$PPC_TAG"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/ppc-image.sh
+. "$PROJECT_DIR/scripts/lib/ppc-image.sh"
+pull_if_missing "$PPC_IMAGE"
 
 # --- gdb-multiarch for debugging PPC via QEMU GDB stub ---
 echo ""
@@ -66,7 +63,7 @@ echo "=== Verification ==="
 echo -n "  m68k gcc:  "
 docker run --rm amigadev/crosstools:m68k-amigaos m68k-amigaos-gcc --version 2>&1 | head -1
 echo -n "  ppc gcc:   "
-docker run --rm "walkero/amigagccondocker:$PPC_TAG" \
+docker run --rm "$PPC_IMAGE" \
     sh -c 'export PATH=/opt/ppc-amigaos/bin:$PATH && ppc-amigaos-gcc --version' 2>&1 | head -1
 echo -n "  gdb:       "
 docker run --rm "$GDB_IMG" gdb-multiarch --version 2>&1 | head -1

@@ -15,7 +15,10 @@ set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BRIDGE_DIR="$PROJECT_DIR/amiga-bridge"
-PPC_IMAGE="${PPC_IMAGE:-walkero/amigagccondocker:os4-gcc11-arm64}"
+# Host-arch-aware PPC image selection lives in scripts/lib/ppc-image.sh so
+# install-toolchains, build-bridge, and build-example all agree.
+# shellcheck source=lib/ppc-image.sh
+. "$PROJECT_DIR/scripts/lib/ppc-image.sh"
 
 if ! command -v docker >/dev/null; then
     echo "ERROR: docker not found in PATH."

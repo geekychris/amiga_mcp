@@ -45,13 +45,28 @@ if [ -n "$ELF_ARG" ]; then
         echo "ERROR: ELF not found: $ELF_ARG"
         exit 1
     fi
-    # Path inside container mirrors host layout under /work
-    if [[ "$ELF_ARG" != "$PROJECT_DIR"* ]]; then
+    # Normalise to an absolute path so relative invocations like
+    # `examples/hello_world/hello_world` (documented in the header) pass
+    # the containment check below. Use python for portable realpath —
+    # macOS `readlink -f` is GNU-only, `realpath` isn't stock on macOS.
+    ELF_ABS="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$ELF_ARG")"
+    # Enforce containment on the normalised path.
+    if [[ "$ELF_ABS" != "$PROJECT_DIR"/* ]]; then
         echo "ERROR: ELF must live under project dir: $PROJECT_DIR"
+        echo "       Got: $ELF_ABS"
         exit 1
     fi
-    REL="${ELF_ARG#$PROJECT_DIR/}"
+    REL="${ELF_ABS#$PROJECT_DIR/}"
     GDB_ARGS=("/work/$REL")
+fi
+
+# Native Linux Docker can't resolve host.docker.internal by default
+# (macOS + Windows Docker Desktop map it automatically). Add --add-host
+# so `target remote host.docker.internal:1234` works on Linux too.
+# GDB_HOST override wins over both defaults.
+DOCKER_HOST_ARGS=()
+if [ "$(uname -s)" = "Linux" ]; then
+    DOCKER_HOST_ARGS+=( --add-host=host.docker.internal:host-gateway )
 fi
 
 if ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
@@ -80,6 +95,7 @@ target remote $GDB_HOST:$GDB_PORT
 echo Connected. Use Ctrl-C to halt CPU; 'c' to continue.\n"
 
 docker run --rm -it \
+    "${DOCKER_HOST_ARGS[@]}" \
     -v "$PROJECT_DIR:/work" \
     -w /work \
     "$GDB_IMAGE" \

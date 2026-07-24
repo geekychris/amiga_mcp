@@ -25,7 +25,9 @@ EXAMPLE="$1"
 TARGET="${2:-all}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 EX_DIR="$PROJECT_DIR/examples/$EXAMPLE"
-PPC_IMAGE="${PPC_IMAGE:-walkero/amigagccondocker:os4-gcc11-arm64}"
+# Host-arch-aware PPC image selection (see scripts/lib/ppc-image.sh).
+# shellcheck source=lib/ppc-image.sh
+. "$PROJECT_DIR/scripts/lib/ppc-image.sh"
 
 if [ ! -d "$EX_DIR" ]; then
     echo "ERROR: no example dir at $EX_DIR"

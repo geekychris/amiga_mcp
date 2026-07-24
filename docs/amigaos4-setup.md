@@ -50,9 +50,35 @@ ln -s Sam460InstallCD-*.iso AmigaOS4.1-FE.iso
 ```
 
 If the HDF containers don't exist yet, `start-qemu-os4.sh` creates
-sparse 2 GB and 512 MB images on first run.
+sparse 2 GB and 512 MB images on first run. `init-dev-hdf.sh` also
+creates the dev HDF on its own if you'd rather set it up before
+booting QEMU (it now `mkdir -p`s the parent directory and hands
+rdbtool a `create` invocation).
 
 ## First-time install
+
+Order matters — QEMU sees the block device, but the shared dev HDF
+still needs an RDB + partition + filesystem before OS4 will mount it.
+The cleanest sequence for a fresh machine:
+
+```
+scripts/init-dev-hdf.sh          # creates + partitions + formats amigaos4-dev.hdf
+scripts/start-qemu-os4.sh --install    # creates amigaos4-system.hdf, boots CD, installs OS
+# ... interactive OS4 install ...
+scripts/start-qemu-os4.sh        # boot the installed OS, dev HDF auto-mounts as DH1:
+```
+
+You can also let `start-qemu-os4.sh --install` create both sparse
+containers on the first launch, then run `init-dev-hdf.sh` afterwards
+(before subsequent boots) — same end state.
+
+**⚠️ Deploys are unsafe while OS4 is running.** `scripts/deploy-os4.sh`
+writes to the raw HDF from macOS while OS4 (inside QEMU) has the same
+file open as a block device. Both sides cache the filesystem
+independently, so concurrent access can corrupt the on-disk state. The
+script refuses by default when it detects an attached QEMU; `FORCE=1`
+overrides. The `diskchange DH1:` nudge after a deploy only refreshes
+OS4's directory view; it doesn't make the write atomic.
 
 ### 1. Boot the install CD
 
