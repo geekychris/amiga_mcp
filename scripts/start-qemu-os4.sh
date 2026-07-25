@@ -169,8 +169,14 @@ if [ "$NET_MODE" -eq 1 ]; then
     # is silently rejected by the sam460ex machine ("not supported by
     # this machine?"). The explicit -netdev + -device form works — it
     # attaches to sam460ex's PCI bus as a card OS4 can enumerate.
-    QEMU_CMD+=( -netdev user,id=n0 -device rtl8139,netdev=n0 )
-    NET_STATUS="user-mode NAT (rtl8139 via -device)"
+    # hostfwd forwards host TCP :2347 to guest :2345 so devbench can
+    # talk to the amiga-bridge daemon directly over TCP instead of
+    # through the QEMU serial-passthrough. Much higher throughput +
+    # cleaner reliability than the serial-tunnel path. Launch the
+    # daemon in TCP mode on the OS4 side: `amiga-bridge TCP 2345`.
+    QEMU_CMD+=( -netdev "user,id=n0,hostfwd=tcp::2347-:2345" \
+                -device rtl8139,netdev=n0 )
+    NET_STATUS="user-mode NAT (rtl8139); host:2347 -> guest:2345 for bridge"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
