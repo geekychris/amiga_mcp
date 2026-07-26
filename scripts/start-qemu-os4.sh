@@ -28,11 +28,15 @@ CDROM="${OS4_DIR}/AmigaOS4.1-FE.iso"
 UBOOT="${OS4_DIR}/u-boot-sam460ex.bin"
 SERIAL_PORT="${SERIAL_PORT:-2346}"
 
-# Parse arguments
+# Parse arguments.
+# NET_MODE: 0=off, 1=on. Default ON — the PPC amiga-bridge speaks
+# TCP-over-bsdsocket by default, which needs a NIC in the guest.
+# The old serial-passthrough path still works but is slower and the
+# bridge's TCP mode is where new work happens.
 INSTALL_MODE=0
 GDB_MODE=0
 GDB_PORT=${GDB_PORT:-1234}
-NET_MODE=0
+NET_MODE=1
 while [[ $# -gt 0 ]]; do
     case $1 in
         --install) INSTALL_MODE=1; shift ;;
@@ -40,9 +44,10 @@ while [[ $# -gt 0 ]]; do
         --gdb)     GDB_MODE=1; shift ;;
         --gdb-port) GDB_PORT="$2"; GDB_MODE=1; shift 2 ;;
         --net)     NET_MODE=1; shift ;;
+        --no-net)  NET_MODE=0; shift ;;
         --help|-h)
             cat <<EOH
-Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]] [--net]
+Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]] [--net|--no-net]
 
   --install         Boot from CDROM for OS installation
   --serial PORT     Serial TCP port for bridge (default: 2346)
@@ -50,10 +55,19 @@ Usage: $0 [--install] [--serial PORT] [--gdb [--gdb-port N]] [--net]
                     debugging (registers, memory, breakpoints on any
                     address). Attach with scripts/gdb-os4.sh
   --gdb-port N      Port for GDB stub (default: 1234)
-  --net             Enable QEMU user-mode NAT networking (e1000
-                    driver). Needed for AmiUpdate / web browsing on
-                    the OS4 side. Off by default because base
-                    installs may not have TCP/IP configured yet.
+  --net             Enable QEMU user-mode NAT networking (rtl8139)
+                    plus a hostfwd on host:2347 -> guest:2345 so
+                    devbench can reach the OS4 amiga-bridge in TCP
+                    mode. This is the default; only present here
+                    for symmetry with --no-net.
+  --no-net          Force networking off. The bridge cannot use its
+                    default TCP transport without this; launch the
+                    bridge with 'SERIAL' arg to fall back through
+                    the -serial tcp:: passthrough on :2346.
+
+Networking is ON by default (the PPC bridge's TCP transport needs
+a NIC in the guest). Pass --no-net only when you deliberately
+want the serial-only path.
 
 Environment variables:
   OS4_DIR           Directory containing OS4 files (default: ~/AmigaOS4)
@@ -65,6 +79,11 @@ EOH
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+# No interactive ask — the PPC bridge default (TCP) needs network,
+# so this script's job is to always bring one up. Use --no-net only
+# for the rare case where you actually don't want it (headless
+# smoke test, deliberate serial-only debugging, port 2347 conflict).
 
 # Check prerequisites
 if [ ! -x "$QEMU" ]; then
