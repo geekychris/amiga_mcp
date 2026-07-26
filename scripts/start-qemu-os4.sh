@@ -117,7 +117,7 @@ QEMU_CMD="$QEMU \
     -serial tcp::${SERIAL_PORT},server,nowait \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${BRIDGE_TCP_PORT:-2345}-:${BRIDGE_TCP_PORT:-2345} \
     -device rtl8139,netdev=n0 \
-    -display default \
+    -display cocoa,zoom-to-fit=on,show-cursor=on \
     -name 'AmigaOS 4.1 - DevBench'"
 
 # Add CDROM for install mode
