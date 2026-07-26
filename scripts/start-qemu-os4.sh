@@ -200,6 +200,12 @@ else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
 fi
+# USB tablet gives us absolute-position mouse coords instead of relative
+# deltas. Fixes the pointer-alignment drift where the OS4 cursor is
+# visually at one place but the click event lands somewhere else —
+# happens whenever the guest's frame size doesn't match the host
+# window size (basically anytime zoom-to-fit is on).
+QEMU_CMD+=( -usb -device usb-tablet )
 QEMU_CMD+=( -display "$DISPLAY_ARG" -name "AmigaOS 4.1 - DevBench" )
 
 echo "=== Starting QEMU sam460ex ==="
