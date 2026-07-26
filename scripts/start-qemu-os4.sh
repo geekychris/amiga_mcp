@@ -117,6 +117,8 @@ QEMU_CMD="$QEMU \
     -serial tcp::${SERIAL_PORT},server,nowait \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${BRIDGE_TCP_PORT:-2345}-:${BRIDGE_TCP_PORT:-2345} \
     -device rtl8139,netdev=n0 \
+    -usb \
+    -device usb-tablet \
     -display cocoa,zoom-to-fit=on,show-cursor=on \
     -name 'AmigaOS 4.1 - DevBench'"
 
@@ -137,11 +139,18 @@ echo "  Machine:    sam460ex (PowerPC 460EX)"
 echo "  RAM:        512MB"
 echo "  System HDD: $HDD_SYSTEM"
 echo "  Dev HDD:    $HDD_DEV"
-echo "  Serial:     TCP port $SERIAL_PORT"
-echo "  Network:    User-mode (NAT)"
+echo "  Network:    User-mode (NAT) via rtl8139"
+echo "  Bridge:     TCP  127.0.0.1:${BRIDGE_TCP_PORT:-2345}  <-  guest bsdsocket listen"
+echo "  Serial:     TCP  127.0.0.1:${SERIAL_PORT}   (console + serial-mode bridge fallback)"
+echo "  Mouse:      USB tablet (absolute-position pointer — fixes click drift)"
 echo ""
-echo "DevBench connection:"
-echo "  python3 -m amiga_devbench --serial-host 127.0.0.1 --serial-port $SERIAL_PORT"
+echo "On the OS4 shell, launch the bridge in TCP mode:"
+echo "  DH1:amiga-bridge TCP"
+echo ""
+echo "On the host, run devbench with the qemu-os4 profile:"
+echo "  python3 -m amiga_devbench --profile qemu-os4"
+echo ""
+echo "(serial-only fallback: launch bridge with no arg, connect devbench to :${SERIAL_PORT})"
 echo ""
 
 eval $QEMU_CMD
