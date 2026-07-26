@@ -115,8 +115,8 @@ QEMU_CMD="$QEMU \
     -drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
     -drive file=$HDD_DEV,format=raw,if=ide,index=1 \
     -serial tcp::${SERIAL_PORT},server,nowait \
-    -net nic,model=rtl8139 \
-    -net user,hostfwd=tcp:127.0.0.1:${BRIDGE_TCP_PORT:-2345}-:${BRIDGE_TCP_PORT:-2345} \
+    -netdev user,id=n0,hostfwd=tcp:127.0.0.1:${BRIDGE_TCP_PORT:-2345}-:${BRIDGE_TCP_PORT:-2345} \
+    -device rtl8139,netdev=n0 \
     -display default \
     -name 'AmigaOS 4.1 - DevBench'"
 
