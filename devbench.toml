@@ -46,10 +46,14 @@ port = 2345
 auto_start_emulator = false
 
 [profiles.qemu-os4]
-description = "AmigaOS 4.1 (PPC) on QEMU sam460ex"
+description = "AmigaOS 4.1 (PPC) on QEMU sam460ex — TCP-over-hostfwd to the OS4 bridge"
 mode = "tcp"
 host = "127.0.0.1"
-port = 2346
+# 2347 is what scripts/start-qemu-os4.sh --net forwards to guest:2345
+# where the PPC amiga-bridge (default TCP mode) listens. If you need
+# the serial-fallback path instead (bridge launched with `SERIAL`
+# arg), point this at 2346 which is the -serial tcp:: forward.
+port = 2347
 # Devbench treats emulator_binary as-is when it's not "auto". Point it at
 # the launcher script that knows the sam460ex drive layout + auto-resize.
 emulator_binary = "scripts/start-qemu-os4.sh"
