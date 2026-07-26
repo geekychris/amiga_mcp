@@ -2,7 +2,26 @@
 #
 # Start QEMU sam460ex with AmigaOS 4.1
 #
-# Serial port exposed as TCP for devbench connection.
+# ── Transport ────────────────────────────────────────────────────────
+# The **OS4 PPC build of amiga-bridge uses TCP over bsdsocket.library**
+# — the OS4 client library talks to the daemon over a real TCP socket
+# instead of serial.device. This is faster and dodges a class of
+# serial-timing bugs the m68k build has to work around.
+#
+# For that transport to reach devbench on the host, QEMU forwards the
+# guest's bridge port (default 2345) out to 127.0.0.1:2345 via the
+# -net user,hostfwd rule below. Then devbench connects TCP to
+# 127.0.0.1:2345 and the OS4 bridge daemon listens on 0.0.0.0:2345
+# inside the guest.
+#
+# We ALSO keep -serial tcp::2346 forwarded for two reasons:
+#  1. Console output from CLI (printf inside amiga-bridge, dbug logs)
+#     still comes out the guest UART.
+#  2. Fallback: if you launch the bridge with no args it opens
+#     serial.device unit 0 and speaks the older serial protocol —
+#     devbench can still reach it on 127.0.0.1:2346 that way.
+# On OS4 you SHOULD launch: `DH1:amiga-bridge TCP` (default port 2345).
+#
 # First run: boot from CDROM to install OS.
 # Subsequent runs: boot from HDD.
 #
@@ -97,7 +116,7 @@ QEMU_CMD="$QEMU \
     -drive file=$HDD_DEV,format=raw,if=ide,index=1 \
     -serial tcp::${SERIAL_PORT},server,nowait \
     -net nic,model=rtl8139 \
-    -net user \
+    -net user,hostfwd=tcp:127.0.0.1:${BRIDGE_TCP_PORT:-2345}-:${BRIDGE_TCP_PORT:-2345} \
     -display default \
     -name 'AmigaOS 4.1 - DevBench'"
 

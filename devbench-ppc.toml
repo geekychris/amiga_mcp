@@ -1,10 +1,20 @@
 # Amiga DevBench Configuration — AmigaOS 4.1 PPC
 # Copy to devbench.toml or use: python3 -m amiga_devbench --config devbench-ppc.toml
+#
+# ── Transport ────────────────────────────────────────────────────────
+# The OS4 PPC amiga-bridge speaks TCP-over-bsdsocket by default (faster
+# and more robust than the serial-device transport the classic m68k build
+# uses).  scripts/start-qemu-os4.sh sets up a QEMU hostfwd so the guest's
+# 0.0.0.0:2345 shows up at 127.0.0.1:2345 on the host.
+#
+# On OS4 launch:  DH1:amiga-bridge TCP     # default port 2345
+# Serial fallback on 2346 stays wired up for console output / dbug logs
+# and for cases where you deliberately launch the bridge with no args.
 
 [serial]
 mode = "tcp"
 host = "127.0.0.1"
-port = 2346
+port = 2345
 pty_path = "/tmp/amiga-serial-ppc"
 
 [emulator]

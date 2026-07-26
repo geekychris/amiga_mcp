@@ -45,6 +45,19 @@ host = "192.168.1.50"
 port = 2345
 auto_start_emulator = false
 
+[profiles.qemu-os4]
+description = "AmigaOS 4.1 PPC inside QEMU sam460ex, TCP bridge"
+# The PPC amiga-bridge speaks TCP-over-bsdsocket by default (faster + more
+# robust than the serial-device transport the m68k build uses). It listens
+# on 0.0.0.0:2345 inside the guest; scripts/start-qemu-os4.sh sets up a
+# QEMU hostfwd so we can reach it at 127.0.0.1:2345 from the host.
+# Launch bridge on OS4 with:  DH1:amiga-bridge TCP
+mode = "tcp"
+host = "127.0.0.1"
+port = 2345
+auto_start_emulator = false      # QEMU is heavy; launch manually via
+                                  # scripts/start-qemu-os4.sh
+
 # ─── Defaults (applied before the profile overlay) ────────────────────
 
 [serial]
