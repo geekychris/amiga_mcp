@@ -101,20 +101,63 @@ async def push_file(
 
     offset = 0
     chunk_num = 0
+    RESUME_WAIT_SEC = 120.0     # per outage; total attempts across outages
+    MAX_RESUMES     = 5         # unclamped attempts turn a wedged bridge
+                                # into an infinite loop; cap resumes.
+    resumes         = 0
 
     while offset < total:
         chunk = data[offset:offset + chunk_size]
-        if not await _push_chunk(conn, bus, amiga_path, offset, chunk):
+        if await _push_chunk(conn, bus, amiga_path, offset, chunk):
+            offset += len(chunk)
+            chunk_num += 1
+            continue
+
+        # Chunk failed. Two flavours:
+        #   (a) transient — bridge is up, retry the same chunk once more
+        #       (already tried MAX_RETRIES times inside _push_chunk).
+        #   (b) connection lost — wait for the reconnect loop to bring
+        #       the bridge back, then resume from `offset`. The Amiga
+        #       side used WRITEFILE with an explicit offset so a
+        #       resumed write at the same offset overwrites nothing —
+        #       exactly what we want.
+        if resumes >= MAX_RESUMES:
             elapsed = time.monotonic() - t0
             return TransferResult(
                 False,
-                f"Failed at chunk {chunk_num} (offset {offset}/{total}) "
-                f"after {MAX_RETRIES} retries",
+                f"Gave up after {MAX_RESUMES} resume attempts, last failure "
+                f"at chunk {chunk_num} (offset {offset}/{total})",
                 bytes_transferred=offset,
                 elapsed=elapsed,
             )
-        offset += len(chunk)
-        chunk_num += 1
+
+        # Wait for the bridge to reconnect (SerialConnection has its
+        # own auto-reconnect loop; we just poll .connected here).
+        logger.warning("push_file: bridge dropped at chunk %d (offset %d/%d); "
+                        "waiting up to %.0fs for reconnect [resume %d/%d]",
+                        chunk_num, offset, total, RESUME_WAIT_SEC,
+                        resumes + 1, MAX_RESUMES)
+        deadline = time.monotonic() + RESUME_WAIT_SEC
+        while time.monotonic() < deadline:
+            if conn.connected:
+                # Give the newly-reconnected daemon a beat to settle
+                # (its own state machines may still be waking up).
+                await asyncio.sleep(1.0)
+                break
+            await asyncio.sleep(1.0)
+        if not conn.connected:
+            elapsed = time.monotonic() - t0
+            return TransferResult(
+                False,
+                f"Bridge did not reconnect within {RESUME_WAIT_SEC:.0f}s; "
+                f"stuck at chunk {chunk_num} (offset {offset}/{total})",
+                bytes_transferred=offset,
+                elapsed=elapsed,
+            )
+        resumes += 1
+        logger.info("push_file: bridge reconnected, resuming from offset %d",
+                     offset)
+        # Loop back — the outer while retries this same chunk with fresh conn.
 
     # Verify with checksum
     conn.send({"type": "CHECKSUM", "path": amiga_path})
