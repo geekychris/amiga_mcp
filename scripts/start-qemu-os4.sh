@@ -157,11 +157,26 @@ else
 fi
 
 # Display backend — cocoa on macOS, gtk (or sdl fallback) on Linux.
-# Both support zoom-to-fit; on Linux the window is resizable natively.
+#
+# zoom-to-fit is OFF by default because it de-couples the visible
+# framebuffer size from the guest's native resolution: the Cocoa
+# display layer scales the pixels to fill the window, but the USB
+# tablet input path we use for absolute mouse coords reports at the
+# GUEST'S resolution, unmodified. When window-size ≠ guest-size, the
+# visible cursor and the click coordinate diverge by the scale factor
+# — you click on a menu, OS4 registers a click 30px above it.
+#
+# With zoom-to-fit=off the window shows the guest's framebuffer 1:1;
+# no scaling, so tablet coords match what you see. Cost: if the guest
+# ever changes resolution the window doesn't resize, you may need to
+# manually resize (Cmd-drag corner). That's the correct tradeoff for
+# an OS4 target where the resolution is set once at boot.
+#
+# Override for one run: DISPLAY_ARG=cocoa,zoom-to-fit=on ./start-qemu-os4.sh
 case "$(uname -s)" in
-    Darwin) DISPLAY_ARG="cocoa,zoom-to-fit=on,show-cursor=on" ;;
-    Linux)  DISPLAY_ARG="gtk,zoom-to-fit=on,show-cursor=on"   ;;
-    *)      DISPLAY_ARG="sdl" ;;
+    Darwin) DISPLAY_ARG="${DISPLAY_ARG:-cocoa,zoom-to-fit=off,show-cursor=on}" ;;
+    Linux)  DISPLAY_ARG="${DISPLAY_ARG:-gtk,zoom-to-fit=off,show-cursor=on}"   ;;
+    *)      DISPLAY_ARG="${DISPLAY_ARG:-sdl}" ;;
 esac
 
 # 1 GB — 512 MB left AmigaOS 4.1 wedged mid-boot on the CD. sam460ex
