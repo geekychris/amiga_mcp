@@ -158,24 +158,24 @@ fi
 
 # Display backend — cocoa on macOS, gtk (or sdl fallback) on Linux.
 #
-# zoom-to-fit is OFF by default because it de-couples the visible
-# framebuffer size from the guest's native resolution: the Cocoa
-# display layer scales the pixels to fill the window, but the USB
-# tablet input path we use for absolute mouse coords reports at the
-# GUEST'S resolution, unmodified. When window-size ≠ guest-size, the
-# visible cursor and the click coordinate diverge by the scale factor
-# — you click on a menu, OS4 registers a click 30px above it.
+# zoom-to-fit is ON by default so the QEMU window is resizable and
+# stays roughly usable at any size. Cost: on macOS Retina the input
+# path (USB tablet, absolute coords) doesn't get scaled the same way
+# the framebuffer does, so when the window is not exactly at the
+# guest's native resolution the mouse pointer can drift by up to the
+# scale factor — click lands ~20-30px away from where you aimed.
 #
-# With zoom-to-fit=off the window shows the guest's framebuffer 1:1;
-# no scaling, so tablet coords match what you see. Cost: if the guest
-# ever changes resolution the window doesn't resize, you may need to
-# manually resize (Cmd-drag corner). That's the correct tradeoff for
-# an OS4 target where the resolution is set once at boot.
+# If that bites you, opt into precise-mouse mode:
+#     DISPLAY_ARG=cocoa,zoom-to-fit=off,show-cursor=on ./scripts/start-qemu-os4.sh
+# The window becomes fixed at the guest framebuffer size (small but
+# tablet coords match exactly).
 #
-# Override for one run: DISPLAY_ARG=cocoa,zoom-to-fit=on ./start-qemu-os4.sh
+# Long-term fix on the guest: change OS4's ScreenMode (Prefs → Screen)
+# to a bigger resolution (1024×768 or 1280×1024). Bigger framebuffer =
+# bigger window at 1:1, plus mouse still accurate.
 case "$(uname -s)" in
-    Darwin) DISPLAY_ARG="${DISPLAY_ARG:-cocoa,zoom-to-fit=off,show-cursor=on}" ;;
-    Linux)  DISPLAY_ARG="${DISPLAY_ARG:-gtk,zoom-to-fit=off,show-cursor=on}"   ;;
+    Darwin) DISPLAY_ARG="${DISPLAY_ARG:-cocoa,zoom-to-fit=on,show-cursor=on}" ;;
+    Linux)  DISPLAY_ARG="${DISPLAY_ARG:-gtk,zoom-to-fit=on,show-cursor=on}"   ;;
     *)      DISPLAY_ARG="${DISPLAY_ARG:-sdl}" ;;
 esac
 
