@@ -215,12 +215,31 @@ else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
 fi
-# USB tablet gives us absolute-position mouse coords instead of relative
-# deltas. Fixes the pointer-alignment drift where the OS4 cursor is
-# visually at one place but the click event lands somewhere else —
-# happens whenever the guest's frame size doesn't match the host
-# window size (basically anytime zoom-to-fit is on).
-QEMU_CMD+=( -usb -device usb-tablet )
+# Mouse mode. Two options:
+#
+#   USB_TABLET=1  (opt-in)  — attach usb-tablet HID device for
+#     absolute-position coords. When OS4's USB stack recognises it,
+#     you don't need to grab the mouse; hover-and-click works. When
+#     OS4's USB stack DOESN'T recognise it (which we've observed
+#     mid-session after crash-reboots), clicks get lost entirely and
+#     the mouse becomes unusable. Also on Retina + zoom-to-fit=on
+#     the coordinate mapping drifts.
+#
+#   default (no flag)  — no tablet device. QEMU's Cocoa layer falls
+#     back to classic click-to-grab: click in the window and the
+#     mouse gets captured; press Ctrl-Opt-G (or Ctrl-Alt-G on some
+#     kbds) to release it back to macOS. Works with any guest, no
+#     driver assumptions.
+#
+# We default to click-to-grab because that mode has never failed on
+# us; the tablet is off by default until OS4 has a persistent USB
+# input setup that survives reboots.
+if [ "${USB_TABLET:-0}" = "1" ]; then
+    QEMU_CMD+=( -usb -device usb-tablet )
+    MOUSE_STATUS="absolute (usb-tablet)"
+else
+    MOUSE_STATUS="click-to-grab (Ctrl-Opt-G to release)"
+fi
 QEMU_CMD+=( -display "$DISPLAY_ARG" -name "AmigaOS 4.1 - DevBench" )
 
 echo "=== Starting QEMU sam460ex ==="
@@ -230,6 +249,7 @@ echo "  System HDD: $HDD_SYSTEM"
 echo "  Dev HDD:    $HDD_DEV"
 echo "  Serial:     TCP port $SERIAL_PORT"
 echo "  Network:    $NET_STATUS"
+echo "  Mouse:      $MOUSE_STATUS"
 echo "  Display:    $DISPLAY_ARG"
 echo ""
 echo "DevBench connection:"
