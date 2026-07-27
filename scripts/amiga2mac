@@ -1,0 +1,32 @@
+#!/bin/bash
+# amiga2mac — pull the Amiga's clipboard onto the Mac clipboard.
+# After this runs, ⌘V on the Mac pastes what's on the Amiga.
+#
+# Usage:
+#   amiga2mac                  # copy to Mac clipboard
+#   amiga2mac > file.txt       # dump to file instead
+#
+# Requires: amiga-devbench running (default http://localhost:3000/).
+
+set -euo pipefail
+
+DEVBENCH="${DEVBENCH_URL:-http://localhost:3000}"
+
+resp=$(curl -s "$DEVBENCH/api/tools/clipboard/get")
+
+# Extract .text from the JSON without pulling in jq.
+text=$(python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+if "error" in d:
+    print("amiga2mac: " + d["error"], file=sys.stderr)
+    sys.exit(1)
+sys.stdout.write(d.get("text", ""))
+' <<<"$resp")
+
+if [ -t 1 ]; then
+    printf '%s' "$text" | pbcopy
+    printf 'amiga2mac: %d bytes -> mac clipboard\n' "${#text}" >&2
+else
+    printf '%s' "$text"
+fi

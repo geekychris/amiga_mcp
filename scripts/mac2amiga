@@ -1,0 +1,49 @@
+#!/bin/bash
+# mac2amiga — copy text from the Mac clipboard (or stdin) into the
+# Amiga's clipboard via the devbench bridge. After this runs, paste
+# in whatever Amiga app you like (right-click → paste, or the app's
+# usual paste shortcut).
+#
+# Usage:
+#   mac2amiga                  # pushes current Mac clipboard
+#   echo "foo" | mac2amiga     # pushes stdin instead
+#   mac2amiga < file.txt       # pushes file contents
+#
+# Requires: amiga-devbench running (default http://localhost:3000/).
+#
+# See also:
+#   amiga2mac   — pull Amiga clipboard onto Mac clipboard.
+
+set -euo pipefail
+
+DEVBENCH="${DEVBENCH_URL:-http://localhost:3000}"
+
+if [ -t 0 ]; then
+    # No stdin — read from Mac clipboard.
+    text=$(pbpaste)
+else
+    text=$(cat)
+fi
+
+if [ -z "$text" ]; then
+    echo "mac2amiga: nothing to send (clipboard/stdin empty)" >&2
+    exit 1
+fi
+
+# Wrap in JSON. Use python for reliable escaping — sed/printf can't
+# survive arbitrary text (quotes, backslashes, newlines).
+body=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.stdin.read()}))' <<<"$text")
+
+resp=$(curl -s -X POST "$DEVBENCH/api/tools/clipboard/set" \
+    -H "Content-Type: application/json" \
+    -d "$body")
+
+case "$resp" in
+    *'"status":"ok"'*)
+        printf 'mac2amiga: %d bytes -> amiga clipboard\n' "${#text}"
+        ;;
+    *)
+        echo "mac2amiga: devbench returned: $resp" >&2
+        exit 1
+        ;;
+esac
