@@ -1,0 +1,3 @@
+# Build artifact — rebuild via docker + Makefile
+https_get
+*.o
