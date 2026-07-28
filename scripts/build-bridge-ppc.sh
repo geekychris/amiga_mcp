@@ -2,9 +2,10 @@
 #
 # Cross-compile amiga-bridge for AmigaOS 4.1 PPC via Docker.
 #
-# Uses the walkero/amigagccondocker:os4-* image which ships
-# ppc-amigaos-gcc + newlib + os4 SDK. The default image tag is
-# arm64 (Apple Silicon); override with $PPC_IMAGE for other hosts.
+# Uses walkero/amigagccondocker:os4-gcc11 which ships
+# ppc-amigaos-gcc + newlib + os4 SDK. Docker's multi-arch manifest
+# picks the right platform automatically; override $PPC_IMAGE if
+# you need a pinned tag.
 #
 # Usage:
 #   ./scripts/build-bridge-ppc.sh          # normal build

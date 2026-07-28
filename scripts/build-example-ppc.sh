@@ -10,7 +10,7 @@
 #
 # Env:
 #   PPC_IMAGE — override the toolchain image
-#               (default: walkero/amigagccondocker:os4-gcc11-arm64)
+#               (default: walkero/amigagccondocker:os4-gcc11 — multi-arch)
 
 set -e
 

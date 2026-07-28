@@ -6,11 +6,13 @@
 # Idempotent — safe to re-run. Images with matching tags are reused.
 #
 #   amigadev/crosstools:m68k-amigaos             — classic 68k gcc (any host arch)
-#   walkero/amigagccondocker:os4-gcc11-arm64     — PPC OS4 gcc (Apple Silicon)
-#   walkero/amigagccondocker:os4-gcc11-amd64     — PPC OS4 gcc (Intel/AMD)
+#   walkero/amigagccondocker:os4-gcc11            — PPC OS4 gcc (multi-arch: arm64/amd64)
 #   amiga-devbench-gdb:latest                    — gdb-multiarch (built locally)
 #
-# Detects host CPU arch and picks the right PPC image tag.
+# Docker picks the right PPC image for your host from the multi-arch
+# manifest, so no per-arch tag needed. We also opportunistically re-pull
+# the PPC image if the local copy is >1 week old — walkero pushes
+# updates occasionally.
 
 set -e
 
@@ -44,6 +46,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/ppc-image.sh
 . "$PROJECT_DIR/scripts/lib/ppc-image.sh"
 pull_if_missing "$PPC_IMAGE"
+ppc_image_refresh_if_stale
 
 # --- gdb-multiarch for debugging PPC via QEMU GDB stub ---
 echo ""
