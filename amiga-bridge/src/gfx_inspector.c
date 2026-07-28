@@ -26,8 +26,27 @@
 
 #include "bridge_internal.h"
 
+/* DeleteFile → Delete on OS4. */
+#ifdef __PPC__
+#define DeleteFile(name) Delete((name))
+#endif
+
+#ifndef __PPC__
 extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase *GfxBase;
+#endif
+
+/* IntuitionBase and GfxBase are opaque (struct Library *) on OS4 —
+ * alias through a cast so classic 68k builds keep direct field access. */
+#ifdef __PPC__
+static inline struct IntuitionBase *_intu_base(void) { return (struct IntuitionBase *)IntuitionBase; }
+static inline struct GfxBase *_gfx_base(void) { return (struct GfxBase *)GfxBase; }
+#define INTUB _intu_base()
+#define GFXB  _gfx_base()
+#else
+#define INTUB IntuitionBase
+#define GFXB  GfxBase
+#endif
 
 static const char hex_chars[] = "0123456789abcdef";
 
@@ -207,7 +226,7 @@ static struct Window *find_window_by_title(const char *title)
     struct Screen *scr;
     struct Window *win;
 
-    for (scr = IntuitionBase->FirstScreen; scr; scr = scr->NextScreen) {
+    for (scr = INTUB->FirstScreen; scr; scr = scr->NextScreen) {
         for (win = scr->FirstWindow; win; win = win->NextWindow) {
             if (win->Title && strcmp((const char *)win->Title, title) == 0) {
                 return win;
@@ -252,7 +271,7 @@ void gfx_handle_screenshot(const char *args)
 
     lock = LockIBase(0);
 
-    scr = IntuitionBase->FirstScreen;
+    scr = INTUB->FirstScreen;
     if (!scr) {
         UnlockIBase(lock);
         protocol_send_raw("ERR|SCREENSHOT|No screen found");
@@ -477,7 +496,7 @@ void gfx_handle_palette(const char *args)
 
     lock = LockIBase(0);
 
-    scr = IntuitionBase->FirstScreen;
+    scr = INTUB->FirstScreen;
     if (!scr) {
         UnlockIBase(lock);
         protocol_send_raw("ERR|PALETTE|No screen found");
@@ -573,7 +592,7 @@ void gfx_handle_setpalette(const char *args)
     b = (UWORD)strtoul(hexbuf, NULL, 16);
 
     lock = LockIBase(0);
-    scr = IntuitionBase->FirstScreen;
+    scr = INTUB->FirstScreen;
     if (!scr) {
         UnlockIBase(lock);
         protocol_send_raw("ERR|SETPALETTE|No screen found");
@@ -611,12 +630,12 @@ void gfx_handle_copperlist(const char *args)
     }
 
     /* Access the current View's copper list */
-    if (!GfxBase->ActiView || !GfxBase->ActiView->LOFCprList) {
+    if (!GFXB->ActiView || !GFXB->ActiView->LOFCprList) {
         protocol_send_raw("ERR|COPPERLIST|No active copper list");
         return;
     }
 
-    cpr = GfxBase->ActiView->LOFCprList;
+    cpr = GFXB->ActiView->LOFCprList;
     copIns = (UWORD *)cpr->start;
     numIns = (ULONG)cpr->MaxCount;
     addr = (ULONG)copIns;
@@ -694,14 +713,14 @@ void gfx_handle_sprites(const char *args)
     }
 
     /* Method 1: Read from GfxBase sprite pointers.
-     * GfxBase->SpriteReserved gives info about reserved sprites.
+     * GFXB->SpriteReserved gives info about reserved sprites.
      * The actual sprite data pointers are managed by the system
      * through SimpleSprite structures. We can also check the
      * ViewPort's sprite info via the copper list. */
 
     /* Method 2: Scan copper list for SPRxPT register moves */
-    if (GfxBase->ActiView && GfxBase->ActiView->LOFCprList) {
-        struct cprlist *cpr = GfxBase->ActiView->LOFCprList;
+    if (GFXB->ActiView && GFXB->ActiView->LOFCprList) {
+        struct cprlist *cpr = GFXB->ActiView->LOFCprList;
         UWORD *copIns = (UWORD *)cpr->start;
         ULONG numIns = (ULONG)cpr->MaxCount;
         ULONG ci;
@@ -732,13 +751,13 @@ void gfx_handle_sprites(const char *args)
         }
     }
 
-    /* Method 3: Read sprite pointers from GfxBase->SimpleSprites array */
-    if (GfxBase->SimpleSprites) {
+    /* Method 3: Read sprite pointers from GFXB->SimpleSprites array */
+    if (GFXB->SimpleSprites) {
         for (i = 0; i < 8; i++) {
             if (sprFound[i] == 3) continue;  /* Already found via copper */
-            if (GfxBase->SimpleSprites[i] &&
-                GfxBase->SimpleSprites[i]->posctldata) {
-                sprPtrs[i] = (ULONG)GfxBase->SimpleSprites[i]->posctldata;
+            if (GFXB->SimpleSprites[i] &&
+                GFXB->SimpleSprites[i]->posctldata) {
+                sprPtrs[i] = (ULONG)GFXB->SimpleSprites[i]->posctldata;
                 sprFound[i] = 3;
             }
         }
@@ -829,7 +848,7 @@ void gfx_handle_listwindows(const char *args)
     strcpy(linebuf, "WINLIST");
     pos = 7;
 
-    for (scr = IntuitionBase->FirstScreen; scr; scr = scr->NextScreen) {
+    for (scr = INTUB->FirstScreen; scr; scr = scr->NextScreen) {
         for (win = scr->FirstWindow; win; win = win->NextWindow) {
             const char *title = win->Title ? (const char *)win->Title : "(untitled)";
             int tlen = strlen(title);

@@ -46,17 +46,30 @@ port = 2345
 auto_start_emulator = false
 
 [profiles.qemu-os4]
-description = "AmigaOS 4.1 PPC inside QEMU sam460ex, TCP bridge"
-# The PPC amiga-bridge speaks TCP-over-bsdsocket by default (faster + more
-# robust than the serial-device transport the m68k build uses). It listens
-# on 0.0.0.0:2345 inside the guest; scripts/start-qemu-os4.sh sets up a
-# QEMU hostfwd so we can reach it at 127.0.0.1:2345 from the host.
-# Launch bridge on OS4 with:  DH1:amiga-bridge TCP
+description = "AmigaOS 4.1 (PPC) on QEMU sam460ex — TCP-over-hostfwd to the OS4 bridge"
 mode = "tcp"
 host = "127.0.0.1"
-port = 2345
-auto_start_emulator = false      # QEMU is heavy; launch manually via
-                                  # scripts/start-qemu-os4.sh
+# 2347 is what scripts/start-qemu-os4.sh --net forwards to guest:2345
+# where the PPC amiga-bridge (default TCP mode) listens. If you need
+# the serial-fallback path instead (bridge launched with `SERIAL`
+# arg), point this at 2346 which is the -serial tcp:: forward.
+port = 2347
+# Devbench treats emulator_binary as-is when it's not "auto". Point it at
+# the launcher script that knows the sam460ex drive layout + auto-resize.
+emulator_binary = "scripts/start-qemu-os4.sh"
+emulator_config = ""
+auto_start_emulator = false   # Manual until dev HDF deploy is wired
+arch = "ppc"
+# docker_image intentionally unset — scripts/lib/ppc-image.sh picks
+# os4-gcc11-arm64 on Apple Silicon / os4-gcc11-amd64 on x86 hosts.
+# Override with $PPC_IMAGE in the shell if you want a specific tag.
+docker_image = ""
+# Deploy path is the dev HDF itself — devbench should shell out to
+# `scripts/deploy-os4.sh <file>` (via xdftool) instead of a directory
+# copy. Consuming code that treats deploy_dir as a raw filesystem path
+# needs to detect the .hdf suffix and switch strategy. See
+# docs/amigaos4-setup.md "Sharing files with OS4 via the dev HDF".
+deploy_dir = "~/AmigaOS4/amigaos4-dev.hdf"
 
 # ─── Defaults (applied before the profile overlay) ────────────────────
 

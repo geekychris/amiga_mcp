@@ -25,9 +25,11 @@
 
 #include "bridge_internal.h"
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
+#endif
 
 /* Layout metrics derived at runtime from the inherited screen font. */
 static int g_line_h   = 12;   /* per-line cell height (font height + leading) */
@@ -323,13 +325,27 @@ int main(int argc, char **argv)
     ULONG serialSig, ipcSig, winSig, signals, received;
     int i;
 
-    /* Transport selection from CLI args:
-     *   amiga-bridge            -> serial (115200 baud), current behavior
-     *   amiga-bridge TCP        -> TCP server on default port 2345
-     *   amiga-bridge TCP <port> -> TCP server on <port>
+    /* Transport selection from CLI args.
+     *
+     * On the classic m68k build serial is the historical default; TCP was
+     * opt-in via the `TCP` arg.  On the PPC/OS4 build we flip the default
+     * because TCP-over-bsdsocket is the whole point of the pivot: much
+     * higher throughput + no serial-timing quirks.  Users can still force
+     * serial with the explicit `SERIAL` arg (or `SERIAL <baud>`).
+     *
+     *   amiga-bridge                -> PPC: TCP :2345    m68k: serial 115200
+     *   amiga-bridge TCP            -> TCP :2345
+     *   amiga-bridge TCP <port>     -> TCP :<port>
+     *   amiga-bridge SERIAL         -> serial 115200
+     *   amiga-bridge SERIAL <baud>  -> serial <baud>
      */
+#ifdef __PPC__
+    int   sel_mode  = TRANSPORT_TCP;
+    ULONG sel_param = 2345;
+#else
     int   sel_mode  = TRANSPORT_SERIAL;
-    ULONG sel_param = 115200;            /* serial baud */
+    ULONG sel_param = 115200;
+#endif
     if (argc >= 2 && (strcmp(argv[1], "TCP") == 0 || strcmp(argv[1], "tcp") == 0)) {
         ULONG tcp_port = 2345;
         if (argc >= 3) {
@@ -338,6 +354,14 @@ int main(int argc, char **argv)
         }
         sel_mode  = TRANSPORT_TCP;
         sel_param = tcp_port;
+    } else if (argc >= 2 && (strcmp(argv[1], "SERIAL") == 0 || strcmp(argv[1], "serial") == 0)) {
+        ULONG baud = 115200;
+        if (argc >= 3) {
+            long b = atol(argv[2]);
+            if (b > 0) baud = (ULONG)b;
+        }
+        sel_mode  = TRANSPORT_SERIAL;
+        sel_param = baud;
     }
 
     /* Initialize UI log buffer */

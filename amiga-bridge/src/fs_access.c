@@ -19,6 +19,21 @@
 
 #include "bridge_internal.h"
 
+/* ACCESS_READ was removed on OS4; SHARED_LOCK is the replacement. */
+#ifdef __PPC__
+#ifndef ACCESS_READ
+#define ACCESS_READ SHARED_LOCK
+#endif
+/* Several classic dos.library entry points are now considered obsolete on
+ * OS4 and are only reachable via IDOS->OBSOLETE* or renamed replacements.
+ * Map the classic names back so the shared code compiles unchanged. */
+#define Seek(fh, pos, off)  OBSOLETESeek((fh), (pos), (off))
+#define Examine(lock, fib)  OBSOLETEExamine((lock), (fib))
+#define ExNext(lock, fib)   OBSOLETEExNext((lock), (fib))
+#define DeleteFile(name)    Delete((name))
+#define SetFileDate(name, ds) SetDate((name), (ds))
+#endif
+
 /*
  * List directory contents.
  * Format: DIR|path|count|name1(size1,type1),name2(size2,type2),...

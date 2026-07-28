@@ -655,6 +655,9 @@
         <div class="emu-dot" id="fsuaeRpcDot" style="background:#888;"></div>
         <span id="fsuaeRpcText" style="font-size:11px;color:var(--text-dim);">RPC: --</span>
       </div>
+      <div id="archBadge" style="display:flex;align-items:center;gap:5px;" title="Target CPU architecture (from active profile)">
+        <span id="archText" style="font-size:11px;color:var(--text-dim);padding:2px 6px;border:1px solid var(--border);border-radius:3px;">arch: --</span>
+      </div>
       <div style="display:flex;align-items:center;gap:5px;">
         <div class="conn-dot" id="connDot"></div>
         <span id="connText">Disconnected</span>
@@ -2683,6 +2686,9 @@ async function fsuaeDisasm() {
 
 // Toggle the project picker visibility when source xref checkbox flips
 document.addEventListener('DOMContentLoaded', () => {
+  // Populate the header arch badge on first load so the user can see
+  // which profile is active without navigating to Settings.
+  if (typeof cfgLoad === 'function') cfgLoad();
   const cb = document.getElementById('fsuaeSrcXref');
   if (cb) cb.addEventListener('change', async (e) => {
     const sel = document.getElementById('fsuaeSrcProject');
@@ -3259,6 +3265,16 @@ async function cfgLoad() {
     }
     if (d.bridge) {
       document.getElementById('cfgCrashAutoEnable').checked = d.bridge.crash_handler_auto_enable !== false;
+    }
+    // Header badge: arch + active profile
+    const arch = (d.build && d.build.arch) || 'm68k';
+    const prof = (d.profile && d.profile.active) || '';
+    const archEl = document.getElementById('archText');
+    if (archEl) {
+      archEl.textContent = prof ? `${arch} · ${prof}` : arch;
+      // Colour-code by arch so ppc vs m68k is glanceable.
+      archEl.style.color = arch === 'ppc' ? '#ffb347' : '#7ec4ff';
+      archEl.style.borderColor = archEl.style.color;
     }
   } catch(e) { console.error('Failed to load config:', e); }
 }

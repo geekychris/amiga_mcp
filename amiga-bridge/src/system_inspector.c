@@ -28,7 +28,25 @@
 #define MEMF_TOTAL (1UL << 17)
 #endif
 
+#ifndef __PPC__
 extern struct ExecBase *SysBase;
+#endif
+
+/* SysBase is opaque (struct Library *) on OS4 — alias through a cast
+ * so classic 68k builds keep direct field access unchanged. */
+#ifdef __PPC__
+static inline struct ExecBase *_exec_base(void) { return (struct ExecBase *)SysBase; }
+#define SYSB _exec_base()
+#else
+#define SYSB SysBase
+#endif
+
+/* ACCESS_READ was removed on OS4; SHARED_LOCK is the replacement. */
+#ifdef __PPC__
+#ifndef ACCESS_READ
+#define ACCESS_READ SHARED_LOCK
+#endif
+#endif
 
 /* Safe buffer append: appends src to buf at *pos, respecting bufSize.
  * Returns 1 if appended, 0 if it didn't fit. */
@@ -99,15 +117,15 @@ int sys_list_tasks(char *buf, int bufSize)
     Forbid();
 
     /* Current task */
-    if (SysBase->ThisTask) {
-        format_task_entry(entry, sizeof(entry), SysBase->ThisTask, "run");
+    if (SYSB->ThisTask) {
+        format_task_entry(entry, sizeof(entry), SYSB->ThisTask, "run");
         if (buf_append(buf, &pos, bufSize, entry)) {
             count++;
         }
     }
 
     /* Ready list */
-    for (node = SysBase->TaskReady.lh_Head;
+    for (node = SYSB->TaskReady.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         format_task_entry(entry, sizeof(entry), (struct Task *)node, "ready");
@@ -119,7 +137,7 @@ int sys_list_tasks(char *buf, int bufSize)
     }
 
     /* Wait list */
-    for (node = SysBase->TaskWait.lh_Head;
+    for (node = SYSB->TaskWait.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         format_task_entry(entry, sizeof(entry), (struct Task *)node, "wait");
@@ -175,7 +193,7 @@ int sys_list_libs(char *buf, int bufSize)
 
     Forbid();
 
-    for (node = SysBase->LibList.lh_Head;
+    for (node = SYSB->LibList.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         struct Library *lib = (struct Library *)node;
@@ -235,7 +253,7 @@ int sys_list_devices(char *buf, int bufSize)
 
     Forbid();
 
-    for (node = SysBase->DeviceList.lh_Head;
+    for (node = SYSB->DeviceList.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         struct Device *dev = (struct Device *)node;
@@ -404,7 +422,7 @@ int sys_inspect_mem(APTR addr, ULONG size, UBYTE *outBuf, ULONG outBufSize)
  */
 void sys_handle_memmap(void)
 {
-    struct ExecBase *eb = SysBase;
+    struct ExecBase *eb = SYSB;
     struct MemHeader *mh;
     static char linebuf[BRIDGE_MAX_LINE];
     static char entry[128];
@@ -568,6 +586,7 @@ void sys_handle_readregs(void)
     /* Capture data and address registers via inline asm.
      * Note: these reflect the compiler's register allocation at this point,
      * not the caller's state, but still useful for inspection. */
+#ifndef __PPC__
     asm volatile(
         "movem.l %%d0-%%d7, %0\n\t"
         "movem.l %%a0-%%a6, %1\n\t"
@@ -576,6 +595,13 @@ void sys_handle_readregs(void)
         :
         : "memory"
     );
+#else
+    /* TODO OS4/PPC: 68k register model doesn't apply — zero out for now.
+     * A future pass could grab a snapshot of GPRs via inline PPC asm. */
+    for (i = 0; i < 8; i++) dregs[i] = 0;
+    for (i = 0; i < 7; i++) aregs[i] = 0;
+    sp_val = 0;
+#endif
 
     /* SR requires supervisor mode on 68010+ and Supervisor() trap
      * has calling convention issues that cause crashes. Skip it. */
@@ -704,7 +730,7 @@ void sys_handle_libinfo(const char *name)
 
     Forbid();
 
-    for (node = SysBase->LibList.lh_Head;
+    for (node = SYSB->LibList.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         struct Library *l = (struct Library *)node;
@@ -772,7 +798,7 @@ void sys_handle_devinfo(const char *name)
 
     Forbid();
 
-    for (node = SysBase->DeviceList.lh_Head;
+    for (node = SYSB->DeviceList.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         struct Device *d = (struct Device *)node;
@@ -832,6 +858,16 @@ void sys_handle_devinfo(const char *name)
  */
 void sys_handle_libfuncs(const char *args)
 {
+#ifdef __PPC__
+    /* Classic LIBFUNCS reads the 68k jump table (6-byte JMP+addr entries
+     * growing downward from lib base). OS4 libraries use interface method
+     * tables addressed via IExec-> pointers, not a linear negative-offset
+     * jump table. Reporting fake data here would mislead host clients, so
+     * fail loudly. Removed from CAPABILITIES on PPC too. */
+    (void)args;
+    protocol_send_raw("ERR|LIBFUNCS|not supported on OS4 (interface-based exec)");
+    return;
+#else
     static char linebuf[BRIDGE_MAX_LINE];
     static char namebuf[64];
     static char entry[20];
@@ -882,7 +918,7 @@ void sys_handle_libfuncs(const char *args)
     Forbid();
 
     if (isDevice) {
-        for (node = SysBase->DeviceList.lh_Head;
+        for (node = SYSB->DeviceList.lh_Head;
              node->ln_Succ != NULL;
              node = node->ln_Succ) {
             struct Device *d = (struct Device *)node;
@@ -893,7 +929,7 @@ void sys_handle_libfuncs(const char *args)
             }
         }
     } else {
-        for (node = SysBase->LibList.lh_Head;
+        for (node = SYSB->LibList.lh_Head;
              node->ln_Succ != NULL;
              node = node->ln_Succ) {
             struct Library *l = (struct Library *)node;
@@ -993,6 +1029,7 @@ void sys_handle_libfuncs(const char *args)
     }
 
     protocol_send_raw(linebuf);
+#endif /* __PPC__ */
 }
 
 /*
@@ -1036,10 +1073,19 @@ int sys_list_assigns(char *buf, int bufSize)
 
         /* Resolve path */
         pathbuf[0] = '\0';
+#ifndef __PPC__
         if (dl->dol_Type == DLT_DIRECTORY && dl->dol_Lock) {
             NameFromLock(dl->dol_Lock, (STRPTR)pathbuf, 127);
             atype = "A";
         } else if (dl->dol_Type == DLT_LATE) {
+#else
+        /* TODO OS4: DLT_DIRECTORY renamed EXD_IS_DIRECTORY and dol_Lock lives
+         * under dol_misc.dol_volume.dol_LockList — skip directory-assign
+         * resolution on PPC for now, keep late/nonbinding paths working. */
+        if (0) {
+            atype = "A";
+        } else if (dl->dol_Type == DLT_LATE) {
+#endif
             const char *handler = (const char *)BADDR(dl->dol_misc.dol_assign.dol_AssignName);
             if (handler) {
                 UBYTE *bh = (UBYTE *)handler;
@@ -1197,6 +1243,14 @@ void sys_handle_capabilities(void)
 {
     static char linebuf[BRIDGE_MAX_LINE];
 
+    /* LIBFUNCS is 68k-only — it reads the jump-table format that OS4
+     * doesn't have (interface method tables instead). Drop it from
+     * PPC's advertised capability list so hosts don't try to call it. */
+#ifdef __PPC__
+    #define LIBFUNCS_CAP ""
+#else
+    #define LIBFUNCS_CAP "LIBFUNCS,"
+#endif
     sprintf(linebuf,
         "CAPABILITIES|" BRIDGE_VERSION_STR "|1|%ld|"
         "PING,INSPECT,GETVAR,SETVAR,EXEC,LISTCLIENTS,LISTTASKS,LISTLIBS,"
@@ -1206,7 +1260,8 @@ void sys_handle_capabilities(void)
         "SCRIPT,WRITEMEM,SCREENSHOT,PALETTE,SETPALETTE,COPPERLIST,SPRITES,"
         "LISTRESOURCES,GETPERF,LASTCRASH,CRASHINIT,CRASHREMOVE,CRASHTEST,"
         "MEMMAP,STACKINFO,CHIPREGS,READREGS,SEARCH,LIBINFO,DEVINFO,"
-        "LIBFUNCS,SNOOPSTART,SNOOPSTOP,SNOOPSTATUS,AUDIOCHANNELS,"
+        LIBFUNCS_CAP
+        "SNOOPSTART,SNOOPSTOP,SNOOPSTATUS,AUDIOCHANNELS,"
         "AUDIOSAMPLE,LISTSCREENS,LISTWINDOWS,LISTWINDOWS2,LISTGADGETS,"
         "WINACTIVATE,WINTOFRONT,WINTOBACK,WINZIP,WINMOVE,WINSIZE,"
         "SCRTOFRONT,SCRTOBACK,INPUTKEY,INPUTMOVE,INPUTCLICK,"
@@ -1216,6 +1271,7 @@ void sys_handle_capabilities(void)
         "CHECKSUM,ASSIGNS,ASSIGN,PROTECT,RENAME,SETCOMMENT,COPY,APPEND,"
         "VERSION,GETENV,SETENV,SETDATE,VOLUMES,PORTS,SYSINFO,UPTIME,REBOOT",
         (long)BRIDGE_MAX_LINE);
+#undef LIBFUNCS_CAP
 
     protocol_send_raw(linebuf);
 }
@@ -1257,7 +1313,13 @@ void sys_handle_volumes_ext(void)
             volnames[volcount][2] = '\0';
         }
 
+#ifndef __PPC__
         volstate[volcount] = dl->dol_Task ? 1 : 0;
+#else
+        /* TODO OS4: dol_Task moved to dol_misc.dol_volume on OS4 — treat all
+         * enumerated volumes as mounted for now. */
+        volstate[volcount] = 1;
+#endif
         volcount++;
     }
     UnLockDosList(LDF_VOLUMES | LDF_READ);
@@ -1371,7 +1433,7 @@ void sys_handle_ports(void)
 
     Forbid();
 
-    for (node = SysBase->PortList.lh_Head;
+    for (node = SYSB->PortList.lh_Head;
          node->ln_Succ != NULL;
          node = node->ln_Succ) {
         struct MsgPort *port = (struct MsgPort *)node;
@@ -1423,7 +1485,7 @@ void sys_handle_sysinfo(void)
     fastFree = AvailMem(MEMF_FAST);
 
     /* MEMF_TOTAL is available on v36+ (Kickstart 2.0+) */
-    if (SysBase->LibNode.lib_Version >= 36) {
+    if (SYSB->LibNode.lib_Version >= 36) {
         chipTotal = AvailMem(MEMF_CHIP | MEMF_TOTAL);
         fastTotal = AvailMem(MEMF_FAST | MEMF_TOTAL);
     } else {
@@ -1431,12 +1493,20 @@ void sys_handle_sysinfo(void)
         fastTotal = 0;
     }
 
-    execVer = SysBase->LibNode.lib_Version;
-    execRev = SysBase->LibNode.lib_Revision;
-    vblankHz = SysBase->VBlankFrequency;
-    attnFlags = SysBase->AttnFlags;
+    execVer = SYSB->LibNode.lib_Version;
+    execRev = SYSB->LibNode.lib_Revision;
+    vblankHz = SYSB->VBlankFrequency;
+    attnFlags = SYSB->AttnFlags;
 
-    /* Determine CPU type from AttnFlags bits */
+#ifdef __PPC__
+    /* On OS4/PowerPC, AttnFlags is a 68k-CPU-detection bitfield and
+     * would mis-report "68000" via the fallback below. Skip the whole
+     * ladder and just say what we are — SDK/host can query more detail
+     * via IExec->GetCPUInfoTags if it needs specifics. */
+    (void)attnFlags;
+    cpuType = "PowerPC";
+#else
+    /* Determine CPU type from AttnFlags bits (68k). */
     if (attnFlags & (1 << 4)) {
         cpuType = "68060";
     } else if (attnFlags & (1 << 3)) {
@@ -1450,6 +1520,7 @@ void sys_handle_sysinfo(void)
     } else {
         cpuType = "68000";
     }
+#endif
 
     sprintf(linebuf, "SYSINFO|%lu|%lu|%lu|%lu|%ld|%ld|%s|%ld",
         (unsigned long)chipFree,
@@ -1515,13 +1586,13 @@ int sys_signal_task_by_addr(ULONG addr, ULONG sigMask)
     Forbid();
 
     /* Check current task */
-    if ((ULONG)SysBase->ThisTask == addr) {
-        target = SysBase->ThisTask;
+    if ((ULONG)SYSB->ThisTask == addr) {
+        target = SYSB->ThisTask;
     }
 
     /* Check ready list */
     if (!target) {
-        for (node = SysBase->TaskReady.lh_Head;
+        for (node = SYSB->TaskReady.lh_Head;
              node->ln_Succ != NULL;
              node = node->ln_Succ) {
             if ((ULONG)node == addr) {
@@ -1533,7 +1604,7 @@ int sys_signal_task_by_addr(ULONG addr, ULONG sigMask)
 
     /* Check wait list */
     if (!target) {
-        for (node = SysBase->TaskWait.lh_Head;
+        for (node = SYSB->TaskWait.lh_Head;
              node->ln_Succ != NULL;
              node = node->ln_Succ) {
             if ((ULONG)node == addr) {

@@ -174,13 +174,19 @@ class EmulatorManager:
             logger.error("Emulator binary not found: %s", self._binary)
             return False
 
-        # Validate config exists
-        config_path = Path(self._config_file).expanduser()
-        if not config_path.exists():
-            logger.error("Emulator config not found: %s", config_path)
-            return False
-
-        logger.info("Starting emulator: %s %s", self._binary, config_path)
+        # Config file is optional. FS-UAE takes a .fs-uae config path
+        # argument; QEMU launcher scripts don't. If empty, we invoke
+        # the binary with no arg; if provided, it must exist on disk.
+        config_arg: list[str] = []
+        if self._config_file:
+            config_path = Path(self._config_file).expanduser()
+            if not config_path.exists():
+                logger.error("Emulator config not found: %s", config_path)
+                return False
+            config_arg = [str(config_path)]
+            logger.info("Starting emulator: %s %s", self._binary, config_path)
+        else:
+            logger.info("Starting emulator: %s", self._binary)
 
         env = os.environ.copy()
         env.update(self._extra_env)
@@ -190,7 +196,7 @@ class EmulatorManager:
 
         try:
             self._process = await asyncio.create_subprocess_exec(
-                self._binary, str(config_path),
+                self._binary, *config_arg,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
                 # Create new process group so we can cleanly kill it
@@ -277,14 +283,31 @@ class EmulatorManager:
             pass
 
     def read_config(self) -> str:
-        """Read the FS-UAE config file contents."""
+        """Read the FS-UAE config file contents.
+
+        Returns "" when no config file is configured (empty _config_file);
+        without that guard Path("") resolves to CWD and .exists() returns
+        True — .read_text() then dies with IsADirectoryError. QEMU
+        profiles like qemu-os4 launch a shell script that takes no config,
+        so an empty value is a legitimate "no config" state.
+        """
+        if not self._config_file:
+            return ""
         config_path = Path(self._config_file).expanduser()
-        if config_path.exists():
+        if config_path.exists() and config_path.is_file():
             return config_path.read_text()
         return ""
 
     def write_config(self, content: str) -> None:
-        """Write new content to the FS-UAE config file."""
+        """Write new content to the FS-UAE config file.
+
+        No-op when no config file is configured — matches read_config's
+        empty-string return. Prevents the web UI's Config → Save from
+        landing at CWD/`.tmp` on a QEMU-style profile.
+        """
+        if not self._config_file:
+            logger.info("write_config: skipped (no emulator_config set)")
+            return
         config_path = Path(self._config_file).expanduser()
         # Atomic write
         tmp_path = config_path.with_suffix(".tmp")

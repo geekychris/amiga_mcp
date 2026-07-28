@@ -64,6 +64,14 @@ class DevBenchConfig:
     # Bridge options
     crash_handler_auto_enable: bool = True
 
+    # Target architecture — decides which toolchain Docker image is used
+    # for cross-compilation and which serial/deploy defaults apply.
+    #   "m68k" — classic AmigaOS 3.x on 680x0 (default)
+    #   "ppc"  — AmigaOS 4.1 on PowerPC (sam460ex under QEMU)
+    arch: str = "m68k"
+    # Docker image for cross-compilation. Empty = pick the arch default.
+    docker_image: str = ""
+
     # GDB RSP server
     gdb_port: int = 2159
 
@@ -111,6 +119,17 @@ class DevBenchConfig:
             self.project_root = str(Path(self.project_root).resolve())
         if self.deploy_dir:
             self.deploy_dir = str(Path(self.deploy_dir).expanduser())
+        # If emulator_binary is a relative path (e.g. "scripts/start-qemu-os4.sh"
+        # from the qemu-os4 profile), anchor it to project_root. Otherwise leave
+        # things like "auto", absolute paths, or bare command names alone.
+        if (
+            self.emulator_binary
+            and self.emulator_binary != "auto"
+            and "/" in self.emulator_binary
+            and not Path(self.emulator_binary).is_absolute()
+            and self.project_root
+        ):
+            self.emulator_binary = str(Path(self.project_root) / self.emulator_binary)
 
 
 def load_config(
@@ -189,6 +208,11 @@ def apply_profile(cfg: DevBenchConfig, name: str) -> None:
     # Paths
     if "deploy_dir" in p:
         cfg.deploy_dir = str(p["deploy_dir"])
+    # Arch + build settings
+    if "arch" in p:
+        cfg.arch = str(p["arch"]).lower()
+    if "docker_image" in p:
+        cfg.docker_image = str(p["docker_image"])
     # Remember which profile was applied
     cfg.active_profile = name
 
@@ -235,6 +259,12 @@ def _apply_toml(cfg: DevBenchConfig, data: dict[str, Any]) -> None:
     bridge = data.get("bridge", {})
     if "crash_handler_auto_enable" in bridge:
         cfg.crash_handler_auto_enable = bool(bridge["crash_handler_auto_enable"])
+
+    build = data.get("build", {})
+    if "arch" in build:
+        cfg.arch = str(build["arch"]).lower()
+    if "docker_image" in build:
+        cfg.docker_image = str(build["docker_image"])
 
     llm = data.get("llm", {})
     if "enabled" in llm:       cfg.llm_enabled = bool(llm["enabled"])
@@ -297,14 +327,54 @@ def apply_cli_overrides(cfg: DevBenchConfig, args: Any) -> None:
         cfg.simulator = True
 
 
+def _toml_escape(s: str) -> str:
+    """Minimal TOML string escaping — enough for path/name values."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _dump_toml_value(v: Any) -> str:
+    """Best-effort TOML literal for a scalar profile field."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    return f'"{_toml_escape(str(v))}"'
+
+
 def save_config(cfg: DevBenchConfig, path: str | None = None) -> str:
-    """Save config to TOML file. Returns the path written."""
+    """Save config to TOML file. Returns the path written.
+
+    Preserves active_profile, every entry in cfg.profiles, and the [build]
+    section. Earlier versions dropped all three, so a round-trip through the
+    web UI's Config → Save would silently wipe the qemu-os4 profile and
+    the arch setting.
+    """
     if path is None:
         path = os.path.join(cfg.project_root, "devbench.toml")
 
     lines = [
         '# Amiga DevBench Configuration',
         '',
+    ]
+
+    # Active profile pointer (before the profile tables so it reads well).
+    if cfg.active_profile:
+        lines += [f'active_profile = "{_toml_escape(cfg.active_profile)}"', '']
+
+    # Named profiles — preserve every key we loaded plus any that were
+    # merged into cfg since. We keep the raw dict cfg.profiles carries so
+    # user-authored fields we don't know about (e.g. remote emulator SSH
+    # commands) survive the round-trip.
+    for name in sorted(cfg.profiles):
+        prof = cfg.profiles[name]
+        if not isinstance(prof, dict):
+            continue
+        lines.append(f'[profiles.{name}]')
+        for k, v in prof.items():
+            lines.append(f'{k} = {_dump_toml_value(v)}')
+        lines.append('')
+
+    lines += [
         '[serial]',
         f'mode = "{cfg.serial_mode}"',
         f'host = "{cfg.serial_host}"',
@@ -325,6 +395,10 @@ def save_config(cfg: DevBenchConfig, path: str | None = None) -> str:
         '',
         '[bridge]',
         f'crash_handler_auto_enable = {"true" if cfg.crash_handler_auto_enable else "false"}',
+        '',
+        '[build]',
+        f'arch = "{_toml_escape(cfg.arch)}"',
+        f'docker_image = "{_toml_escape(cfg.docker_image)}"',
         '',
         '[fsuae_rpc]',
         '# Remote-debug HTTP API exposed by the patched fs-uae build',

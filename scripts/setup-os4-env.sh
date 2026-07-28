@@ -90,8 +90,9 @@ fi
 if command -v docker &>/dev/null; then
     echo "  Docker: available"
 
-    # Try to pull the PPC image
-    PPC_IMAGE="walkero/amigagccondocker:os4-gcc11-arm64"
+    # Try to pull the PPC image. The multi-arch manifest picks the
+    # right platform (arm64/amd64) automatically — no per-arch tag.
+    PPC_IMAGE="walkero/amigagccondocker:os4-gcc11"
     echo "  Pulling PPC Docker image: $PPC_IMAGE"
     if docker pull "$PPC_IMAGE" 2>/dev/null; then
         echo "  PPC Docker image: ready"
@@ -142,7 +143,7 @@ log_level = "INFO"
 
 [build]
 arch = "ppc"
-docker_image = "walkero/amigagccondocker:os4-gcc11-arm64"
+docker_image = "walkero/amigagccondocker:os4-gcc11"
 
 [paths]
 # Adjust deploy_dir when OS4 dev HDD mount point is known
