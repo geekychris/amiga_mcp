@@ -1543,15 +1543,19 @@ static void handle_clientinfo(const char *args)
 
 static void handle_stop(const char *args)
 {
-    /* Format: name_or_addr[|CTRLC|CTRLD|CTRLE|CTRLF]
+    /* Format: name_or_addr[|CTRLC|CTRLD|CTRLE|CTRLF|HARD]
      * If name starts with "0x", treat as hex task address.
-     * Sends specified signal (default CTRL-C) to the task. */
+     * CTRL* sends specified signal (default CTRL-C).
+     * HARD calls RemoveTask() — leaks resources but works when the
+     * target ignores signals; blocked for the daemon itself and for
+     * system-critical tasks (input.device, timer.device, etc). */
     struct ClientEntry *ce;
     int result;
     static char namebuf[256];
     const char *sigArg = NULL;
     const char *sep;
     ULONG sigMask = SIGBREAKF_CTRL_C;
+    int hard = 0;
 
     if (!args || args[0] == '\0') {
         send_err("STOP", "needs client name or address");
@@ -1579,6 +1583,8 @@ static void handle_stop(const char *args)
             sigMask = SIGBREAKF_CTRL_E;
         } else if (strcmp(sigArg, "CTRLF") == 0) {
             sigMask = SIGBREAKF_CTRL_F;
+        } else if (strcmp(sigArg, "HARD") == 0) {
+            hard = 1;
         }
         /* CTRLC or anything else stays as default */
     }
@@ -1586,9 +1592,12 @@ static void handle_stop(const char *args)
     /* Check if name is a hex address (starts with "0x") */
     if (namebuf[0] == '0' && (namebuf[1] == 'x' || namebuf[1] == 'X')) {
         ULONG addr = strtoul(namebuf, NULL, 16);
-        result = sys_signal_task_by_addr(addr, sigMask);
+        result = hard ? sys_removetask_by_addr(addr)
+                      : sys_signal_task_by_addr(addr, sigMask);
         if (result == 0) {
-            send_ok("STOP", namebuf);
+            send_ok(hard ? "STOP|HARD" : "STOP", namebuf);
+        } else if (result == -2) {
+            send_err("STOP", "refused: system-critical task");
         } else {
             send_err("STOP", "address not found in task lists");
         }
@@ -1598,7 +1607,13 @@ static void handle_stop(const char *args)
     ce = client_find_by_name(namebuf);
     if (!ce) {
         /* Try as a raw task name for non-bridge processes */
-        /* For non-default signals, use FindTask + Signal directly */
+        if (hard) {
+            int r = sys_removetask_by_name(namebuf);
+            if (r == 0)       send_ok("STOP|HARD", namebuf);
+            else if (r == -2) send_err("STOP", "refused: system-critical task");
+            else              send_err("Task not found", namebuf);
+            return;
+        }
         {
             struct Task *task;
             Forbid();
