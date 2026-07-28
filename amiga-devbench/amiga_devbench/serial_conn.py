@@ -18,7 +18,20 @@ logger = logging.getLogger(__name__)
 RECONNECT_INTERVAL = 5.0
 PTY_RESTART_DELAY = 2.0
 MAX_LOG_BUFFER = 1000
-BRIDGE_SILENCE_TIMEOUT = 45.0  # seconds of no bridge messages before forced reconnect
+# 45s was the pre-existing timeout; that's a long silence to sit through when
+# QEMU has been killed hard and TCP has quietly gone half-open. Bridges send
+# HB every ~1s in normal operation, so 15s is comfortably beyond any legit
+# stall (SCRIPT commands, LISTDIR of huge trees) but catches the "peer went
+# away and TCP hasn't noticed yet" case an order of magnitude faster.
+BRIDGE_SILENCE_TIMEOUT = 15.0
+
+# TCP-level keepalive parameters used on connect_tcp so half-closed sockets
+# (peer killed, cable pulled, QEMU exited without FIN) get detected before
+# the OS default (~2h on macOS/Linux) instead of only through the bridge
+# silence watchdog above.
+KEEPALIVE_IDLE_SEC = 10        # start probing after 10s of idle
+KEEPALIVE_INTERVAL_SEC = 5     # probe every 5s
+KEEPALIVE_PROBE_COUNT = 3      # kill the socket after 3 unanswered probes
 
 
 class SerialConnection:
@@ -198,6 +211,33 @@ class SerialConnection:
                 asyncio.open_connection(self._host, self._port),
                 timeout=10.0,
             )
+            # Enable TCP keepalive on the fresh socket so half-closed
+            # connections get torn down within seconds instead of the
+            # OS default of ~2h. Without this, a hard QEMU kill leaves
+            # us waiting on `reader.read()` until the bridge-silence
+            # watchdog fires.
+            try:
+                import socket
+                sock = self._writer.get_extra_info("socket")
+                if sock is not None:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    # Per-OS TCP keepalive knobs — best-effort, ignore
+                    # if the platform doesn't expose them.
+                    for name, val in (
+                        ("TCP_KEEPIDLE",   KEEPALIVE_IDLE_SEC),
+                        ("TCP_KEEPINTVL",  KEEPALIVE_INTERVAL_SEC),
+                        ("TCP_KEEPCNT",    KEEPALIVE_PROBE_COUNT),
+                        # macOS names it TCP_KEEPALIVE (idle only).
+                        ("TCP_KEEPALIVE",  KEEPALIVE_IDLE_SEC),
+                    ):
+                        opt = getattr(socket, name, None)
+                        if opt is not None:
+                            try:
+                                sock.setsockopt(socket.IPPROTO_TCP, opt, val)
+                            except OSError:
+                                pass
+            except Exception as e:
+                logger.debug("keepalive setup skipped: %s", e)
             self._connected = True
             self._state.connected = True
             self._state.connection_mode = "tcp"
