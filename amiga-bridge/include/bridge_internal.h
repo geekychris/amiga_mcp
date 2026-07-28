@@ -173,6 +173,8 @@ void sys_handle_sysinfo(void);
 void sys_init_uptime(void);
 void sys_handle_uptime(void);
 int sys_signal_task_by_addr(ULONG addr, ULONG sigMask);
+int sys_removetask_by_name(const char *name);
+int sys_removetask_by_addr(ULONG addr);
 
 /* ---- fs_access.c ---- */
 int fs_list_dir(const char *path, ULONG startIdx, char *buf, int bufSize);

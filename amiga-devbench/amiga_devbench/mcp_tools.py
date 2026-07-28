@@ -778,6 +778,38 @@ async def amiga_client_info(client: str) -> str:
 
 
 @mcp.tool()
+async def amiga_kill_task(name: str) -> str:
+    """Send SIGBREAKF_CTRL_C to any task by name — a thin wrapper on the bridge's
+    BREAK verb + Signal(task, SIGBREAKF_CTRL_C). Works for any Amiga task (not
+    just registered bridge clients). The task must be honouring CTRL_C in its
+    event/wait loop for the kill to take effect; well-behaved AmigaDOS commands
+    will terminate, hung native code may not.
+
+    Common names to try:
+      • For a `run` foo.exe launch: the executable's file name (e.g. "python-os4",
+        "DH1:python-os4") — CLI processes typically inherit their command name.
+      • For a bridge client: the name passed to ab_init().
+    """
+    conn, state, bus = _require_connected()
+    async with bus.subscribe("ok", "err") as queue:
+        conn.send({"type": "BREAK", "name": name})
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                break
+            try:
+                evt, data = await asyncio.wait_for(queue.get(), timeout=remaining)
+                ctx = data.get("context", "")
+                if "BREAK" in ctx or "Task" in ctx:
+                    status = "ok" if evt == "ok" else "error"
+                    return f"[{status}] {data.get('message', name)}"
+            except asyncio.TimeoutError:
+                break
+    return f"BREAK sent to {name} (no confirmation)"
+
+
+@mcp.tool()
 async def amiga_stop_client(name: str, signal: str = "CTRLC") -> str:
     """Stop a running Amiga client process. Signal can be CTRLC (default), CTRLD, CTRLE, or CTRLF."""
     conn, state, bus = _require_connected()

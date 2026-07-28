@@ -1622,3 +1622,88 @@ int sys_signal_task_by_addr(ULONG addr, ULONG sigMask)
 
     return target ? 0 : -1;
 }
+
+/*
+ * Hard-kill a task by name via RemoveTask().
+ *
+ * DANGEROUS: RemoveTask yanks the task from the scheduler regardless of
+ * whether it's checking signals. Any resources the task held (allocated
+ * memory, open library bases, Forbid/Lock nesting, in-flight IORequests)
+ * are LEAKED and will not be cleaned up until reboot. Only use as a last
+ * resort when cooperative signals (CTRL_C/D/E/F) don't stop the target.
+ *
+ * We refuse to remove SYSB->ThisTask (would kill the bridge daemon
+ * itself) and refuse to remove input.device etc via a name safelist —
+ * killing input.device wedges the whole system.
+ *
+ * Returns 0 on success, -1 if not found, -2 if refused as too dangerous.
+ */
+static int is_task_safe_to_remove(struct Task *t, const char *name)
+{
+    if (t == SYSB->ThisTask) return 0;              /* don't kill self */
+    if (name) {
+        if (strcmp(name, "input.device") == 0) return 0;
+        if (strcmp(name, "timer.device") == 0) return 0;
+        if (strcmp(name, "trackdisk.device") == 0) return 0;
+        if (strcmp(name, "graphics.library") == 0) return 0;
+        if (strcmp(name, "intuition.library") == 0) return 0;
+    }
+    if (t->tc_Node.ln_Pri >= 20) return 0;          /* system tasks */
+    return 1;
+}
+
+int sys_removetask_by_name(const char *name)
+{
+    struct Task *task;
+    int safe;
+
+    Forbid();
+    task = FindTask((CONST_STRPTR)name);
+    if (task) {
+        safe = is_task_safe_to_remove(task, name);
+        if (safe) {
+            RemoveTask(task);
+        }
+    } else {
+        safe = 1;                                   /* moot */
+    }
+    Permit();
+
+    if (!task) return -1;
+    if (!safe) return -2;
+    return 0;
+}
+
+int sys_removetask_by_addr(ULONG addr)
+{
+    struct Node *node;
+    struct Task *target = NULL;
+    int safe = 1;
+
+    if (addr < 0x100) return -1;
+
+    Forbid();
+
+    for (node = SYSB->TaskReady.lh_Head;
+         node->ln_Succ != NULL; node = node->ln_Succ) {
+        if ((ULONG)node == addr) { target = (struct Task *)node; break; }
+    }
+    if (!target) {
+        for (node = SYSB->TaskWait.lh_Head;
+             node->ln_Succ != NULL; node = node->ln_Succ) {
+            if ((ULONG)node == addr) { target = (struct Task *)node; break; }
+        }
+    }
+    if (target) {
+        safe = is_task_safe_to_remove(target, target->tc_Node.ln_Name);
+        if (safe) {
+            RemoveTask(target);
+        }
+    }
+
+    Permit();
+
+    if (!target) return -1;
+    if (!safe) return -2;
+    return 0;
+}
