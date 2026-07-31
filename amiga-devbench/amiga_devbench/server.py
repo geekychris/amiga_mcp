@@ -2959,6 +2959,55 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         _emulator.write_config(content)
         return JSONResponse({"status": "saved", "path": _emulator._config_file})
 
+    async def api_hostkey(request: Request) -> JSONResponse:
+        # Rescue channel: inject keystrokes into the QEMU cocoa window using
+        # cliclick, bypassing the bridge. Useful when guest networking is
+        # dead (e.g., NetShutdown killed the rtl8139 the bridge rides on).
+        # Requires macOS host, `cliclick` (brew install cliclick), and a
+        # QEMU process with a cocoa display (i.e. not -display none).
+        #
+        # POST body: {"text": str, "key": str, "enter": bool, "process": str}
+        #   text     — plain text to type; shift is handled by cliclick
+        #   key      — single named key (return, esc, delete, arrow-up, ...)
+        #   enter    — if true, sends kp:return after text/key
+        #   process  — target process name (default: qemu-system-ppc)
+        import subprocess
+        body = await request.json()
+        text = body.get("text")
+        key = body.get("key")
+        enter = bool(body.get("enter", False))
+        proc_name = body.get("process", "qemu-system-ppc")
+        if not text and not key and not enter:
+            return JSONResponse({"error": "provide text, key, or enter"}, status_code=400)
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 f'tell application "System Events" to set frontmost of process "{proc_name}" to true'],
+                capture_output=True, text=True, timeout=5, check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            return JSONResponse({"error": f"focus failed: {e.stderr.strip()}"}, status_code=500)
+        except FileNotFoundError:
+            return JSONResponse({"error": "osascript missing (macOS only)"}, status_code=500)
+        await asyncio.sleep(0.6)
+        args: list[str] = ["w:400"]
+        if text:
+            args += [f"t:{text}"]
+        if key:
+            args += ["w:200", f"kp:{key}"]
+        if enter:
+            args += ["w:200", "kp:return"]
+        try:
+            result = subprocess.run(
+                ["cliclick", *args], capture_output=True, text=True, timeout=60, check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            return JSONResponse({"error": f"cliclick failed: {e.stderr.strip()}"}, status_code=500)
+        except FileNotFoundError:
+            return JSONResponse({"error": "cliclick missing (brew install cliclick)"}, status_code=500)
+        return JSONResponse({"status": "ok", "typed": text, "key": key, "enter": enter,
+                             "stdout": result.stdout})
+
     # ─── FS-UAE Remote-Debug RPC Endpoints ───
     # All endpoints return {"ok": ...} pass-through from the patched fs-uae
     # build, or {"ok": False, "err": "fsuae-rpc not available"} when the
@@ -5239,6 +5288,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/emulator/restart", api_emulator_restart, methods=["POST"]),
         Route("/api/emulator/config", api_emulator_config_get, methods=["GET"]),
         Route("/api/emulator/config", api_emulator_config_save, methods=["POST"]),
+        # Rescue-channel keystroke injector (macOS + QEMU cocoa + cliclick)
+        Route("/api/hostkey", api_hostkey, methods=["POST"]),
         # FS-UAE remote-debug RPC (patched fs-uae only; degrades gracefully)
         Route("/api/fsuae/status", api_fsuae_status, methods=["GET"]),
         Route("/api/fsuae/probe", api_fsuae_probe, methods=["POST"]),

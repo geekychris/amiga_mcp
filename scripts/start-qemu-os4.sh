@@ -210,7 +210,35 @@ if [ "$NET_MODE" -eq 1 ]; then
     # daemon in TCP mode on the OS4 side: `amiga-bridge TCP 2345`.
     QEMU_CMD+=( -netdev "user,id=n0,hostfwd=tcp::2347-:2345" \
                 -device rtl8139,netdev=n0 )
-    NET_STATUS="user-mode NAT (rtl8139); host:2347 -> guest:2345 for bridge"
+    # Second NIC: Intel 82540EM (e1000) on subnet 192.168.100.0/24 for
+    # the virte1000.device driver under development. hostfwd rules give
+    # the host tools reach to the netbench server that will run inside
+    # the guest bound to virte1000's IP (guest gets .15 from QEMU DHCP):
+    #   host 17777 -> guest UDP  (latency echo)
+    #   host 17778 -> guest TCP  (bandwidth listener)
+    # Keep rtl8139 in place - amiga-bridge uses it, removing it breaks
+    # devbench connectivity.
+    QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778" \
+                -device e1000-82540em,netdev=n1 )
+    # Third NIC: virtio-net-pci on subnet 192.168.101.0/24 for the
+    # virtio_net project. Paravirtualized — no MMIO byte-swap dance,
+    # no PCI cache-coherency headaches. Guest IP will be .15 (QEMU
+    # DHCP default in this range).
+    #   host 17877 -> guest UDP (latency echo)
+    #   host 17878 -> guest TCP (bandwidth listener)
+    QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
+                -device virtio-net-pci,netdev=n2 )
+    # Dump every frame that traverses n2 (virtio-net netdev) to a
+    # pcap file so we can see whether virtnet.device's TX actually
+    # reaches the wire. Read with `tcpdump -r /tmp/qemu-n2.pcap` or
+    # open in Wireshark. Truncates on every QEMU start.
+    QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
+    # Temporary trace hack for virtnet debugging
+    QEMU_CMD+=( -trace "virtio_queue_notify"
+                -trace "virtqueue_pop"
+                -trace "virtqueue_alloc_element"
+                --trace "file=/tmp/qemu-trace.log" )
+    NET_STATUS="triple NIC: rtl8139 (bridge :2347), e1000-82540em (virte1000; 17777/17778), virtio-net-pci (virtnet; 17877/17878, pcap:/tmp/qemu-n2.pcap)"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
