@@ -192,6 +192,10 @@ read -ra _bios_arr  <<<"$BIOS_ARG";  QEMU_CMD+=( "${_bios_arr[@]}" )
 read -ra _drive_arr <<<"$DRIVE_ARGS";QEMU_CMD+=( "${_drive_arr[@]}" )
 read -ra _boot_arr  <<<"$BOOT_ARGS"; QEMU_CMD+=( "${_boot_arr[@]}" )
 QEMU_CMD+=( -serial "tcp::${SERIAL_PORT},server,nowait" )
+# HMP monitor on TCP 2348 — used to peek guest-physical RAM via `xp`
+# during virtnet DMA debugging. Never wait for a connection so QEMU
+# always boots.
+QEMU_CMD+=( -monitor "tcp:127.0.0.1:2348,server,nowait" )
 read -ra _gdb_arr   <<<"$GDB_ARGS";  QEMU_CMD+=( "${_gdb_arr[@]}" )
 # Networking off by default (base OS4 has no TCP/IP configured). --net
 # adds a user-mode NAT e1000 NIC which OS4 sees as an e1000 device
@@ -233,10 +237,14 @@ if [ "$NET_MODE" -eq 1 ]; then
     # reaches the wire. Read with `tcpdump -r /tmp/qemu-n2.pcap` or
     # open in Wireshark. Truncates on every QEMU start.
     QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
-    # Temporary trace hack for virtnet debugging
+    # Temporary trace hack for virtnet debugging — capture virtio_pci
+    # writes/reads too so we can see queue-setup event ordering.
     QEMU_CMD+=( -trace "virtio_queue_notify"
                 -trace "virtqueue_pop"
                 -trace "virtqueue_alloc_element"
+                -trace "virtqueue_fill"
+                -trace "virtqueue_flush"
+                -trace "virtio_pci_notify"
                 --trace "file=/tmp/qemu-trace.log" )
     NET_STATUS="triple NIC: rtl8139 (bridge :2347), e1000-82540em (virte1000; 17777/17778), virtio-net-pci (virtnet; 17877/17878, pcap:/tmp/qemu-n2.pcap)"
 else
