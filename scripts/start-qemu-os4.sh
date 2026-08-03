@@ -202,46 +202,33 @@ read -ra _gdb_arr   <<<"$GDB_ARGS";  QEMU_CMD+=( "${_gdb_arr[@]}" )
 # handled by Roadshow. Guest sees DNS/NAT via QEMU's built-in stack;
 # no host-side setup needed.
 if [ "$NET_MODE" -eq 1 ]; then
-    # RTL8139 chosen because base OS4.1 FE ships rtl8139.device out
-    # of the box. IMPORTANT: the `-nic user,model=rtl8139` shorthand
-    # is silently rejected by the sam460ex machine ("not supported by
-    # this machine?"). The explicit -netdev + -device form works — it
-    # attaches to sam460ex's PCI bus as a card OS4 can enumerate.
-    # hostfwd forwards host TCP :2347 to guest :2345 so devbench can
-    # talk to the amiga-bridge daemon directly over TCP instead of
-    # through the QEMU serial-passthrough. Much higher throughput +
-    # cleaner reliability than the serial-tunnel path. Launch the
-    # daemon in TCP mode on the OS4 side: `amiga-bridge TCP 2345`.
-    QEMU_CMD+=( -netdev "user,id=n0,hostfwd=tcp::2347-:2345" \
-                -device rtl8139,netdev=n0 )
-    # Second NIC: Intel 82540EM (e1000) on subnet 192.168.100.0/24 for
-    # the virte1000.device driver under development. hostfwd rules give
-    # the host tools reach to the netbench server that will run inside
-    # the guest bound to virte1000's IP (guest gets .15 from QEMU DHCP):
+    # Single NIC: Intel 82540EM (e1000) on subnet 192.168.100.0/24, wired
+    # to Bill Borsari's virte1000.device (the known-working e1000 driver;
+    # see the bill_e1000_driver memory). Guest DHCPs .15 from QEMU; SLIRP
+    # gateway is .2 and doubles as a host proxy.
     #   host 17777 -> guest UDP  (latency echo)
     #   host 17778 -> guest TCP  (bandwidth listener)
-    # Keep rtl8139 in place - amiga-bridge uses it, removing it breaks
-    # devbench connectivity.
-    QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778" \
-                -device e1000-82540em,netdev=n1 )
-    # Pcap for e1000 netdev (virte1000 driver). Same purpose as n2-dump.
-    QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
-    # n2 (virtio-net-pci) and n3 (second rtl8139 for rtl8139re) are
-    # currently DISABLED. We're focused on getting Bill's e1000 fix
-    # end-to-end via n1; the extra NICs added noise and one of them
-    # (n3 + our rtl8139re) froze the guest on first RX. Re-enable by
-    # uncommenting when we return to virtnet or rtl8139re work.
+    #
+    # The rtl8139 that used to sit on n0 (with a hostfwd for the TCP-mode
+    # amiga-bridge) is gone: bridge now runs in SERIAL mode via the
+    # `-serial tcp::2346,server` passthrough (see S:User-Startup on the
+    # guest — "Run >NIL: DH1:amiga-bridge SERIAL"), so no NIC is needed
+    # for devbench control. Additional NICs used for other driver work
+    # (rtl8139re, virtnet) are DISABLED and can be re-enabled by uncommenting:
+    # QEMU_CMD+=( -netdev "user,id=n0,hostfwd=tcp::2347-:2345" \
+    #             -device rtl8139,netdev=n0 )
     # QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
     #             -device virtio-net-pci,netdev=n2 )
     # QEMU_CMD+=( -netdev "user,id=n3,net=192.168.102.0/24,hostfwd=udp::17977-192.168.102.15:17977,hostfwd=tcp::17978-192.168.102.15:17978" \
     #             -device rtl8139,netdev=n3,mac=52:54:00:12:34:59 )
-    # QEMU_CMD+=( -object "filter-dump,id=n3-dump,netdev=n3,file=/tmp/qemu-n3.pcap" )
-    QEMU_CMD+=( -object "filter-dump,id=n0-dump,netdev=n0,file=/tmp/qemu-n0.pcap" )
+    QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778" \
+                -device e1000-82540em,netdev=n1 )
+    QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
     # QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
     # Temporary trace hack for virtnet debugging — capture virtio_pci
     # writes/reads too so we can see queue-setup event ordering.
     # virtio-net trace directives removed with n2. Restore alongside n2 if needed.
-    NET_STATUS="dual NIC: rtl8139 (bridge :2347), e1000-82540em (virte1000; 17777/17778); pcap /tmp/qemu-n1.pcap"
+    NET_STATUS="single NIC: e1000-82540em (virte1000; 17777/17778); pcap /tmp/qemu-n1.pcap (bridge on SERIAL passthrough :2346)"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
