@@ -224,29 +224,24 @@ if [ "$NET_MODE" -eq 1 ]; then
     # devbench connectivity.
     QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778" \
                 -device e1000-82540em,netdev=n1 )
-    # Third NIC: virtio-net-pci on subnet 192.168.101.0/24 for the
-    # virtio_net project. Paravirtualized — no MMIO byte-swap dance,
-    # no PCI cache-coherency headaches. Guest IP will be .15 (QEMU
-    # DHCP default in this range).
-    #   host 17877 -> guest UDP (latency echo)
-    #   host 17878 -> guest TCP (bandwidth listener)
-    QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
-                -device virtio-net-pci,netdev=n2 )
-    # Dump every frame that traverses n2 (virtio-net netdev) to a
-    # pcap file so we can see whether virtnet.device's TX actually
-    # reaches the wire. Read with `tcpdump -r /tmp/qemu-n2.pcap` or
-    # open in Wireshark. Truncates on every QEMU start.
-    QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
+    # Pcap for e1000 netdev (virte1000 driver). Same purpose as n2-dump.
+    QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
+    # n2 (virtio-net-pci) and n3 (second rtl8139 for rtl8139re) are
+    # currently DISABLED. We're focused on getting Bill's e1000 fix
+    # end-to-end via n1; the extra NICs added noise and one of them
+    # (n3 + our rtl8139re) froze the guest on first RX. Re-enable by
+    # uncommenting when we return to virtnet or rtl8139re work.
+    # QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
+    #             -device virtio-net-pci,netdev=n2 )
+    # QEMU_CMD+=( -netdev "user,id=n3,net=192.168.102.0/24,hostfwd=udp::17977-192.168.102.15:17977,hostfwd=tcp::17978-192.168.102.15:17978" \
+    #             -device rtl8139,netdev=n3,mac=52:54:00:12:34:59 )
+    # QEMU_CMD+=( -object "filter-dump,id=n3-dump,netdev=n3,file=/tmp/qemu-n3.pcap" )
+    QEMU_CMD+=( -object "filter-dump,id=n0-dump,netdev=n0,file=/tmp/qemu-n0.pcap" )
+    # QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
     # Temporary trace hack for virtnet debugging — capture virtio_pci
     # writes/reads too so we can see queue-setup event ordering.
-    QEMU_CMD+=( -trace "virtio_queue_notify"
-                -trace "virtqueue_pop"
-                -trace "virtqueue_alloc_element"
-                -trace "virtqueue_fill"
-                -trace "virtqueue_flush"
-                -trace "virtio_pci_notify"
-                --trace "file=/tmp/qemu-trace.log" )
-    NET_STATUS="triple NIC: rtl8139 (bridge :2347), e1000-82540em (virte1000; 17777/17778), virtio-net-pci (virtnet; 17877/17878, pcap:/tmp/qemu-n2.pcap)"
+    # virtio-net trace directives removed with n2. Restore alongside n2 if needed.
+    NET_STATUS="dual NIC: rtl8139 (bridge :2347), e1000-82540em (virte1000; 17777/17778); pcap /tmp/qemu-n1.pcap"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
