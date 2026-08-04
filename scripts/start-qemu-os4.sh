@@ -213,22 +213,24 @@ if [ "$NET_MODE" -eq 1 ]; then
     # amiga-bridge) is gone: bridge now runs in SERIAL mode via the
     # `-serial tcp::2346,server` passthrough (see S:User-Startup on the
     # guest — "Run >NIL: DH1:amiga-bridge SERIAL"), so no NIC is needed
-    # for devbench control. Additional NICs used for other driver work
-    # (rtl8139re, virtnet) are DISABLED and can be re-enabled by uncommenting:
+    # for devbench control.
+    #
+    # n1 = e1000 (virte1000 driver, 192.168.100.0/24)
+    # n2 = virtio-net-pci (virtnet driver, 192.168.101.0/24). Re-enabled
+    #      2026-08-04 to test Bill's CallHookPkt-always fix ported over.
+    # n0 (extra rtl8139) and n3 (dedicated rtl8139 for the rtl8139re
+    #     driver) remain commented out:
     # QEMU_CMD+=( -netdev "user,id=n0,hostfwd=tcp::2347-:2345" \
     #             -device rtl8139,netdev=n0 )
-    # QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
-    #             -device virtio-net-pci,netdev=n2 )
     # QEMU_CMD+=( -netdev "user,id=n3,net=192.168.102.0/24,hostfwd=udp::17977-192.168.102.15:17977,hostfwd=tcp::17978-192.168.102.15:17978" \
     #             -device rtl8139,netdev=n3,mac=52:54:00:12:34:59 )
     QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778" \
                 -device e1000-82540em,netdev=n1 )
     QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
-    # QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
-    # Temporary trace hack for virtnet debugging — capture virtio_pci
-    # writes/reads too so we can see queue-setup event ordering.
-    # virtio-net trace directives removed with n2. Restore alongside n2 if needed.
-    NET_STATUS="single NIC: e1000-82540em (virte1000; 17777/17778); pcap /tmp/qemu-n1.pcap (bridge on SERIAL passthrough :2346)"
+    QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
+                -device virtio-net-pci,netdev=n2,mac=52:54:00:e1:00:02 )
+    QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
+    NET_STATUS="dual NIC: e1000 n1 (virte1000, 192.168.100.0/24), virtio-net n2 (virtnet, 192.168.101.0/24); pcaps /tmp/qemu-n[12].pcap"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
