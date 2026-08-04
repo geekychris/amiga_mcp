@@ -230,7 +230,18 @@ if [ "$NET_MODE" -eq 1 ]; then
     QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
                 -device virtio-net-pci,netdev=n2,mac=52:54:00:e1:00:02 )
     QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
-    NET_STATUS="dual NIC: e1000 n1 (virte1000, 192.168.100.0/24), virtio-net n2 (virtnet, 192.168.101.0/24); pcaps /tmp/qemu-n[12].pcap"
+    # Trace virtio events so we can see whether the guest driver's
+    # notify actually reaches QEMU. Every virtqueue_pop event = one
+    # descriptor QEMU processed off an avail ring.
+    QEMU_CMD+=( -trace "virtio_queue_notify"
+                -trace "virtqueue_pop"
+                -trace "virtqueue_alloc_element"
+                -trace "virtqueue_fill"
+                -trace "virtqueue_flush"
+                -trace "virtio_notify*"
+                -trace "virtio_pci_*"
+                --trace "file=/tmp/qemu-trace.log" )
+    NET_STATUS="dual NIC: e1000 n1 (virte1000, 192.168.100.0/24), virtio-net n2 (virtnet, 192.168.101.0/24); pcaps /tmp/qemu-n[12].pcap; virtio-trace /tmp/qemu-trace.log"
 else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
