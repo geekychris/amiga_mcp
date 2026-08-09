@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# qpaste — read the AmigaOS guest clipboard.device to the mac clipboard/stdout.
+#
+# Queries the amiga_mcp devbench REST endpoint
+# `/api/tools/clipboard/get`, which drives the bridge's CLIPGET path
+# — clipboard_bridge.c reads the first FTXT/CHRS chunk from
+# clipboard.device unit 0 and returns it as text.
+#
+# Usage:
+#   qpaste                   # print guest clipboard to stdout
+#   qpaste --copy            # also pipe into mac clipboard via pbcopy
+#   qpaste -c                # short for --copy
+#
+# Options:
+#   --host HOST      devbench REST host (default: 127.0.0.1)
+#   --port N         devbench REST port (default: 3000)
+#   -c, --copy       also copy the fetched text into the mac clipboard
+#   -h, --help
+#
+# Exits 0 on success (including empty clipboard), non-zero on error.
+set -euo pipefail
+
+HOST="127.0.0.1"
+PORT="3000"
+COPY=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --host) HOST="$2"; shift 2 ;;
+        --port) PORT="$2"; shift 2 ;;
+        -c|--copy) COPY=1; shift ;;
+        -h|--help)
+            sed -n '3,20p' "$0"
+            exit 0 ;;
+        *) echo "qpaste: unknown arg: $1" >&2; exit 2 ;;
+    esac
+done
+
+RESP="$(curl -sS --fail --max-time 10 \
+    "http://${HOST}:${PORT}/api/tools/clipboard/get")" || {
+    echo "qpaste: devbench call failed (is bridge up?)" >&2
+    exit 3
+}
+
+TEXT="$(printf '%s' "$RESP" | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+if "error" in d:
+    sys.stderr.write("qpaste: bridge error: %s\n" % d["error"])
+    sys.exit(3)
+sys.stdout.write(d.get("text",""))
+')"
+
+# Print to stdout regardless
+printf '%s' "$TEXT"
+
+if [ "$COPY" = "1" ] && command -v pbcopy >/dev/null; then
+    printf '%s' "$TEXT" | pbcopy
+    echo "qpaste: copied ${#TEXT} bytes to mac clipboard" >&2
+fi
