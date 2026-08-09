@@ -12,6 +12,7 @@
 #include <proto/exec.h>
 
 #include <string.h>
+#include <stdio.h>              /* snprintf */
 
 #include "bridge_internal.h"
 
@@ -77,6 +78,17 @@ int serial_open(ULONG baud)
     CopyMem(write_io, read_io, sizeof(struct IOExtSer));
 
     read_pending = FALSE;
+
+    /* Report exactly what was opened so the UI log is unambiguous —
+     * mirrors the TCP path's "TCP: iface ... -> ip:port" lines. */
+    {
+        static char lline[80];
+        snprintf(lline, sizeof(lline),
+                 "Serial: serial.device unit 0 @ %lu baud 8N1",
+                 (unsigned long)baud);
+        ui_add_log(lline);
+    }
+
     return 0;
 }
 

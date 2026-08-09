@@ -224,7 +224,7 @@ if [ "$NET_MODE" -eq 1 ]; then
     #             -device rtl8139,netdev=n0 )
     # QEMU_CMD+=( -netdev "user,id=n3,net=192.168.102.0/24,hostfwd=udp::17977-192.168.102.15:17977,hostfwd=tcp::17978-192.168.102.15:17978" \
     #             -device rtl8139,netdev=n3,mac=52:54:00:12:34:59 )
-    QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778" \
+    QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778,hostfwd=tcp::2347-192.168.100.15:2345" \
                 -device e1000-82540em,netdev=n1 )
     QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
     QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \

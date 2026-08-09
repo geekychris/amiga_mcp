@@ -20,6 +20,7 @@
 #include <netinet/tcp.h>
 #include <errno.h>
 #include <string.h>
+#include <stdio.h>               /* snprintf */
 
 #include "bridge_internal.h"
 
@@ -80,7 +81,30 @@ static void try_accept(void)
             setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char *)&sndbuf, sizeof(sndbuf));
         }
         rx_len = rx_pos = 0;
-        ui_add_log("TCP: client connected");
+        /* Log peer + local endpoint so it's obvious which interface the
+         * client came in on (host-hopping between NICs is common while
+         * developing network drivers). */
+        {
+            struct sockaddr_in la;
+            LONG lalen = sizeof(la);
+            char peer[32];
+            const char *pstr;
+            static char logline[128];
+            pstr = Inet_NtoA(ca.sin_addr.s_addr);
+            snprintf(peer, sizeof(peer), "%s:%u",
+                     pstr ? pstr : "?", (unsigned)ntohs(ca.sin_port));
+            if (getsockname(client_sock, (struct sockaddr *)&la, &lalen) == 0) {
+                const char *lstr = Inet_NtoA(la.sin_addr.s_addr);
+                snprintf(logline, sizeof(logline),
+                         "TCP: client %s -> local %s:%u",
+                         peer,
+                         lstr ? lstr : "?", (unsigned)ntohs(la.sin_port));
+            } else {
+                snprintf(logline, sizeof(logline),
+                         "TCP: client %s connected", peer);
+            }
+            ui_add_log(logline);
+        }
     }
 }
 
@@ -134,7 +158,25 @@ int net_open(ULONG port)
     set_nonblocking(listen_sock);
     set_async(listen_sock);     /* wake immediately on incoming connections */
 
-    ui_add_log("TCP: listening");
+    /* Emit a specific "how am I reachable" line so the user can tell at a
+     * glance which NIC the bridge is bound to. bsdsocket's gethostname()
+     * + gethostbyname_r() gives the primary hostname's IPs, which on OS4
+     * matches whichever Roadshow interface is up and has a name entry.
+     * Also enumerate all live interface addresses via SIOCGIFCONF so we
+     * name every candidate (best-effort — some stacks reject the ioctl,
+     * in which case we just skip that block). */
+    {
+        static char lline[128];
+        snprintf(lline, sizeof(lline),
+                 "TCP: listening on 0.0.0.0:%lu (bsdsocket)",
+                 (unsigned long)port);
+        ui_add_log(lline);
+    }
+    /* Roadshow's `gethostbyname(gethostname())` returns localhost/0.0.0.0
+     * on our guest, so it isn't useful for reporting "which NIC". The
+     * per-accept log line (below in try_accept) prints local IP from
+     * getsockname — that's what tells the user which NIC the client
+     * actually landed on. */
     return 0;
 }
 

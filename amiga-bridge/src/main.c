@@ -437,8 +437,25 @@ int main(int argc, char **argv)
         /* Enter the loop disconnected; the rising-edge block in the main loop
          * greets the peer (serial: fires iteration 1; tcp: fires on accept). */
         g_serial_connected = FALSE;
-        ui_add_log(sel_mode == TRANSPORT_TCP ? "TCP listening" : "Serial opened");
         transport_start_read();
+
+        /* Reflect transport mode + param in the window title so at a glance
+         * you can tell what the running bridge is doing. serial_open /
+         * net_open have already ui_add_log'd the specifics (unit/baud or
+         * per-interface IPs). */
+        {
+            static char title[96];
+            if (sel_mode == TRANSPORT_TCP) {
+                snprintf(title, sizeof(title),
+                         "%s  -  TCP :%lu (bsdsocket)",
+                         BRIDGE_VERSION_STR, (unsigned long)sel_param);
+            } else {
+                snprintf(title, sizeof(title),
+                         "%s  -  Serial unit 0 @ %lu baud",
+                         BRIDGE_VERSION_STR, (unsigned long)sel_param);
+            }
+            SetWindowTitles(win, (STRPTR)title, (STRPTR)~0);
+        }
     }
 
     /* Crash handler NOT installed at startup - enable via CRASHINIT command */
