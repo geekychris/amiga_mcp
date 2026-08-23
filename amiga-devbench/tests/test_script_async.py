@@ -166,6 +166,28 @@ async def _listdir_notfound_returns_str():
     assert isinstance(got, str) and "Not found" in got, repr(got)
 
 
+async def _send_await_surfaces_err_during_ok_wait():
+    # The op errors: the daemon sends 'err' while the caller is waiting for the
+    # success event. _send_await subscribes to both at once, so the error must be
+    # returned — not dropped and misreported as a timeout (the rename-class bug).
+    bus = _PageBus()
+
+    class _ErrConn:
+        connected = True
+
+        def __init__(self, b):
+            self.bus = b
+
+        def send(self, msg):
+            self.bus.q.put_nowait(("err", {"context": "RENAME", "message": "object exists"}))
+
+    kind, data = await mcp_tools._send_await(
+        _ErrConn(bus), bus, {"type": "RENAME"},
+        "ok", lambda d: d.get("context") == "RENAME", 2.0)
+    assert kind == "err", kind
+    assert data["message"] == "object exists", data
+
+
 def test_all():
     orig = mcp_tools._read_amiga_file_text
     try:
@@ -177,6 +199,7 @@ def test_all():
         asyncio.run(_paging_collects_all())
         asyncio.run(_paging_stops_on_empty_page())
         asyncio.run(_listdir_notfound_returns_str())
+        asyncio.run(_send_await_surfaces_err_during_ok_wait())
     finally:
         mcp_tools._read_amiga_file_text = orig
 
