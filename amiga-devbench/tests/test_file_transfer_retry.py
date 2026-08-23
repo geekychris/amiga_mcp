@@ -72,14 +72,28 @@ def test_multichunk_uses_offsets_never_append(tmp_path):
     assert not any(m["type"] == "APPEND" for m in conn.sent)
 
 
+async def _no_sleep(_seconds):
+    """Stand-in for asyncio.sleep so the resume-after-reconnect path in
+    push_file (file_transfer.py:104-160) doesn't really wait between resumes."""
+    return None
+
+
 def test_push_gives_up_after_max_retries(tmp_path):
     data = b"ABCDEFGH"
-    res, _ = _push(tmp_path, data, {
-        "ok": [_ok(7)] * ft.MAX_RETRIES,        # always short
-        "checksum": [],
-    })
+    real_sleep = ft.asyncio.sleep
+    ft.asyncio.sleep = _no_sleep
+    try:
+        res, _ = _push(tmp_path, data, {
+            "ok": [_ok(7)] * ft.MAX_RETRIES,        # always short
+            "checksum": [],
+        })
+    finally:
+        ft.asyncio.sleep = real_sleep
     assert not res.success
-    assert "Failed at chunk 0" in res.message
+    # push_file resumes the chunk MAX_RESUMES (5) times while the fake conn
+    # stays "connected", then gives up with this message.
+    assert "Gave up after 5 resume attempts" in res.message, res.message
+    assert "chunk 0" in res.message
 
 
 def test_pull_retries_short_read(tmp_path):

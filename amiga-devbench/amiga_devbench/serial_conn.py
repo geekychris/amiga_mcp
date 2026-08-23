@@ -20,7 +20,8 @@ PTY_RESTART_DELAY = 2.0
 MAX_LOG_BUFFER = 1000
 # 45s was the pre-existing timeout; that's a long silence to sit through when
 # QEMU has been killed hard and TCP has quietly gone half-open. Bridges send
-# HB every ~1s in normal operation, so 15s is comfortably beyond any legit
+# HB every ~5s in normal operation (HB_INTERVAL 250 ticks at 50 Hz,
+# amiga-bridge/src/main.c:87), so 15s is comfortably beyond any legit
 # stall (SCRIPT commands, LISTDIR of huge trees) but catches the "peer went
 # away and TCP hasn't noticed yet" case an order of magnitude faster.
 BRIDGE_SILENCE_TIMEOUT = 15.0

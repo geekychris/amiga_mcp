@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "Host-side developer tool for Amiga cross-development with MCP integration"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.0.0",
+    # mcp 2.0 removed mcp.server.fastmcp, which mcp_tools.py imports; stay on 1.x.
+    "mcp>=1.2,<2",
     "starlette>=0.36.0",
     "uvicorn>=0.27.0",
     "sse-starlette>=1.8.0",
@@ -16,6 +17,9 @@ dependencies = [
     "websockets>=12.0",
     "tomli>=2.0.0; python_version < '3.11'",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [project.scripts]
 amiga-devbench = "amiga_devbench.__main__:main"
