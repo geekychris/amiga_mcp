@@ -8,7 +8,7 @@
 ## Bridge Protocol
 
 Line-based text protocol over serial. Each message is `\n`-terminated,
-fields are pipe-delimited (`|`), maximum 1024 characters per line.
+fields are pipe-delimited (`|`), maximum 8192 characters per line (`BRIDGE_MAX_LINE`).
 
 ### Amiga → Host Messages
 
@@ -146,7 +146,7 @@ fields are pipe-delimited (`|`), maximum 1024 characters per line.
 #### Capabilities & Process Management
 | Command | Format | Description |
 |---|---|---|
-| CAPABILITIES | `CAPABILITIES` | Query daemon version, protocol level, supported commands |
+| CAPABILITIES | `CAPABILITIES` | Query daemon version, protocol level, supported commands, platform, features, profiles |
 | PROCLIST | `PROCLIST` | List tracked async processes |
 | PROCSTAT | `PROCSTAT\|id` | Get status of a tracked process |
 | SIGNAL | `SIGNAL\|id\|sigType` | Send signal to tracked process (0=CTRL-C, 1=CTRL-D, 2=CTRL-E, 3=CTRL-F) |

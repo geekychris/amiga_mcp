@@ -49,7 +49,7 @@ devbench on `127.0.0.1:3000` by default; override with `--host` /
 - amiga-devbench REST server running on the mac
   (`python3 -m amiga_devbench --profile qemu-os4 …`) and connected.
 
-If the bridge window shows `AmigaBridge v1.20 - TCP :2345 (bsdsocket)`
+If the bridge window shows `AmigaBridge v1.21 - TCP :2345 (bsdsocket)`
 and `curl http://localhost:3000/api/tools/clipboard/get` returns a
 JSON body, you're wired up.
 

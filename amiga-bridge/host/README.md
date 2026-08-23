@@ -15,9 +15,9 @@ make test
 Expected output:
 
 ```
-[1/10] empty_payload ... PASS
+[1/15] empty_payload ... PASS
 ...
-Tests: 10 total, 10 passed, 0 failed
+Tests: 15 total, 15 passed, 0 failed
 ```
 
 ## What's covered
@@ -27,6 +27,9 @@ Each file under test is a host-buildable chunk of the daemon code, imported dire
 | File | What it does | Test file |
 |---|---|---|
 | `script_util.c` | Streaming `;` → `\n` chunker used by `SCRIPT` command handler | `test_bridge.c` |
+| `caps_util.c` | Per-build `CAPABILITIES` fields: advertised command list, feature flags, profiles, platform (68k vs PPC) | `test_bridge.c` |
+
+`./test_bridge --dump-caps` prints the `caps_util.c` output for both builds; `amiga-devbench/tests/fixtures/gen_bridge_fixtures.py` uses it to generate the host-side protocol fixtures from the real strings.
 
 ## Adding a new host-testable extract
 

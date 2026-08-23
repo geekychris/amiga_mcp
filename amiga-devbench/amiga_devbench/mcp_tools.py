@@ -1949,7 +1949,7 @@ async def amiga_arexx_send(port: str, command: str) -> str:
 
 @mcp.tool()
 async def amiga_capabilities() -> str:
-    """Query the bridge daemon's capabilities: version, protocol level, and supported commands."""
+    """Query the bridge daemon's capabilities: version, protocol level, supported commands, platform, features and profiles."""
     conn, state, bus = _require_connected()
     conn.send({"type": "CAPABILITIES"})
     msg = await bus.wait_for("capabilities", timeout=5.0)
@@ -1961,6 +1961,12 @@ async def amiga_capabilities() -> str:
         f"Max Line: {msg.get('maxLine', '?')}",
         f"Commands ({len(msg.get('commands', []))}): {', '.join(msg.get('commands', []))}",
     ]
+    if "platform" in msg:  # protocol level 2 (daemon v1.21+)
+        lines.append(f"Platform: {msg['platform']}")
+        lines.append(f"Features: {', '.join(msg.get('features', []))}")
+        lines.append(f"Profiles: {', '.join(msg.get('profiles', []))}")
+    if msg.get("malformed"):
+        lines.append("Warning: level-2 CAPABILITIES line is missing platform/features/profiles")
     return "\n".join(lines)
 
 
