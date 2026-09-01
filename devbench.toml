@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Amiga DevBench Configuration
 #
 # Three deployment topologies are supported:
@@ -12,12 +15,13 @@
 # The flat [serial]/[emulator] sections act as defaults; profile fields
 # overlay on top of them.
 
-active_profile = "pi-amikit"
+active_profile = "local-fsuae"
 
 [profiles.local-fsuae]
-description = "Local FS-UAE, PTY symlink"
-mode = "pty"
-pty_path = "/tmp/amiga-serial"
+description = "Local FS-UAE, TCP serial (FS-UAE listens on 2345, devbench connects)"
+mode = "tcp"
+host = "127.0.0.1"
+port = 2345
 auto_start_emulator = true
 
 [profiles.pi-amikit]

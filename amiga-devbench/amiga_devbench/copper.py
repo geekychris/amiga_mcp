@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Amiga copper list decoder.
 
 Decodes raw copper list data into human-readable instructions.

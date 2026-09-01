@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # QEMU sam460ex — the actually-working OS4 config
 
 This is the reference config for AmigaOS 4.1 FE on QEMU sam460ex with

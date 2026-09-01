@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 CC = m68k-amigaos-gcc
 AR = m68k-amigaos-ar
 CFLAGS = -noixemul -O2 -m68000 -Wall -Iinclude

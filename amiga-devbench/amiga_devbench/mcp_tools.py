@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """MCP tool definitions using FastMCP."""
 
 from __future__ import annotations

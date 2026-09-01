@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * b64.c - Base64 encode/decode for the bridge line protocol.
  *

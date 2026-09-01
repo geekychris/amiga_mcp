@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef BRIDGE_IPC_H
 #define BRIDGE_IPC_H
 

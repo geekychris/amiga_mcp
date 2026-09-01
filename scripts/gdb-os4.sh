@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # Attach ppc-amigaos-gdb (from the walkero Docker image) to the QEMU
 # sam460ex GDB stub. Prerequisite: start QEMU with --gdb (that opens

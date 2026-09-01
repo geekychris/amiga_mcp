@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Smoke-test the devbench <-> AmigaBridge connection.
 #
 # Polls http://localhost:${PORT}/api/status until `connected: true` and a

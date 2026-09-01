@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * snoop.c - SnoopDos-like system call monitoring
  *

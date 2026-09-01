@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """GDB Remote Serial Protocol server for Amiga remote debugging.
 
 Translates GDB RSP packets to AmigaBridge serial protocol commands.

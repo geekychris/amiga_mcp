@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Unit tests for the async SCRIPT execution path (run_script no-freeze fix).
 
 Mocks the daemon's 'ASYNC|<capfile>' reply and the capture file so the host

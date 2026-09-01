@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Host-side debugger state management for Amiga remote debugging."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * clipboard_bridge.c - Clipboard access via clipboard.device + iffparse.library
  *

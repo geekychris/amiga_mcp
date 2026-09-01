@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Capture debugger screenshot by calling JS functions to simulate a debug session."""
 
 import asyncio

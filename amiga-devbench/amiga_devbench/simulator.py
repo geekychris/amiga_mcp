@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Amiga simulator - TCP server that pretends to be an Amiga running a bouncing ball app."""
 
 from __future__ import annotations

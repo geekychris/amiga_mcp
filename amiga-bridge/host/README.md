@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Bridge host-tests
 
 Unit tests for pure-C code extracted from the AmigaOS bridge daemon. Runs on macOS / Linux with plain clang or gcc — no Amiga cross-compiler required.

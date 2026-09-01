@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # Start QEMU sam460ex with AmigaOS 4.1
 #

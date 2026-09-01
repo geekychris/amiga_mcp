@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Control a remote (SSH-reachable) Amiga emulator.
 
 Used when a profile has ``emulator_ssh`` set — for example, an AmiKit inside

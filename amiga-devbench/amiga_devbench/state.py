@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Shared state and event bus for amiga-devbench."""
 
 from __future__ import annotations

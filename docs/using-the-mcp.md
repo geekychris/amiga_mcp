@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Using the `amiga-dev` MCP in a Claude Code session
 
 `amiga-devbench` is the MCP **server**: it talks to the Amiga and exposes the

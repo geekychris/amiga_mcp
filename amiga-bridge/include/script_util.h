@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * script_util.h - Pure-C helpers extracted from protocol_handler.c so they
  * can be built and unit-tested on a host (Linux/macOS) without the AmigaOS

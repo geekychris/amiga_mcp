@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Configure AmiKit's WinUAE to enable serial-over-TCP for debug communication.
 #
 # What this does:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Tests for new protocol features: parsing and formatting.
 
 Tests cover: CAPABILITIES, PROCLIST, PROCSTAT, TAILDATA, CHECKSUM,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * input_inject.c - Input event injection for AmigaBridge
  *

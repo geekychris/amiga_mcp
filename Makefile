@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 DOCKER_IMAGE = amigadev/crosstools:m68k-amigaos
 DOCKER_RUN = docker run --rm -v $(PWD):/work -w /work $(DOCKER_IMAGE)
 

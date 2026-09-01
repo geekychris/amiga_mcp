@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ipc_manager.c - MsgPort IPC handling for AmigaBridge daemon
  *

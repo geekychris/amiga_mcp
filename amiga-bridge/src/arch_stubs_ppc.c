@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * PPC AmigaOS 4.1 stubs for 68k-only bridge subsystems.
  *

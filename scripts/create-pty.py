@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Create a PTY for FS-UAE serial and keep it alive.
 Run this before starting FS-UAE. Keep it running.
 

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Symbol table loader for Amiga cross-compiled binaries.
 
 Parses symbol information from ELF/a.out binaries produced by m68k-amigaos-gcc

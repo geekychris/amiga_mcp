@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Configuration loader for amiga-devbench."""
 
 from __future__ import annotations

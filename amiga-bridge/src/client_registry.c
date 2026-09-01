@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * client_registry.c - Client tracking for AmigaBridge daemon
  *

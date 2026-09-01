@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Persistent append-only log file for devbench events.
 
 Writes all bridge events, protocol traffic, and system events to a single

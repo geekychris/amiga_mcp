@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Main server orchestrator - combines MCP, Web API, and static files."""
 
 from __future__ import annotations

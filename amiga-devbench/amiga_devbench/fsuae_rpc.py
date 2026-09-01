@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Client for the FS-UAE remote-debug HTTP API.
 
 The API is provided by the patched fs-uae build at

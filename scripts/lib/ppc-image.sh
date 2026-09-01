@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Sourced helper: exports PPC_IMAGE for the walkero PPC/OS4 GCC image
 # and ppc_image_refresh_if_stale() for weekly refresh.
 #

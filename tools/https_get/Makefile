@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # https_get — minimal HTTPS GET client for AmigaOS 4 (PPC).
 #
 # Cross-compile from macOS/Linux via:

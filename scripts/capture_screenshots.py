@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Capture screenshots of each web UI tab for documentation."""
 
 import asyncio

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * crash_handler.c - Crash/Guru Meditation catcher for AmigaBridge
  *

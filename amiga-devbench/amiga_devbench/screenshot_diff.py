@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Visual screenshot diff comparison for Amiga regression testing.
 
 Compares two PNG screenshots and produces a diff image highlighting

@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # Install amitools (Python) which provides `rdbtool` and `xdftool` — used
 # to read/write AmigaOS hardfiles (HDF) directly from macOS without

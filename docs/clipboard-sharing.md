@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Clipboard sharing between the mac host and the AmigaOS 4 guest
 
 Two shell wrappers ship in `scripts/`:

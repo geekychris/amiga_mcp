@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Amiga serial bridge: creates PTY for FS-UAE and bridges to TCP.
 
 Start this BEFORE FS-UAE. It:

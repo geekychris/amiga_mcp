@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef AMIGA_DEBUG_H
 #define AMIGA_DEBUG_H
 

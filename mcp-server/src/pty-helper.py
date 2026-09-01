@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """PTY helper for Amiga MCP server.
 
 Creates a PTY pair, symlinks the slave to a known path, and bridges

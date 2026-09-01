@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * intuition_inspector.c - Intuition screen/window/gadget inspection
  *

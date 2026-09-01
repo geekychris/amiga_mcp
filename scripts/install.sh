@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # amiga-devbench — one-shot installer for macOS and Linux.
 #

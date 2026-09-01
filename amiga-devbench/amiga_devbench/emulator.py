@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """FS-UAE emulator process manager."""
 
 from __future__ import annotations

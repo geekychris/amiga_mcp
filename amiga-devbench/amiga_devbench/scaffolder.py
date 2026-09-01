@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Project scaffolding for new Amiga apps."""
 
 from __future__ import annotations

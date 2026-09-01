@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Amiga screenshot capture - planar to chunky conversion and PNG rendering."""
 
 from __future__ import annotations

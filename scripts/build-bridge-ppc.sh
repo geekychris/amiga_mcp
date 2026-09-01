@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # Cross-compile amiga-bridge for AmigaOS 4.1 PPC via Docker.
 #

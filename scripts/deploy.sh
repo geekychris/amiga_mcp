@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Deploy built Amiga binaries to AmiKit's shared folder.
 #
 # Binaries are copied to the Dropbox/Dev/ directory, which is

@@ -29,3 +29,6 @@ amiga-bridge/src/*.o
 # Runtime snapshots (encoded absolute paths)
 %2F*
 *.dSYM/
+
+# Third-party ROMs (do not commit — copyrighted)
+*.rom

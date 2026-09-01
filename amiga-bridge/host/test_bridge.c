@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * test_bridge.c - Host unit tests for pure-C code extracted from the bridge
  * daemon. Builds with clang on Linux/macOS. See amiga-bridge/host/Makefile.

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Amiga DevBench — Quickstart (both targets)
 
 DevBench supports two Amiga targets from a single install:

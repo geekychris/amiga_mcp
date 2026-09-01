@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Amiga DevBench — Architecture & Reference Guide
 
 A cross-development environment for Commodore Amiga (68k) that connects a modern

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Design: TCP/RoadShow Transport for amiga-bridge
 
 **Date:** 2026-06-13

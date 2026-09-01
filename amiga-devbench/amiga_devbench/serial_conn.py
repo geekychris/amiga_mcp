@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Serial connection to Amiga emulator - PTY and TCP modes."""
 
 from __future__ import annotations

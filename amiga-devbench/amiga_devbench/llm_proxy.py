@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """LLM proxy — bridges Amiga-side ``ask`` calls to a remote LLM.
 
 Listens for CLOG lines of the form ``LLM_ASK|<session>|<prompt>`` and:

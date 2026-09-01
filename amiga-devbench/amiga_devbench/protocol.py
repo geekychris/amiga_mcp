@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Debug protocol message parsing and formatting.
 
 Line-based text protocol over serial/TCP, pipe-delimited fields.

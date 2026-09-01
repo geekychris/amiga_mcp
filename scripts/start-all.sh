@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Start the full Amiga debug environment:
 #   1. amiga-devbench (Python MCP server + web UI)
 #   2. FS-UAE emulator

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # TCP/RoadShow Transport (network instead of serial)
 
 The `amiga-bridge` daemon can talk to `amiga-devbench` over TCP/IP using the

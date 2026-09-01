@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Docker-based Amiga cross-compilation builder."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # AmigaOS 4.1 Setup Guide
 
 Step-by-step install of AmigaOS 4.1 Final Edition on QEMU sam460ex,

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Motorola 68000/68020 disassembler for Amiga DevBench.
 
 Decodes 68k machine code into assembly mnemonics. Designed for host-side

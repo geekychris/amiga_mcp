@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Deterministic tests for :mod:`amiga_devbench.llm_proxy`.
 
 We stub the LLM backend so a fixed sequence of deltas drives the proxy —

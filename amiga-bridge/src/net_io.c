@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * net_io.c - TCP/IP transport for AmigaBridge daemon via bsdsocket.library
  *            (RoadShow / AmiTCP / Miami / emulator bsdsocket emulation).

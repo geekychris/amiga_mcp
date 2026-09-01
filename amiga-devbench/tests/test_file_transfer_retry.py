@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """Unit tests for the serial-robust file-transfer retry path.
 
 Mocks the bridge so we can inject a dropped-byte (short write/read) and assert:

@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # One-time setup: pull Docker image, install devbench, build everything.
 #
 # Usage:

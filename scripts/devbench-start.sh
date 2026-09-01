@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Start the full Amiga development environment:
 #   1. amiga-devbench (PTY + web UI + MCP)
 #   2. FS-UAE emulator

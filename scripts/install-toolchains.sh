@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # Pull / build the Docker images used to cross-compile for both
 # Amiga targets, plus the debugger image.

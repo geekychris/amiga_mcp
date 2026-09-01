@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 #
 # Cross-compile an example app for AmigaOS 4.1 PPC via Docker.
 #

@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # Test Harness
 
 Automated test framework for Amiga programs using the bridge client library.
