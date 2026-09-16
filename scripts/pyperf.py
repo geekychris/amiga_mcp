@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 """
 pyperf.py — Lightweight iperf-like network throughput benchmark tool in pure Python 3.

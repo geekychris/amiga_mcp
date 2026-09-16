@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT -->
-<!-- Copyright (c) 2026 Chris Collins -->
+<!-- Copyright (c) 2026 Chris Collins <chris@hitorro.com> -->
 
 # Clipboard sharing between the mac host and the AmigaOS 4 guest
 

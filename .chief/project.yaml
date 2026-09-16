@@ -1,0 +1,6 @@
+id: proj_43f5d85c
+name: amiga_mcp
+spawn_mode: attach
+cmux:
+    workspace_id: ""
+    surface_id: surface:6

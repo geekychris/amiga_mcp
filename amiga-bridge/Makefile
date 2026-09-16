@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 # ARCH=m68k (default) — classic AmigaOS 3.x on 680x0
 # ARCH=ppc            — AmigaOS 4.1 on PowerPC (sam460ex / QEMU)

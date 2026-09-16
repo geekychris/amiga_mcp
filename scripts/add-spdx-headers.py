@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 """
 Add SPDX-License-Identifier + copyright headers to source files.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 HEADER_LINES = [
     "SPDX-License-Identifier: MIT",
-    "Copyright (c) 2026 Chris Collins",
+    "Copyright (c) 2026 Chris Collins <chris@hitorro.com>",
 ]
 
 # Per-extension comment style: (line_prefix, line_suffix)

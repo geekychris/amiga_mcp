@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 # start-fsuae.sh — start FS-UAE with the AmiKit-Debug config that pairs
 # with amiga-devbench on TCP :2345.
