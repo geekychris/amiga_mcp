@@ -351,7 +351,7 @@ static int test_caps_68k_commands(void)
     size_t len = caps_build_commands(buf, sizeof(buf), CAPS_ARCH_68K);
     ASSERT_EQ_SIZE(len, strlen(buf));
     size_t n = split_names(buf, names, 256);
-    ASSERT_EQ_SIZE(n, 120);
+    ASSERT_EQ_SIZE(n, 121);
     ASSERT(!list_has_duplicates(names, n));
     for (size_t i = 0; i < NUM_DEBUGGER_VERBS; i++)
         ASSERT(list_contains(names, n, DEBUGGER_VERBS[i]));
@@ -370,7 +370,7 @@ static int test_caps_ppc_commands(void)
     size_t len = caps_build_commands(buf, sizeof(buf), CAPS_ARCH_PPC);
     ASSERT_EQ_SIZE(len, strlen(buf));
     size_t n = split_names(buf, names, 256);
-    ASSERT_EQ_SIZE(n, 120 - NUM_DEBUGGER_VERBS - NUM_PPC_DROPPED);  /* 85 */
+    ASSERT_EQ_SIZE(n, 121 - NUM_DEBUGGER_VERBS - NUM_PPC_DROPPED);  /* 86 */
     ASSERT(!list_has_duplicates(names, n));
     for (size_t i = 0; i < NUM_DEBUGGER_VERBS; i++)
         ASSERT(!list_contains(names, n, DEBUGGER_VERBS[i]));

@@ -14,7 +14,7 @@
 
 /* Daemon version - bump MAJOR/MINOR here ONLY; everything else derives from it. */
 #define BRIDGE_VERSION_MAJOR 1
-#define BRIDGE_VERSION_MINOR 21
+#define BRIDGE_VERSION_MINOR 22
 #define BRIDGE_STR_(x) #x
 #define BRIDGE_STR(x)  BRIDGE_STR_(x)
 #define BRIDGE_VERSION_STR \
@@ -233,6 +233,7 @@ void intui_handle_scrtoback(const char *args);
 /* ---- input_inject.c ---- */
 void input_handle_key(const char *args);
 void input_handle_mouse_move(const char *args);
+void input_handle_pointer_pos(const char *args);
 void input_handle_mouse_button(const char *args);
 void input_cleanup(void);
 

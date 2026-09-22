@@ -331,6 +331,8 @@ void protocol_parse_line(const char *line)
         input_handle_key(args);
     } else if (strcmp(cmd, "INPUTMOVE") == 0) {
         input_handle_mouse_move(args);
+    } else if (strcmp(cmd, "INPUTPOS") == 0) {
+        input_handle_pointer_pos(args);
     } else if (strcmp(cmd, "INPUTCLICK") == 0) {
         input_handle_mouse_button(args);
     } else if (strcmp(cmd, "CRASHTEST") == 0) {

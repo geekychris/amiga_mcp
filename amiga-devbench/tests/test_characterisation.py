@@ -116,6 +116,7 @@ def test_mcp_tool_registration_golden():
         "amiga_winuae_symbols", "amiga_winuae_type_text", "amiga_winuae_variable",
         "amiga_winuae_watch", "amiga_winuae_write_memory",
         "amiga_kill_task",
+        "amiga_input_pointer_pos",
     }
     assert set(actual) - set(expected) == added, "unexpected tool additions"
     assert set(expected) - set(actual) == set(), "tools removed"

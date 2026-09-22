@@ -39,9 +39,14 @@ Same structure, for the daemon binary the repository tracks (`amiga-bridge/amiga
 | `VERSION\|AmigaBridge\|%ld\|%ld\|%s` | shape verbatim from the binary's strings; 1/16 and build date **synthetic** |
 | `READY`, `SYSINFO`, `HB` | as for 68k above (the binary is a 68k build) |
 
+## `bridge_v1.22_68k.txt` / `bridge_v1.22_ppc.txt`
+
+Daemon v1.22: v1.21 plus `INPUTPOS` (absolute pointer position) in the `input`
+profile - 121 verbs on 68k, 86 on PPC. Generated exactly like the v1.21 pair.
+
 ## `mcp_tools_v94a8888.txt`
 
-The 129 tool names registered on the `FastMCP("amiga-dev")` instance in
+The 130 tool names registered on the `FastMCP("amiga-dev")` instance in
 `amiga_devbench/mcp_tools.py`, sorted. Generated, not hand-typed:
 
 ```python

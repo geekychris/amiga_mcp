@@ -1195,6 +1195,8 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"INPUTKEY|{cmd['rawkey']}|{cmd['direction']}"
     if t == "INPUTMOVE":
         return f"INPUTMOVE|{cmd['dx']}|{cmd['dy']}"
+    if t == "INPUTPOS":
+        return f"INPUTPOS|{cmd['x']}|{cmd['y']}"
     if t == "INPUTCLICK":
         return f"INPUTCLICK|{cmd['button']}|{cmd['direction']}"
     if t == "WINACTIVATE":

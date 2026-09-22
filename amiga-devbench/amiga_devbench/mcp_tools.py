@@ -1806,6 +1806,18 @@ async def amiga_input_mouse_move(dx: int, dy: int) -> str:
 
 
 @mcp.tool()
+async def amiga_input_pointer_pos(x: int, y: int) -> str:
+    """Move the mouse pointer to an absolute screen position (pixels). Unlike
+    amiga_input_mouse_move this is exact: no Input Prefs acceleration applies."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "INPUTPOS", "x": x, "y": y})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Pointer positioned")
+    return "Timeout"
+
+
+@mcp.tool()
 async def amiga_input_click(button: str = "left", direction: str = "down") -> str:
     """Inject a mouse button event. button: left/right/middle. direction: down/up."""
     conn, state, bus = _require_connected()
