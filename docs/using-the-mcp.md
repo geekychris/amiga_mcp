@@ -1,114 +1,74 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 Chris Collins <chris@hitorro.com> -->
 
-# Using the `amiga-dev` MCP in a Claude Code session
+# Connect an MCP client
 
-`amiga-devbench` is the MCP **server**: it talks to the Amiga and exposes the
-`amiga_*` tools over HTTP at `http://localhost:3000/mcp`. Claude Code is the MCP
-**client**. So in any session you need two things: **devbench running**, and
-**Claude Code pointed at it**.
+[Documentation index](README.md) · [Install DevBench](quickstart.md) ·
+[Tool reference](mcp-tools.md)
 
-```
-Claude Code (any session) ──MCP/HTTP :3000──► amiga-devbench ──TCP :2345──► amiga-bridge (Amiga)
-```
+DevBench is an HTTP MCP server at `http://localhost:3000/mcp`. Your client
+connects to that address; it does not launch the Python server. Keep DevBench
+running in another terminal for the entire session.
 
-## One-time host setup
+## Start the server
 
-```bash
-git clone https://github.com/geekychris/amiga_mcp   # or your fork
-cd amiga_mcp
-pip install -e amiga-devbench                        # MCP server + deps
+From your checkout, after following the installation guide:
+
+```sh
+.venv/bin/python -m amiga_devbench --config devbench.local.toml --no-emulator
 ```
 
-Docker (or WSL Docker on Windows) is only needed for the **build/deploy** tools
-(`amiga_build`, etc.). Pure inspect/control of a running Amiga does not need it.
+On Windows, use `.\.venv\Scripts\python.exe`. Add `--simulator` to verify
+the installation without an Amiga. Check <http://localhost:3000/health>:
+the HTTP service can be healthy even when `serial.connected` is false.
 
-## Step 1 — Run the Amiga side
+## Codex CLI
 
-On the Amiga (real hardware or emulator), start the daemon in TCP mode and note
-its IP:
+Register once:
 
-```
-run >NIL: amiga-bridge TCP 2345      ; the window shows "TCP: listening"
-ShowNetStatus                         ; note the Amiga's IP, e.g. 192.168.200.125
-```
-
-(No arguments = serial mode at 115200 baud, unchanged.)
-
-## Step 2 — Start devbench (the MCP server) on the host
-
-Point it at the Amiga and serve MCP on port 3000. Two equivalent ways:
-
-**CLI flags (quickest):**
-
-```bash
-python -m amiga_devbench --serial-host 192.168.200.125 --serial-port 2345 --no-emulator --port 3000
+```sh
+codex mcp add amiga-dev --url http://localhost:3000/mcp
+codex mcp get amiga-dev
 ```
 
-**Or via `devbench.toml`** (then just `python -m amiga_devbench`):
+Start a new Codex session and use `/mcp` to inspect the server. Codex uses
+its own `config.toml`; the repository's `.mcp.json` is for Claude Code.
+The equivalent Codex configuration is:
 
 ```toml
-[serial]
-mode = "tcp"
-host = "192.168.200.125"   # the Amiga's IP
-port = 2345                 # must match the daemon's TCP port
-
-[emulator]
-auto_start = false          # real hardware; set true (+ a config) to auto-launch an emulator
+[mcp_servers.amiga-dev]
+url = "http://localhost:3000/mcp"
 ```
 
-Leave it running. You should see `Connected to Amiga via TCP ...` and
-`Bridge READY received`. It also serves a **web UI** at `http://localhost:3000/`.
+See the [official Codex MCP documentation](https://developers.openai.com/codex/mcp)
+for configuration scope and client options.
 
-## Step 3 — Register the MCP server with Claude Code
+## Claude Code
 
-**A) A session in this repo — nothing to do.** `.mcp.json` already registers it:
+The repository's `.mcp.json` already declares `amiga-dev`. When using Claude
+Code in this checkout, approve that server when prompted.
 
-```json
-{ "mcpServers": { "amiga-dev": { "type": "streamable-http", "url": "http://localhost:3000/mcp" } } }
+For use in other projects, register it at user scope:
+
+```sh
+claude mcp add --scope user --transport http amiga-dev http://localhost:3000/mcp
 ```
 
-Start Claude Code in the repo folder and **approve the `amiga-dev` server** when
-prompted.
+Use `--scope project` instead if it should be available in only one project.
+Use `/mcp` in the client to inspect its connection.
 
-**B) A session in any other folder — register it once:**
+## Verify the target
 
-```bash
-# project scope (writes ./.mcp.json in that folder):
-claude mcp add --scope project --transport http amiga-dev http://localhost:3000/mcp
-# or user scope (available in every project):
-claude mcp add --scope user    --transport http amiga-dev http://localhost:3000/mcp
-```
+On a real target, ask the client to call `amiga_ping`, then
+`amiga_list_tasks`. These verify the bridge connection; listing MCP tools
+alone does not. With `--simulator`, use `amiga_log` and `/health` heartbeats
+instead: some simulated replies, including ping and task lists, do not
+match the current bridge protocol. Simulator responses are not evidence
+of a connection to a physical or emulated Amiga.
 
-## Step 4 — Verify inside the session
+Application-specific tools such as `amiga_get_var` and `amiga_call_hook`
+also require a running program linked with `libbridge.a`. The
+`amiga_fsuae_*` family requires patched FS-UAE independently of the bridge.
 
-- Run `/mcp` — `amiga-dev` should show **connected**.
-- Call a tool: `amiga_ping` -> "Amiga alive...", or `amiga_sysinfo`.
-  (Tools may be deferred and surface as `mcp__amiga-dev__*`; they load on demand.)
-
-## Typical usage
-
-- **Inspect/control a running Amiga:** `amiga_sysinfo`, `amiga_list_tasks` /
-  `amiga_list_libs` / `amiga_list_volumes`, `amiga_list_dir`,
-  `amiga_inspect_memory`, `amiga_dos_command`, `amiga_copper_list`,
-  `amiga_sprites`, ...
-- **Your own app linked with `libbridge.a`:** `amiga_list_clients`,
-  `amiga_get_var` / `amiga_set_var`, `amiga_call_hook`, `amiga_read_memregion`,
-  `amiga_watch_logs`, `amiga_stop_client`.
-- **Full dev loop:** `amiga_build` -> deploy (`amiga_push_file` over the bridge,
-  or a shared `deploy_dir`) -> `amiga_launch` / `amiga_dos_command "run ..."` ->
-  inspect live. (Build/deploy need the Docker toolchain.)
-
-## Gotchas
-
-- **devbench must stay running** for the whole session. Stop it and `/mcp` shows
-  disconnected and the tools fail.
-- **One devbench <-> one Amiga.** To switch targets, restart devbench with a new
-  `--serial-host`.
-- **Port match:** devbench `--serial-port` must equal the daemon's `TCP <port>`;
-  the `.mcp.json` URL port must equal devbench `--port`.
-- **Real LAN = no NAT** -> devbench connects straight to the Amiga's IP. (The
-  reverse-tunnel needed for a SLIRP-NAT'd emulator is not needed on hardware.)
-- **Emulator instead of hardware?** Set `[emulator] auto_start = true` (and a
-  `config`), or run your emulator and point `--serial-host/--serial-port` at its
-  serial-over-TCP bridge.
+If you change `[server] port`, update the MCP URL to match. The bridge's
+`[serial] port` is separate and does not belong in the MCP URL.

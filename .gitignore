@@ -32,3 +32,7 @@ amiga-bridge/src/*.o
 
 # Third-party ROMs (do not commit — copyrighted)
 *.rom
+
+# Local Python environment and host configuration
+/.venv/
+/devbench.local.toml

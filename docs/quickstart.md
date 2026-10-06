@@ -1,173 +1,215 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 Chris Collins <chris@hitorro.com> -->
 
-# Amiga DevBench — Quickstart (both targets)
+# Install DevBench from a checkout
 
-DevBench supports two Amiga targets from a single install:
+[Documentation index](README.md) · [MCP client setup](using-the-mcp.md)
 
-| Target | Emulator | Serial | Toolchain | Deploy |
-|---|---|---|---|---|
-| **Classic 68k** (AmigaOS 3.x) | FS-UAE (or AmiKit) | 127.0.0.1:1234–2345 | `amigadev/crosstools:m68k-amigaos` (Docker) | AmiKit shared folder or `Deploy` bridge tool |
-| **AmigaOS 4.1 PPC** | QEMU `sam460ex` | 127.0.0.1:2346 | `walkero/amigagccondocker:os4-gcc11-*` (Docker) | Direct write into `.hdf` via `amitools` / `xdftool` |
+Install the Python host first, verify it with the simulator, then connect a
+real target. These are separate steps: a working web page does not prove
+that an Amiga is connected.
 
-Switch between them by picking a profile in `devbench.toml` (or with `--profile <name>`). The web UI shows an arch badge in the header — orange for `ppc`, blue for `m68k`.
+## 1. Get the source
 
-## Install (one-time)
+Install Git and Python 3.10 or newer. On Linux, your distribution may package
+`venv` separately (for example, `python3-venv` on Debian/Ubuntu).
 
-```
-brew install qemu lha                                # for OS4 path
-pip3 install -e amiga-devbench                       # devbench itself
-scripts/install-toolchains.sh                        # docker images for both arches + gdb
-scripts/install-amitools.sh                          # rdbtool / xdftool for OS4 HDF I/O
+```sh
+git clone https://github.com/geekychris/amiga_mcp.git
+cd amiga_mcp
 ```
 
-Everything else is per-target below.
+**Already cloned it?** Just change into your checkout; do not run the
+one-line installer to create another copy under `~/.amiga-devbench/src`.
 
-## Path A — classic AmigaOS 3.x on FS-UAE
+The `examples/` submodule is optional until you want to build examples:
 
-Existing AmiKit users have this already; new setup:
-
-```
-python3 -m amiga_devbench --profile local-fsuae
-```
-
-Web UI at `http://localhost:3000`. Build any example:
-
-```
-make -C examples/hello_world
+```sh
+git submodule update --init --recursive
 ```
 
-Then deploy from the UI or via `amiga_deploy` MCP tool. Setup details in the top-level [`CLAUDE.md`](../CLAUDE.md).
+## 2. Install the host in a virtual environment
 
-## Path B — AmigaOS 4.1 PPC on QEMU sam460ex
+Run these commands from the repository root. Use the environment's Python
+explicitly; activation and global `pip` installation are unnecessary.
 
-Full walkthrough in [`amigaos4-setup.md`](amigaos4-setup.md). Short version:
+**macOS / Linux:**
 
-```
-# One-time: extract OS4 install CD (from your Hyperion purchase),
-# init the shared dev HDF, install the OS.
-ln -s ~/amiga/AmigaOS4 ~/AmigaOS4                    # if your ISOs live elsewhere
-lha xw=. ~/amiga/amiga_os_4.1_sam460/Sam460InstallCD-*.iso.lha \
-   -w ~/AmigaOS4/
-ln -s Sam460InstallCD-*.iso ~/AmigaOS4/AmigaOS4.1-FE.iso
-scripts/init-dev-hdf.sh                              # RDB + DH1 partition + format
-scripts/start-qemu-os4.sh --install                  # boot the CD, install OS
-# ... click through Media Toolbox + AmigaOS 4.1 installer in the QEMU window ...
-scripts/start-qemu-os4.sh                            # boot the installed OS
-
-# Every session:
-python3 -m amiga_devbench --profile qemu-os4         # devbench on port 3000
-scripts/build-bridge-ppc.sh                          # cross-compile the bridge daemon
-scripts/build-example-ppc.sh hello_world             # cross-compile an example
-scripts/deploy-os4.sh amiga-bridge/amiga-bridge amiga-bridge   # push to DH1:
-scripts/deploy-os4.sh examples/hello_world/hello_world hello_world
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ./amiga-devbench
+.venv/bin/python -m pip check
+.venv/bin/python -m amiga_devbench --help
 ```
 
-Bridge daemon auto-starts on OS4 boot (we appended an entry to
-`S:User-Startup` — see the "Auto-start" section below).
+**Windows PowerShell:**
 
-## Switching between profiles
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ./amiga-devbench
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m amiga_devbench --help
+```
 
-Two mechanisms, both live in `devbench.toml`:
+For screenshots and visual comparisons, also install `Pillow` using the
+same interpreter: `.venv/bin/python -m pip install Pillow` (or the Windows
+interpreter path above). No Node.js or npm setup is needed.
 
-- **`active_profile`** at the top of the file — picks the default when
-  `python3 -m amiga_devbench` runs with no arguments.
-- **`--profile <name>`** CLI flag — overrides the default per-invocation.
+## 3. Create your local configuration
 
-Available profiles (see `devbench.toml` for the full list):
+The repository's `devbench.toml` includes author-specific paths and profiles.
+Start with the minimal example instead:
 
-| Profile | Target | Serial |
+```sh
+cp docs/devbench.example.toml devbench.local.toml
+```
+
+On PowerShell, use `Copy-Item docs/devbench.example.toml devbench.local.toml`.
+Both `.venv/` and `devbench.local.toml` are ignored by Git.
+
+Always pass `--config devbench.local.toml` for this setup. This file is a
+complete configuration, not an overlay; it avoids selecting the repository's
+active profile, starting an emulator or enabling the optional LLM proxy.
+
+## 4. Verify without an Amiga
+
+```sh
+.venv/bin/python -m amiga_devbench --config devbench.local.toml --simulator --no-emulator
+```
+
+On Windows, substitute `.\.venv\Scripts\python.exe` for `.venv/bin/python`.
+Leave the terminal running and open <http://localhost:3000/>. In a second
+terminal, check <http://localhost:3000/health> or run:
+
+```sh
+curl http://localhost:3000/health
+```
+
+Expect `status: "ok"` and, after the handshake, `serial.connected: true`.
+The dashboard's clients and changing variables are **simulated data**, not
+your emulator. The simulator does not implement every hardware feature. Its current
+`PING` response is a heartbeat rather than the `PONG` expected by
+`amiga_ping`, so that tool can time out even with a healthy simulator.
+Stop the server with Ctrl-C before changing targets.
+
+The current server listens on all host interfaces, not just loopback, and
+provides control endpoints without an application login. Run it on a trusted
+development network; do not expose port 3000 to the Internet.
+
+## 5. Connect your MCP client
+
+With DevBench running, follow [MCP client setup](using-the-mcp.md). For Codex:
+
+```sh
+codex mcp add amiga-dev --url http://localhost:3000/mcp
+```
+
+Tool discovery confirms the MCP server is reachable. In simulator mode,
+use `amiga_log` and check recent heartbeats in `/health`. On a real target,
+`amiga_ping` confirms the bridge is responding. The HTTP client registration does
+not start DevBench for you.
+
+## 6. Connect a real target
+
+Restart without `--simulator` after setting up the bridge and editing
+`[serial]` in `devbench.local.toml`:
+
+```sh
+.venv/bin/python -m amiga_devbench --config devbench.local.toml --no-emulator
+```
+
+For local WinUAE and FS-UAE, follow the [dual-emulator guide](winuae-and-fsuae.md).
+Choose **one** transport:
+
+| Connection | Amiga side | DevBench side |
 |---|---|---|
-| `local-fsuae` | Local FS-UAE, classic 68k | PTY symlink |
-| `pi-amikit` | AmiKit on a Raspberry Pi over LAN | `amiga.local:2345` |
-| `real-amiga` | Real Amiga hardware | LAN IP:2345 |
-| **`qemu-os4`** | AmigaOS 4.1 on QEMU sam460ex | `127.0.0.1:2346` |
+| Emulator serial exposed as TCP | Run `amiga-bridge` in its serial mode; emulator forwards `serial.device` to a host TCP listener | `[serial] mode = "tcp"`, host and port of the emulator's serial listener |
+| Guest TCP/IP network | Run `amiga-bridge TCP 2345` with a working guest socket library | `[serial] mode = "tcp"`, reachable guest IP and port `2345` |
+| FS-UAE PTY | Run `amiga-bridge` in serial mode; FS-UAE uses the PTY symlink | `[serial] mode = "pty"`; start DevBench before FS-UAE |
 
-The web UI's header badge shows the active profile + target arch so you
-can tell at a glance whether MCP tools are pointing at 68k or PPC.
+These TCP endpoints carry different transports. An emulator's **GDB port is
+neither of them**. If another debugger uses port 2345, choose a different
+bridge port and use the same value at both ends.
 
-## Emulator control from devbench
+You must first copy the bridge binary into the guest, using a shared folder,
+disk image or an existing transfer method. MCP file transfer cannot bootstrap
+a bridge that is not running yet. Start it manually before adding anything
+to `S:User-Startup`. See [target setup](targets.md) and
+[TCP transport](tcp-transport.md) for configuration examples.
 
-Each profile has an `emulator_binary` (either an FS-UAE path or a
-QEMU wrapper script) and an optional `emulator_config`. The Dashboard's
-**Start** / **Stop** / **Restart** buttons drive the profile's binary
-directly — you don't have to launch the emulator by hand each time.
+Stock emulators can use the guest bridge. Only the `amiga_fsuae_*` tools
+require patched FS-UAE; installing DevBench does not add native debugger
+support to other emulators. The local emulator manager is FS-UAE-oriented;
+launch other emulators yourself and use `--no-emulator`.
 
-QEMU on the `qemu-os4` profile launches via `scripts/start-qemu-os4.sh`.
-That script also honours env vars `SERIAL_PORT`, `OS4_DIR`, and `GDB_PORT`,
-plus a `--gdb` flag if you want to attach `gdb-multiarch` for CPU-level
-debugging.
+## Optional: build the bridge and examples
 
-## Deploy paths
+Docker must be installed **and its engine running**. Check with `docker info`.
+Then, from the repository root:
 
-`devbench.toml`'s `deploy_dir` is what MCP's `amiga_deploy` and the web
-UI's Deploy button write to. Two flavours:
+```sh
+docker pull amigadev/crosstools:m68k-amigaos
+make bridge
+git submodule update --init --recursive
+make examples
+```
 
-| Value | Semantics |
+The bridge is built at `amiga-bridge/amiga-bridge`. Do not assume that a
+checked-in binary matches your CPU: this checkout may contain a PPC build.
+When switching architectures, clean the bridge objects before rebuilding
+(`make -C amiga-bridge clean` using the matching compiler container). Configure a shared deploy
+directory or copy it manually as described above. `make examples` needs the
+submodule; an empty `examples/` directory is not a successful example build.
+
+Without host `make` (for example in PowerShell), run the bridge build inside
+the container:
+
+```powershell
+docker run --rm -v "${PWD}:/work" -w /work amigadev/crosstools:m68k-amigaos make -C amiga-bridge all
+```
+
+For PPC/AmigaOS 4, use the separate [OS4 setup guide](amigaos4-setup.md).
+
+## Update and restart
+
+Stop DevBench, preserve any local source edits, then:
+
+```sh
+git pull --ff-only
+git submodule update --init --recursive
+.venv/bin/python -m pip install -e ./amiga-devbench
+.venv/bin/python -m amiga_devbench --config devbench.local.toml --no-emulator
+```
+
+Use the Windows interpreter path on Windows. Rebuild the guest bridge when
+its source changes. Keep using your local config rather than copying the
+repository's machine-specific `devbench.toml` over it.
+
+## Troubleshooting
+
+| Symptom | Check |
 |---|---|
-| A directory path (e.g. `~/Documents/AmiKit/Dev`) | Shared folder — devbench does a `shutil.copy2` |
-| An `.hdf` file (e.g. `~/AmigaOS4/amigaos4-dev.hdf`) | Hardfile — devbench shells out to `scripts/deploy-os4.sh` (xdftool + optional bridge `diskchange` nudge) |
+| `externally-managed-environment` from pip | Use `.venv` and its Python. No `sudo pip` or `--break-system-packages` is needed. |
+| `No module named amiga_devbench` | Use the same `.venv` interpreter for installation and startup. |
+| Web UI works but Amiga tools time out | Check `/health`, bridge startup, transport mode and matching port. Call `amiga_connect` if the first connection happened before guest startup. HTTP readiness alone does not establish a guest connection. |
+| It tries to launch someone else's FS-UAE config | Pass `--config devbench.local.toml --no-emulator`; the checked-in config has an active profile. |
+| MCP connection refused | Start DevBench first; verify the URL ends in `/mcp` and its port matches `[server]`. |
+| `amiga_fsuae_*` reports unavailable | Use patched FS-UAE for those tools, or use the guest bridge tools instead. |
+| Build cannot reach Docker | Start Docker Desktop/your Docker engine and retry `docker info`. |
+| Bridge build reports `unknown type name '_sfdc_vararg'` | The stock m68k image has a socket-header incompatibility. For a classic 32-bit m68k build, use the explicit container command below as a temporary workaround. |
+| No examples are built | Initialize the `examples/` submodule. |
+| Address already in use | Stop the conflicting process or change the relevant port in the local config and client. |
 
-The `qemu-os4` profile ships `deploy_dir` pointing at the dev HDF, so
-the standard deploy tools work transparently across both targets.
+Use one DevBench process at a time: the current CLI uses a shared PID file
+and may stop an older instance when starting a new one.
 
-## Auto-start the bridge
+Temporary workaround for the stock m68k image's socket header (macOS/Linux):
 
-Once the bridge daemon is on the target Amiga (either as an AmiKit
-shortcut for classic or as `DH1:amiga-bridge` on OS4), have it start
-at boot by appending to `S:User-Startup`:
-
-```
-; auto-start amiga-bridge daemon
-Run >NIL: DH1:amiga-bridge     ; OS4 path
-```
-
-You can push that entry from the host via the bridge itself once it's
-running the first time:
-
-```
-curl -X POST http://localhost:3000/api/dos/exec \
-  -H 'Content-Type: application/json' \
-  -d '{"command":"echo >>S:User-Startup \"Run >NIL: DH1:amiga-bridge\""}'
+```sh
+docker run --rm -v "$PWD:/work" -w /work amigadev/crosstools:m68k-amigaos \
+  make -C amiga-bridge 'CC=m68k-amigaos-gcc -D_sfdc_vararg=ULONG'
 ```
 
-## Debugging OS4 with GDB
-
-QEMU's built-in GDB stub gives CPU-level debug:
-
-```
-scripts/start-qemu-os4.sh --gdb          # opens gdb stub on TCP 1234
-scripts/gdb-os4.sh examples/hello_world/hello_world
-```
-
-Inside gdb:
-
-```
-(gdb) info registers                       # PowerPC register file
-(gdb) x/16i $pc                            # disassemble around program counter
-(gdb) x/32wx $r1                           # dump stack
-(gdb) bt                                   # backtrace (needs loaded symbols)
-```
-
-The stub sees the whole emulated machine — not process-level. Load a
-symbol file (`file examples/…/binary.elf`) for named-function tracing on
-that specific PPC ELF.
-
-## What's ported to PPC so far
-
-- `amiga-bridge` (daemon + libbridge client library) — most subsystems
-  work; `snoop`, `debugger`, `crash_handler`, and `pool_tracker` are
-  stubbed with "not-implemented on OS4" replies (need proper OS4 ports
-  that use IExec-> interface pattern instead of 68k inline asm register
-  captures).
-- `examples/hello_world` — full parity, runs on both arches
-- `examples/void_trader` — compiles + runs, but frame pacing is broken
-  on PPC (Delay(1) and DateStamp busy-poll both trigger DSI — root
-  cause TBD via GDB session). Audio subsystem stubbed silent.
-
-Anything not in that list is still 68k-only. Portability rule of thumb:
-if it uses only text protocols, RastPort/BitMap/Window APIs, and
-graphics.library primitives (no inline asm, no direct chip register
-access, no SetFunction patches, no MOD player), it should port with a
-Makefile change and a couple of `#ifndef __PPC__` guards on library-base
-declarations.
+This defines the missing tag-argument type for the 32-bit m68k ABI. It does
+not apply to the PPC build. Prefer fixing the toolchain header for a
+permanent solution.
