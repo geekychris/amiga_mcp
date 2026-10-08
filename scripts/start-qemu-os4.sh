@@ -73,6 +73,7 @@ a NIC in the guest). Pass --no-net only when you deliberately
 want the serial-only path.
 
 Environment variables:
+  AUDIO             1 / coreaudio / wav:FILE - add an ES1370 sound card
   OS4_DIR           Directory containing OS4 files (default: ~/AmigaOS4)
   SERIAL_PORT       Serial TCP port (default: 2346)
   GDB_PORT          GDB stub port (default: 1234, needs --gdb to activate)
@@ -249,6 +250,22 @@ else
     QEMU_CMD+=( -nic none )
     NET_STATUS="disabled (-nic none)"
 fi
+# Sound (opt-in). sam460ex has no sound hardware of its own; AUDIO adds
+# an Ensoniq ES1370 (Sound Blaster PCI 64/128) on the PCI bus, which OS4
+# drives with Devs:AHI/sb128.audio (pick an SB128 mode for AHI unit 0 /
+# the default unit in Prefs/AHI).
+#   AUDIO=1 | AUDIO=coreaudio   play through the host's speakers (macOS)
+#   AUDIO=wav:/path/out.wav     record the guest's sound to a file
+case "${AUDIO:-}" in
+    "")  AUDIO_STATUS="none (AUDIO=1 adds an ES1370)" ;;
+    wav:*)
+        QEMU_CMD+=( -audiodev "wav,id=snd0,path=${AUDIO#wav:}" -device ES1370,audiodev=snd0 )
+        AUDIO_STATUS="ES1370 -> ${AUDIO#wav:}" ;;
+    *)
+        _drv="$AUDIO"; [ "$_drv" = "1" ] && _drv=coreaudio
+        QEMU_CMD+=( -audiodev "${_drv},id=snd0" -device ES1370,audiodev=snd0 )
+        AUDIO_STATUS="ES1370 -> $_drv" ;;
+esac
 # Mouse mode. Two options:
 #
 #   USB_TABLET=1  (opt-in)  — attach usb-tablet HID device for
@@ -284,6 +301,7 @@ echo "  Dev HDD:    $HDD_DEV"
 echo "  Serial:     TCP port $SERIAL_PORT"
 echo "  Network:    $NET_STATUS"
 echo "  Mouse:      $MOUSE_STATUS"
+echo "  Audio:      $AUDIO_STATUS"
 echo "  Display:    $DISPLAY_ARG"
 echo ""
 echo "DevBench connection:"

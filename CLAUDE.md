@@ -99,6 +99,12 @@ scripts/gdb-os4.sh amiga-bridge/amiga-bridge      # gdb-multiarch attached
 ## Amiga C Conventions (PPC OS4)
 - Compile with `-mcrt=newlib -O2 -mcpu=440 -Wall -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__`
 - Link with `-mcrt=newlib -L../../amiga-bridge -lbridge -lauto` (drop `-noixemul`, `-lamiga`)
+- Code that does floating-point maths needs `-mcpu=440fp`: with this GCC 11,
+  plain `-mcpu=440` means soft float and won't link against hard-float
+  libraries (libm, `third_party/mesa-os4`'s libOSMesa)
+- OpenGL: no Warp3D driver exists for QEMU's SM502, so MiniGL can't be used.
+  `third_party/mesa-os4/build.sh` builds software Mesa (OSMesa 7.8.2); see
+  `examples/planet_chomp` for a game that uses it
 - `-D__USE_INLINE__` pulls in inline4/*.h so classic call names
   (`GetMsg`, `OpenWindow`, etc.) work as macros that dispatch to
   `IExec->GetMsg()` etc. Without it, you get "implicit declaration" wall.
