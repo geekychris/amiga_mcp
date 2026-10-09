@@ -17,5 +17,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${M68K_IMAGE:-amigadev/crosstools:m68k-amigaos}"
 [ -d "$PROJECT_DIR/examples/$EXAMPLE" ] || { echo "ERROR: no example dir examples/$EXAMPLE"; exit 1; }
 echo "=== $EXAMPLE (68k) ==="
-docker run --rm -v "$PROJECT_DIR:/work" -w "/work/examples/$EXAMPLE" "$IMAGE" \
-    sh -c "make ARCH=m68k $TARGET 2>&1"
+# MSYS_NO_PATHCONV: from Git Bash on Windows, keep MSYS from rewriting the
+# -v / -w paths; the make target goes in as an argument, not shell text
+MSYS_NO_PATHCONV=1 docker run --rm -v "$PROJECT_DIR:/work" -w "/work/examples/$EXAMPLE" "$IMAGE" \
+    sh -c 'make ARCH=m68k "$1" 2>&1' sh "$TARGET"
