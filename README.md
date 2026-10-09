@@ -20,6 +20,9 @@ scripts/doctor.sh    # check every prerequisite; each problem comes with its fix
 scripts/start.sh     # start the emulators + devbenches, wait until the Amigas answer
 ```
 
+The Kickstart ROM and the AmigaOS 3.x / 4.1 installs are commercial, so
+`doctor.sh` keeps reporting them until they're in place; it says where each
+goes. The scripts are bash: on Windows, use WSL (or `scripts/install.ps1`).
 See **[SETUP.md](SETUP.md)** for the one-page guide.
 
 ## One-line install

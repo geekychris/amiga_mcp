@@ -43,8 +43,12 @@ It works on macOS (Homebrew) and Debian/Ubuntu (apt); on Windows, use
   `scripts/start-qemu-os4.sh --install`, following
   [docs/amigaos4-setup.md](docs/amigaos4-setup.md).
 
-On each Amiga, start the bridge daemon at boot. Add these lines to the
-startup sequence:
+On each Amiga, start the bridge daemon at boot. `setup.sh` copies the 68k
+daemon into the folder `deploy_dir` names in `devbench.toml` (the
+`local-fsuae` profile). The emulator must mount that folder; with the
+sample FS-UAE config it's `DH2:Dev`. Use whatever Amiga path that folder
+has on yours. The OS4 daemon goes onto the dev disk, `DH1:`. Add these
+lines to the startup sequence:
 
 - **68k**, in `S:Startup-Sequence` or `S:User-Startup`:
   ```
@@ -76,6 +80,9 @@ scripts/start.sh os4        # AmigaOS 4 only                                (mak
 scripts/start.sh status     # what's running                                (make status)
 scripts/start.sh stop       # stop emulators and devbenches                 (make stop)
 ```
+
+(`make start` used to start a single devbench on the active profile; that's
+now `make devbench`.)
 
 `start.sh` starts each devbench, which starts its emulator. It then waits
 until the Amiga has booted and its bridge answers, and prints the URLs.

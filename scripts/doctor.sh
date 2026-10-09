@@ -40,6 +40,19 @@ PY
 }
 port_free() { ! (lsof -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1); }
 port_owner() { lsof -iTCP:"$1" -sTCP:LISTEN -Fc 2>/dev/null | sed -n 's/^c//p' | head -1; }
+LSOF_WARNED=0
+check_port() {   # port, expected-owner pattern (already running)
+    if ! have lsof; then
+        [ "$LSOF_WARNED" = 0 ] && warn "lsof not installed: port checks skipped" "$(pkg lsof lsof)"
+        LSOF_WARNED=1; return
+    fi
+    if port_free "$1"; then ok "Port $1 free"
+    else
+        local o; o=$(port_owner "$1")
+        if echo "$o" | grep -q -E "$2"; then ok "Port $1 in use by $o (already running)"
+        else warn "Port $1 is used by '$o'" "free it, or change the port"; fi
+    fi
+}
 
 # ---------------------------------------------------------------- common
 section "Common"
@@ -96,7 +109,8 @@ if [ "$TARGET" = all ] || [ "$TARGET" = 68k ]; then
         else bad "AmigaOS 3.x system disk not found (${HD:-hard_drive_0 not set})" "install AmigaOS 3.x / AmiKit and set hard_drive_0 in $CONF (see /fsuae-setup)"; fi
         SP=$(sed -n 's/^serial_port *= *//p' "$CONF" | head -1)
         WANT=$(cfgval local-fsuae serial_port)
-        if echo "$SP" | grep -q ":$WANT\$"; then ok "Serial on TCP :$WANT (matches the local-fsuae profile)"
+        if [ -z "$WANT" ]; then warn "Couldn't read the local-fsuae profile's port: serial check skipped"
+        elif [ "${SP##*:}" = "$WANT" ]; then ok "Serial on TCP :$WANT (matches the local-fsuae profile)"
         else bad "FS-UAE serial_port is '${SP:-unset}', devbench expects TCP :$WANT" "set serial_port = tcp://0.0.0.0:$WANT in $CONF"; fi
     else bad "FS-UAE config not found (${CONF:-unset})" "copy AmiKit-Debug.fs-uae from the repo root and set [emulator] config in devbench.toml"; fi
 
@@ -110,10 +124,8 @@ if [ "$TARGET" = all ] || [ "$TARGET" = 68k ]; then
     if [ -f "$ROOT/amiga-bridge/libbridge.a" ]; then ok "libbridge.a built"
     else bad "libbridge.a not built" "make bridge"; fi
 
-    for p in 3001 "$WANT"; do
-        [ -z "$p" ] && continue
-        if port_free "$p"; then ok "Port $p free"
-        else o=$(port_owner "$p"); case "$o" in fs-uae*|Python*|python*) ok "Port $p in use by $o (already running)";; *) warn "Port $p is used by '$o'" "free it, or change the port";; esac; fi
+    for p in 3001 "${WANT:-}"; do
+        [ -n "$p" ] && check_port "$p" '^(fs-uae|[Pp]ython)'
     done
 fi
 
@@ -122,7 +134,9 @@ if [ "$TARGET" = all ] || [ "$TARGET" = os4 ]; then
     section "AmigaOS 4.1 · PowerPC (QEMU sam460ex) — devbench on :3000"
     have docker && docker info >/dev/null 2>&1 && docker_img walkero/amigagccondocker:os4-gcc11 "PPC cross-compiler"
 
-    Q=/opt/homebrew/bin/qemu-system-ppc; [ -x "$Q" ] || Q=$(command -v qemu-system-ppc)
+    # the path scripts/start-qemu-os4.sh runs (QEMU=...), else PATH
+    Q=$(sed -n 's/^QEMU=\([^ ]*\).*/\1/p' "$ROOT/scripts/start-qemu-os4.sh" | head -1)
+    [ -n "$Q" ] && [ -x "$Q" ] || Q=$(command -v qemu-system-ppc)
     if [ -n "$Q" ] && [ -x "$Q" ]; then
         if "$Q" -machine help 2>/dev/null | grep -q sam460ex; then ok "QEMU: $Q ($("$Q" --version | head -1 | sed 's/.*version //'))"
         else bad "QEMU has no sam460ex machine" "$(pkg qemu qemu-system-ppc)"; fi
@@ -133,7 +147,9 @@ if [ "$TARGET" = all ] || [ "$TARGET" = os4 ]; then
     if have lha; then ok "lha"; else warn "lha not installed (only needed to install OS4 from the ISO)" "$(pkg lha lhasa)"; fi
 
     D="${OS4_DIR:-$HOME/AmigaOS4}"
-    if [ -f "$D/amigaos4-system.hdf" ]; then
+    if [ -f "$D/amigaos4-system.hdf" ] && ! have rdbtool; then
+        bad "rdbtool (amitools) missing: can't check the OS4 system disk" "scripts/install-amitools.sh"
+    elif [ -f "$D/amigaos4-system.hdf" ]; then
         if rdbtool "$D/amigaos4-system.hdf" info 2>/dev/null | grep -q "Partition"; then ok "OS4 system disk: $D/amigaos4-system.hdf"
         else bad "OS4 system disk exists but has no partitions (OS4 not installed yet)" "scripts/start-qemu-os4.sh --install  (needs the AmigaOS 4.1 FE ISO; see docs/amigaos4-setup.md)"; fi
     else bad "OS4 system disk not found ($D/amigaos4-system.hdf)" "AmigaOS 4.1 Final Edition (commercial, Hyperion) — follow docs/amigaos4-setup.md"; fi
@@ -146,10 +162,7 @@ if [ "$TARGET" = all ] || [ "$TARGET" = os4 ]; then
     if [ -f "$ROOT/third_party/mesa-os4/out/lib/libOSMesa.a" ]; then ok "Software OpenGL for OS4 (third_party/mesa-os4)"
     else warn "OSMesa not built (only planet_chomp and rolling_steel need it)" "third_party/mesa-os4/build.sh"; fi
 
-    for p in 3000 2346 2347 2348; do
-        if port_free "$p"; then ok "Port $p free"
-        else o=$(port_owner "$p"); case "$o" in qemu*|Python*|python*) ok "Port $p in use by $o (already running)";; *) warn "Port $p is used by '$o'" "free it, or change the port";; esac; fi
-    done
+    for p in 3000 2346 2347 2348; do check_port "$p" '^(qemu|[Pp]ython)'; done
 fi
 
 echo

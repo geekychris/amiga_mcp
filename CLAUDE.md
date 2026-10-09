@@ -23,7 +23,7 @@ profile + target arch as a coloured badge.
   - `amiga-bridge/client/`: Client library apps link against (`ab_init`, `ab_log`, `ab_poll`, etc.)
 - **amiga-devbench/**: Host-side Python server (MCP + web UI + serial protocol).
   - Run: `scripts/start.sh` (both targets; see SETUP.md) or `make devbench` (one, active profile)
-  - Serves web UI at http://localhost:3000/, MCP at /mcp
+  - Serves the web UI and MCP (`/mcp`) on the port its profile is started with: `scripts/start.sh` uses :3000 for AmigaOS 4 (qemu-os4) and :3001 for classic 68k (local-fsuae); a plain `python3 -m amiga_devbench` uses :3000
 - **examples/**: Git submodule — sample Amiga programs (games, demos, tools) using bridge client lib. Lives at [github.com/geekychris/amiga_games](https://github.com/geekychris/amiga_games). Clone with `--recurse-submodules` or run `git submodule update --init` after cloning.
 - **docker/**: Dockerfile for cross-compilation environment.
 - **scripts/**: Build, deploy, and test scripts.

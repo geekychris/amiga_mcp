@@ -49,10 +49,10 @@ start-os4:        ## AmigaOS 4 only
 stop:             ## stop the emulators and devbenches
 	scripts/start.sh stop
 
-status:
+status:           ## what's running
 	scripts/start.sh status
 
-devbench:         ## one devbench on the active profile (devbench.toml), port 3000
+devbench:         ## one devbench on the active profile (devbench.toml), :3000 (was `make start`)
 	python3 -m amiga_devbench
 
 # Host-buildable unit tests for pure-C bridge logic (no Docker / Amiga cross-

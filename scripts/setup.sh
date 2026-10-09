@@ -51,7 +51,11 @@ if ! docker info >/dev/null 2>&1; then
     [ "$OS" = Darwin ] && open -a Docker 2>/dev/null || true
     echo "Waiting for Docker to start (start Docker Desktop if it doesn't)..."
     for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 3; done
-    docker info >/dev/null 2>&1 || { echo "Docker isn't running: start it and re-run this script."; exit 1; }
+    if ! docker info >/dev/null 2>&1; then
+        echo "Docker isn't running: start it and re-run this script."
+        [ "$OS" != Darwin ] && echo "  Linux: sudo systemctl start docker; and to use it without sudo: sudo usermod -aG docker \$USER (then log in again)"
+        exit 1
+    fi
 fi
 echo "Docker running"
 
@@ -79,14 +83,17 @@ if want os4; then
     scripts/build-bridge-ppc.sh clean >/dev/null
     scripts/build-bridge-ppc.sh
     D="${OS4_DIR:-$HOME/AmigaOS4}"
-    if [ -f "$D/amigaos4-dev.hdf" ]; then
-        if pgrep -f qemu-system-ppc >/dev/null; then
-            echo "QEMU is running: not writing the dev disk. Stop OS4 and run:"
-            echo "  scripts/deploy-os4.sh amiga-bridge/amiga-bridge amiga-bridge"
-        else
-            scripts/deploy-os4.sh --rm amiga-bridge >/dev/null 2>&1 || true
-            scripts/deploy-os4.sh amiga-bridge/amiga-bridge amiga-bridge
+    if [ ! -f "$D/amigaos4-dev.hdf" ]; then
+        echo "No OS4 dev disk ($D/amigaos4-dev.hdf) yet: make it with scripts/init-dev-hdf.sh, then re-run"
+    elif pgrep -f qemu-system-ppc >/dev/null; then
+        echo "QEMU is running: not writing the dev disk. Stop OS4 (scripts/start.sh stop os4) and run:"
+        echo "  scripts/deploy-os4.sh amiga-bridge/amiga-bridge amiga-bridge"
+    else
+        # replace the old daemon; a missing one isn't an error
+        if xdftool -r "$D/amigaos4-dev.hdf" open part=0 + list 2>/dev/null | grep -q "^  amiga-bridge "; then
+            scripts/deploy-os4.sh --rm amiga-bridge
         fi
+        scripts/deploy-os4.sh amiga-bridge/amiga-bridge amiga-bridge
     fi
 fi
 
