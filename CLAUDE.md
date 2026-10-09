@@ -104,7 +104,10 @@ scripts/gdb-os4.sh amiga-bridge/amiga-bridge      # gdb-multiarch attached
   libraries (libm, `third_party/mesa-os4`'s libOSMesa)
 - OpenGL: no Warp3D driver exists for QEMU's SM502, so MiniGL can't be used.
   `third_party/mesa-os4/build.sh` builds software Mesa (OSMesa 7.8.2); see
-  `examples/planet_chomp` for a game that uses it
+  `examples/planet_chomp` (perspective 3D) and `examples/rolling_steel`
+  (pre-projected orthographic faces + depth) for games that use it. For
+  speed use `glDepthFunc(GL_LESS)` with flat shading and nothing else
+  enabled (OSMesa's fast path), and a `$STACK` cookie of ~2 MB
 - `-D__USE_INLINE__` pulls in inline4/*.h so classic call names
   (`GetMsg`, `OpenWindow`, etc.) work as macros that dispatch to
   `IExec->GetMsg()` etc. Without it, you get "implicit declaration" wall.
