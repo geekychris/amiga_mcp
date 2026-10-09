@@ -1,0 +1,6 @@
+# Build products: ./build.sh recreates all of these (~10 s)
+Mesa-7.8.2/
+MesaLib-7.8.2.tar.bz2
+obj/
+out/
+test/osmesa_test
