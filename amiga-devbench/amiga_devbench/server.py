@@ -5372,6 +5372,14 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 _PID_FILE = "/tmp/amiga-devbench.pid"
 
 
+def _set_pid_file(port: int) -> None:
+    """One PID file per HTTP port, so devbenches on different ports (say an
+    OS4 one on 3000 and an FS-UAE one on 3001) don't kill each other at
+    startup. The default port keeps the old name."""
+    global _PID_FILE
+    _PID_FILE = "/tmp/amiga-devbench.pid" if port == 3000 else f"/tmp/amiga-devbench-{port}.pid"
+
+
 def _kill_stale_instance() -> None:
     """Kill any previously running devbench process."""
     import signal as _signal
@@ -5437,7 +5445,8 @@ def run(args: Any, cfg: DevBenchConfig | None = None) -> None:
                  "amiga_devbench.server", "amiga_devbench.protocol"):
         logging.getLogger(name).setLevel(log_level)
 
-    # Kill any stale instance before starting
+    # Kill any stale instance (on this port) before starting
+    _set_pid_file(effective_port)
     _kill_stale_instance()
     _write_pid_file()
     atexit.register(_remove_pid_file)
