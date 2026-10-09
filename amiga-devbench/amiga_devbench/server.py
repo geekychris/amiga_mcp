@@ -5369,7 +5369,42 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     return app
 
 
-_PID_FILE = "/tmp/amiga-devbench.pid"
+_LEGACY_PID_FILE = "/tmp/amiga-devbench.pid"
+_PID_FILE = _LEGACY_PID_FILE
+
+
+def _private_pid_dir() -> str:
+    """A per-user directory only its owner can use, for PID files."""
+    import getpass
+    import stat
+    import tempfile
+
+    d = os.path.join(tempfile.gettempdir(), f"amiga-devbench-{getpass.getuser()}")
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    st = os.lstat(d)
+    if not stat.S_ISDIR(st.st_mode) or (hasattr(os, "getuid") and st.st_uid != os.getuid()):
+        raise RuntimeError(f"{d} is not a directory of ours; refusing to keep PID files there")
+    if os.name != "nt":
+        os.chmod(d, 0o700)
+    return d
+
+
+def _set_pid_file(port: int) -> None:
+    """One PID file per HTTP port, so devbenches on different ports (say an
+    OS4 one on 3000 and an FS-UAE one on 3001) don't kill each other at
+    startup. Port 3000 keeps the legacy path on POSIX, so an older devbench
+    still running there is found; other ports (and Windows) use a private
+    per-user directory."""
+    global _PID_FILE
+    if port == 3000 and os.name != "nt":
+        _PID_FILE = _LEGACY_PID_FILE
+    else:
+        _PID_FILE = os.path.join(_private_pid_dir(), f"devbench-{port}.pid")
+
+
+def _open_nofollow(path: str, flags: int, mode: int = 0o600) -> int:
+    """os.open that refuses to follow a symlink at the final component."""
+    return os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), mode)
 
 
 def _kill_stale_instance() -> None:
@@ -5377,7 +5412,8 @@ def _kill_stale_instance() -> None:
     import signal as _signal
 
     try:
-        with open(_PID_FILE) as f:
+        fd = _open_nofollow(_PID_FILE, os.O_RDONLY)
+        with os.fdopen(fd) as f:
             old_pid = int(f.read().strip())
         # Check if process is still running. On Windows os.kill(pid, 0) can
         # raise OSError (WinError 87) or even SystemError for a stale/recycled
@@ -5402,10 +5438,17 @@ def _kill_stale_instance() -> None:
         os.kill(old_pid, _signal.SIGKILL)
     except (FileNotFoundError, ValueError, ProcessLookupError):
         pass
+    except OSError as e:                      # e.g. a symlink planted at the path
+        logger.warning("Not reading PID file %s: %s", _PID_FILE, e)
 
 
 def _write_pid_file() -> None:
-    with open(_PID_FILE, "w") as f:
+    try:
+        fd = _open_nofollow(_PID_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    except OSError as e:
+        logger.warning("Not writing PID file %s: %s", _PID_FILE, e)
+        return
+    with os.fdopen(fd, "w") as f:
         f.write(str(os.getpid()))
 
 
@@ -5437,7 +5480,8 @@ def run(args: Any, cfg: DevBenchConfig | None = None) -> None:
                  "amiga_devbench.server", "amiga_devbench.protocol"):
         logging.getLogger(name).setLevel(log_level)
 
-    # Kill any stale instance before starting
+    # Kill any stale instance (on this port) before starting
+    _set_pid_file(effective_port)
     _kill_stale_instance()
     _write_pid_file()
     atexit.register(_remove_pid_file)

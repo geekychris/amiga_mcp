@@ -95,6 +95,14 @@ scripts/gdb-os4.sh amiga-bridge/amiga-bridge      # gdb-multiarch attached
 - Link with: `-L../../amiga-bridge -lbridge -lamiga`
 - Use `%ld` with `(long)` cast for printf (amiga.lib `%d` reads 16-bit WORD)
 - Use `(long)` cast for all integer format specifiers
+- `-lamiga` brings in amiga.lib's `sprintf`, which replaces libnix's: its `%d`
+  reads a 16-bit WORD. Code with plain `%d` (e.g. the 3DO ports' game code)
+  must not link amiga.lib; reach the chip registers via
+  `(*(volatile struct Custom *)0xDFF000)` instead of amiga.lib's `custom`
+- Paula's audio registers are write-only: keep the volume/period you set in a
+  variable rather than reading `custom.aud[n].ac_vol` back
+- Examples whose Makefile builds both arches (planet_chomp, rolling_steel,
+  spectral_keep): `scripts/build-example-68k.sh <name>` runs `make ARCH=m68k`
 
 ## Amiga C Conventions (PPC OS4)
 - Compile with `-mcrt=newlib -O2 -mcpu=440 -Wall -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__`
@@ -198,6 +206,12 @@ concurrent read from OS4.
 The `qemu-os4` profile in `devbench.toml` already points `deploy_dir`
 at that HDF; MCP's `amiga_deploy` tool and the web UI's Deploy button
 detect the `.hdf` suffix and shell out to `deploy-os4.sh` transparently.
+
+## Two emulators at once
+Run one devbench per emulator on different HTTP ports, e.g. OS4 on 3000
+(`--profile qemu-os4 --no-emulator`) and FS-UAE on 3001
+(`--profile local-fsuae --port 3001`). Each keeps its own PID file
+(`/tmp/amiga-devbench[-PORT].pid`), so starting one no longer kills the other.
 
 ## Testing Without Emulator
 ```bash
