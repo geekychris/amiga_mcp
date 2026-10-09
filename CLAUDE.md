@@ -107,7 +107,11 @@ scripts/gdb-os4.sh amiga-bridge/amiga-bridge      # gdb-multiarch attached
   `examples/planet_chomp` (perspective 3D) and `examples/rolling_steel`
   (pre-projected orthographic faces + depth) for games that use it. For
   speed use `glDepthFunc(GL_LESS)` with flat shading and nothing else
-  enabled (OSMesa's fast path), and a `$STACK` cookie of ~2 MB
+  enabled (OSMesa's fast path), and a `$STACK` cookie of ~2 MB.
+  `examples/spectral_keep` is the third 3DO port (software sprite compositing)
+- **newlib `memcpy` bug on the QEMU guest:** a `memcpy` of >= ~300 KB can
+  silently leave its last 256 KB uncopied (alignment-dependent; <= 200 KB
+  was fine in tests). Copy big buffers with a plain loop
 - `-D__USE_INLINE__` pulls in inline4/*.h so classic call names
   (`GetMsg`, `OpenWindow`, etc.) work as macros that dispatch to
   `IExec->GetMsg()` etc. Without it, you get "implicit declaration" wall.
