@@ -13,6 +13,14 @@
 #include <exec/types.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+/* The m68k toolchain's socket inlines expand SocketBaseTags() with the
+ * sfdc vararg type but no longer define it themselves (a clean 68k build
+ * failed: "unknown type name '_sfdc_vararg'"). Same guard as the sfdc
+ * headers that do define it, so whichever comes first wins. */
+#if !defined(__PPC__) && !defined(_SFDC_VARARG_DEFINED)
+#define _SFDC_VARARG_DEFINED
+typedef ULONG _sfdc_vararg;
+#endif
 #include <proto/socket.h>
 
 #include <sys/types.h>

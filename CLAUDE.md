@@ -22,7 +22,7 @@ profile + target arch as a coloured badge.
 - **amiga-bridge/**: Amiga-side daemon + client library (libbridge.a). Owns serial.device, IPC via MsgPorts.
   - `amiga-bridge/client/`: Client library apps link against (`ab_init`, `ab_log`, `ab_poll`, etc.)
 - **amiga-devbench/**: Host-side Python server (MCP + web UI + serial protocol).
-  - Run: `python3 -m amiga_devbench` or `make start`
+  - Run: `scripts/start.sh` (both targets; see SETUP.md) or `make devbench` (one, active profile)
   - Serves web UI at http://localhost:3000/, MCP at /mcp
 - **examples/**: Git submodule — sample Amiga programs (games, demos, tools) using bridge client lib. Lives at [github.com/geekychris/amiga_games](https://github.com/geekychris/amiga_games). Clone with `--recurse-submodules` or run `git submodule update --init` after cloning.
 - **docker/**: Dockerfile for cross-compilation environment.
@@ -54,12 +54,22 @@ profile + target arch as a coloured badge.
 scripts/install-toolchains.sh
 ```
 
+## Setup and startup (see SETUP.md)
+```bash
+scripts/setup.sh [68k|os4|all]     # install deps, toolchains, build + deploy the bridges (make setup)
+scripts/doctor.sh [68k|os4|all]    # check prerequisites, with a fix for each problem (make doctor)
+scripts/start.sh [68k|os4|all]     # devbench + emulator, waits for the bridge (make start / start-68k / start-os4)
+scripts/start.sh status | stop     # (make status / make stop)
+```
+Ports: AmigaOS 4 devbench :3000 (profile qemu-os4), classic 68k devbench :3001 (profile local-fsuae).
+`make devbench` is the old single `python3 -m amiga_devbench` on the active profile.
+
 ## Build Commands
 
 **Classic 68k (default):**
 ```bash
-make setup        # One-time: pip install devbench
-make start        # Start devbench (reads devbench.toml)
+make setup        # One-time: scripts/setup.sh (everything)
+make start        # scripts/start.sh: both devbenches + emulators
 make bridge       # Build amiga-bridge daemon + libbridge.a (68k)
 make examples     # Build example apps via Docker (68k)
 make all          # Build everything (68k)
