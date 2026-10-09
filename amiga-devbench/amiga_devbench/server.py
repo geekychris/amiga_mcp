@@ -1142,7 +1142,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             binary=cfg.emulator_binary,
             config_file=cfg.emulator_config,
             event_bus=_event_bus,
-            extra_env=_build_fsuae_env(cfg),
+            extra_env={**_build_fsuae_env(cfg), **cfg.emulator_env},
+            process_name=cfg.emulator_process,
         )
     else:
         _emulator = EmulatorManager(event_bus=_event_bus)

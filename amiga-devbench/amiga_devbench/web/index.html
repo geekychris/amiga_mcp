@@ -35,9 +35,25 @@
   }
 
   /* Header */
+  /* Which Amiga this devbench drives, unmistakably: a stripe across the
+   * top, the header's border and a big label, all in the platform colour
+   * (blue: classic 68k, orange: AmigaOS 4 PPC). Set from the active
+   * profile's arch in cfgLoad(). */
+  body { --platform-color: #7ec4ff; }
+  body.platform-ppc { --platform-color: #ffa63a; }
+  body.platform-m68k { --platform-color: #5fb4ff; }
+  .platform-stripe { height: 8px; background: var(--platform-color); flex-shrink: 0; }
+  .platform-label {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 4px 14px; border: 2px solid var(--platform-color); border-radius: 6px;
+    background: color-mix(in srgb, var(--platform-color) 18%, transparent);
+    line-height: 1.15;
+  }
+  .platform-label .platform-name { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: var(--platform-color); white-space: nowrap; }
+  .platform-label .platform-sub { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
   .header {
     background: linear-gradient(135deg, #1a3a6a 0%, #0f2848 100%);
-    border-bottom: 2px solid var(--accent-orange);
+    border-bottom: 3px solid var(--platform-color);
     padding: 8px 16px;
     display: flex;
     align-items: center;
@@ -642,9 +658,14 @@
 </head>
 <body>
   <!-- Header -->
+  <div class="platform-stripe" title="Which Amiga this devbench drives"></div>
   <div class="header">
     <img src="/static/dev_bench_logo.png" alt="AmigaDevBench" onclick="showAbout()" title="About AmigaDevBench" style="height:96px;cursor:pointer;">
     <button onclick="showAbout()" style="background:none;border:1px solid var(--border);color:var(--text-dim);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;margin-left:4px;" title="About">About</button>
+    <div class="platform-label" id="platformLabel" title="Which Amiga this devbench drives (the active profile's arch)">
+      <span class="platform-name" id="platformName">Amiga</span>
+      <span class="platform-sub" id="platformSub">--</span>
+    </div>
     <div class="sys-info" id="sysInfo">--</div>
     <div class="conn-status" style="gap:12px;">
       <div style="display:flex;align-items:center;gap:5px;">
@@ -721,7 +742,7 @@
           </div>
         </div>
         <div class="card">
-          <h3>Emulator</h3>
+          <h3 id="emuCardTitle">Emulator</h3>
           <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value" id="dashEmuStatus">--</span></div>
           <div class="stat-row"><span class="stat-label">PID</span><span class="stat-value" id="dashEmuPid">--</span></div>
           <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value" id="dashEmuUptime">--</span></div>
@@ -2509,6 +2530,9 @@ function updateEmulatorStatus(data) {
   const statusEl = document.getElementById('dashEmuStatus');
   const pidEl = document.getElementById('dashEmuPid');
   const uptimeEl = document.getElementById('dashEmuUptime');
+  const title = document.getElementById('emuCardTitle');
+  if (title && data.kind)
+    title.textContent = data.kind === 'qemu' ? 'Emulator — QEMU (AmigaOS 4)' : 'Emulator — FS-UAE (classic Amiga)';
   if (data.running) {
     dot.className = 'emu-dot running';
     text.textContent = 'Emu: running';
@@ -3275,6 +3299,17 @@ async function cfgLoad() {
       // Colour-code by arch so ppc vs m68k is glanceable.
       archEl.style.color = arch === 'ppc' ? '#ffb347' : '#7ec4ff';
       archEl.style.borderColor = archEl.style.color;
+    }
+    // The big platform label, stripe colour and tab title
+    {
+      const ppc = arch === 'ppc';
+      document.body.classList.toggle('platform-ppc', ppc);
+      document.body.classList.toggle('platform-m68k', !ppc);
+      const name = document.getElementById('platformName');
+      const sub = document.getElementById('platformSub');
+      if (name) name.textContent = ppc ? 'AmigaOS 4 · PowerPC' : 'Classic Amiga · 68k';
+      if (sub) sub.textContent = (prof ? `profile ${prof}` : 'default profile') + ` · port ${location.port || 80}`;
+      document.title = `${ppc ? 'OS4' : '68k'} DevBench :${location.port || 80}`;
     }
   } catch(e) { console.error('Failed to load config:', e); }
 }
