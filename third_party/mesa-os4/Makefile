@@ -58,6 +58,7 @@ headers:
 	cp $(MESA)/include/GL/gl.h $(MESA)/include/GL/glext.h \
 	   $(MESA)/include/GL/osmesa.h $(OUT)/include/GL/
 
+# builds the self-test only; it runs on the OS4 guest, not here
 TEST = test/osmesa_test
 test: $(TEST)
 $(TEST): test/osmesa_test.c $(LIB) headers

@@ -73,7 +73,7 @@ a NIC in the guest). Pass --no-net only when you deliberately
 want the serial-only path.
 
 Environment variables:
-  AUDIO             1 / coreaudio / wav:FILE - add an ES1370 sound card
+  AUDIO             1 (host default) / <backend> / wav:FILE - add an ES1370 sound card
   OS4_DIR           Directory containing OS4 files (default: ~/AmigaOS4)
   SERIAL_PORT       Serial TCP port (default: 2346)
   GDB_PORT          GDB stub port (default: 1234, needs --gdb to activate)
@@ -254,16 +254,40 @@ fi
 # an Ensoniq ES1370 (Sound Blaster PCI 64/128) on the PCI bus, which OS4
 # drives with Devs:AHI/sb128.audio (pick an SB128 mode for AHI unit 0 /
 # the default unit in Prefs/AHI).
-#   AUDIO=1 | AUDIO=coreaudio   play through the host's speakers (macOS)
+#   AUDIO=1                     the host's speakers: coreaudio on macOS,
+#                               else the first of pipewire/pa/alsa/sdl that
+#                               this QEMU build has
+#   AUDIO=<backend>             a QEMU -audiodev backend by name
 #   AUDIO=wav:/path/out.wav     record the guest's sound to a file
 case "${AUDIO:-}" in
     "")  AUDIO_STATUS="none (AUDIO=1 adds an ES1370)" ;;
     wav:*)
-        QEMU_CMD+=( -audiodev "wav,id=snd0,path=${AUDIO#wav:}" -device ES1370,audiodev=snd0 )
-        AUDIO_STATUS="ES1370 -> ${AUDIO#wav:}" ;;
+        _wav="${AUDIO#wav:}"
+        # -audiodev is a comma-separated list: a literal comma is ",,"
+        QEMU_CMD+=( -audiodev "wav,id=snd0,path=${_wav//,/,,}" -device "ES1370,audiodev=snd0" )
+        AUDIO_STATUS="ES1370 -> $_wav" ;;
     *)
-        _drv="$AUDIO"; [ "$_drv" = "1" ] && _drv=coreaudio
-        QEMU_CMD+=( -audiodev "${_drv},id=snd0" -device ES1370,audiodev=snd0 )
+        _drv="$AUDIO"
+        if [ "$_drv" = "1" ]; then
+            if [ "$(uname -s)" = "Darwin" ]; then
+                _drv=coreaudio
+            else
+                _have=$("$QEMU" -audiodev help 2>/dev/null)
+                _drv=""
+                for _b in pipewire pa alsa sdl; do
+                    if grep -qx "$_b" <<<"$_have"; then _drv=$_b; break; fi
+                done
+                if [ -z "$_drv" ]; then
+                    echo "Error: AUDIO=1 found no host audio backend in this QEMU; set AUDIO=<backend>"
+                    exit 1
+                fi
+            fi
+        fi
+        if [[ ! "$_drv" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "Error: AUDIO=$AUDIO is not a backend name (or 1, or wav:FILE)"
+            exit 1
+        fi
+        QEMU_CMD+=( -audiodev "${_drv},id=snd0" -device "ES1370,audiodev=snd0" )
         AUDIO_STATUS="ES1370 -> $_drv" ;;
 esac
 # Mouse mode. Two options:

@@ -28,12 +28,18 @@ fi
 
 if [ ! -d "Mesa-$VER" ]; then
     echo ">> extracting $TARBALL"
-    tar xjf "$TARBALL"
+    # extract and patch in a temp dir, so a failure never leaves a
+    # half-made tree that the next run would build
+    rm -rf "Mesa-$VER.tmp"
+    mkdir "Mesa-$VER.tmp"
+    tar xjf "$TARBALL" -C "Mesa-$VER.tmp"
     for p in patches/*.patch; do
         [ -f "$p" ] || continue
         echo ">> applying $p"
-        patch -d "Mesa-$VER" -p1 < "$p"
+        patch -d "Mesa-$VER.tmp/Mesa-$VER" -p1 < "$p"
     done
+    mv "Mesa-$VER.tmp/Mesa-$VER" "Mesa-$VER"
+    rmdir "Mesa-$VER.tmp"
 fi
 
 echo ">> building with $IMAGE (-j$JOBS)"
@@ -42,3 +48,6 @@ docker run --rm -v "$HERE":/work -w /work "$IMAGE" sh -c \
 
 echo
 ls -l out/lib/libOSMesa.a test/osmesa_test
+echo
+echo "test/osmesa_test was built, not run: copy it to the OS4 guest and run it"
+echo "there (it prints PASS/FAIL and returns 10 on failure)."
