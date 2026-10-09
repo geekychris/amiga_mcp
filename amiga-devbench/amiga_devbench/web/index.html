@@ -742,7 +742,7 @@
           </div>
         </div>
         <div class="card">
-          <h3>Emulator</h3>
+          <h3 id="emuCardTitle">Emulator</h3>
           <div class="stat-row"><span class="stat-label">Status</span><span class="stat-value" id="dashEmuStatus">--</span></div>
           <div class="stat-row"><span class="stat-label">PID</span><span class="stat-value" id="dashEmuPid">--</span></div>
           <div class="stat-row"><span class="stat-label">Uptime</span><span class="stat-value" id="dashEmuUptime">--</span></div>
@@ -2530,6 +2530,9 @@ function updateEmulatorStatus(data) {
   const statusEl = document.getElementById('dashEmuStatus');
   const pidEl = document.getElementById('dashEmuPid');
   const uptimeEl = document.getElementById('dashEmuUptime');
+  const title = document.getElementById('emuCardTitle');
+  if (title && data.kind)
+    title.textContent = data.kind === 'qemu' ? 'Emulator — QEMU (AmigaOS 4)' : 'Emulator — FS-UAE (classic Amiga)';
   if (data.running) {
     dot.className = 'emu-dot running';
     text.textContent = 'Emu: running';

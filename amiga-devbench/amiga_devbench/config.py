@@ -45,6 +45,14 @@ class DevBenchConfig:
     emulator_binary: str = "auto"
     emulator_config: str = "~/Documents/FS-UAE/Configurations/AmiKit-Debug.fs-uae"
     emulator_auto_start: bool = False
+    # When emulator_binary is a launcher script (scripts/start-qemu-os4.sh),
+    # the process to look for when telling whether the emulator is running
+    # (and to stop if devbench didn't start it), e.g. "qemu-system-ppc".
+    # Empty: the binary's own name.
+    emulator_process: str = ""
+    # Extra environment for the emulator process, e.g. {AUDIO = "1"} to give
+    # the QEMU launcher its ES1370 sound card.
+    emulator_env: dict[str, str] = field(default_factory=dict)
 
     # Remote emulator (SSH-driven). When emulator_ssh is set, devbench uses a
     # RemoteEmulatorController instead of spawning a local FS-UAE subprocess.
@@ -117,7 +125,8 @@ class DevBenchConfig:
 
     def resolve_paths(self) -> None:
         """Expand ~ and resolve relative paths."""
-        self.emulator_config = str(Path(self.emulator_config).expanduser())
+        if self.emulator_config:          # empty means none (the QEMU launcher takes no config)
+            self.emulator_config = str(Path(self.emulator_config).expanduser())
         if self.project_root:
             self.project_root = str(Path(self.project_root).resolve())
         if self.deploy_dir:
@@ -201,6 +210,10 @@ def apply_profile(cfg: DevBenchConfig, name: str) -> None:
         cfg.emulator_config = str(p["emulator_config"])
     if "emulator_binary" in p:
         cfg.emulator_binary = str(p["emulator_binary"])
+    if "emulator_process" in p:
+        cfg.emulator_process = str(p["emulator_process"])
+    if "emulator_env" in p and isinstance(p["emulator_env"], dict):
+        cfg.emulator_env = {str(k): str(v) for k, v in p["emulator_env"].items()}
     # Emulator (remote SSH-driven)
     for key in (
         "emulator_ssh", "emulator_start_cmd", "emulator_stop_cmd",
@@ -328,7 +341,8 @@ def apply_cli_overrides(cfg: DevBenchConfig, args: Any) -> None:
         cfg.log_level = args.log_level
     if getattr(args, "simulator", False):
         cfg.simulator = True
-
+    # a --profile applied here may set relative paths (emulator_binary)
+    cfg.resolve_paths()
 
 def _toml_escape(s: str) -> str:
     """Minimal TOML string escaping — enough for path/name values."""

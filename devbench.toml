@@ -62,6 +62,11 @@ port = 2347
 # the launcher script that knows the sam460ex drive layout + auto-resize.
 emulator_binary = "scripts/start-qemu-os4.sh"
 emulator_config = ""
+# The launcher waits on QEMU; this is the process devbench looks for to see
+# whether OS4 is running (and stops, if it was started some other way).
+emulator_process = "qemu-system-ppc"
+# AUDIO=1: an ES1370 sound card (AHI's SB128 driver); see start-qemu-os4.sh
+emulator_env = { AUDIO = "1" }
 auto_start_emulator = false   # Manual until dev HDF deploy is wired
 arch = "ppc"
 # docker_image intentionally unset — scripts/lib/ppc-image.sh picks

@@ -86,7 +86,8 @@ def discover_fsuae_binary(configured: str = "auto") -> tuple[str, bool]:
 
 
 class EmulatorManager:
-    """Manages the FS-UAE emulator process lifecycle."""
+    """Manages a local emulator process: FS-UAE, or a launcher script such as
+    scripts/start-qemu-os4.sh (then process_name names the QEMU it runs)."""
 
     def __init__(
         self,
@@ -94,6 +95,7 @@ class EmulatorManager:
         config_file: str = "",
         event_bus: EventBus | None = None,
         extra_env: dict[str, str] | None = None,
+        process_name: str = "",
     ) -> None:
         # Resolve "auto" sentinel up front so .get_status() reports the
         # real path and _find_external_pid() matches the actual binary name.
@@ -104,6 +106,7 @@ class EmulatorManager:
         self._config_file = config_file
         self._event_bus = event_bus
         self._extra_env = dict(extra_env) if extra_env else {}
+        self._process_name = process_name
         self._process: asyncio.subprocess.Process | None = None
         self._monitor_task: asyncio.Task | None = None
         self._started_at: float | None = None
@@ -134,9 +137,16 @@ class EmulatorManager:
             return self._process.pid
         return self._find_external_pid()
 
+    @property
+    def kind(self) -> str:
+        """What the emulator is, for the UI: "qemu" or "fs-uae"."""
+        name = (self._process_name or Path(self._binary).name).lower()
+        return "qemu" if "qemu" in name else "fs-uae"
+
     def _find_external_pid(self) -> int | None:
-        """Check if the emulator binary is running as an external process."""
-        binary_name = Path(self._binary).name
+        """Check if the emulator is running as an external process. For a
+        launcher script that's the emulator it starts (process_name)."""
+        binary_name = self._process_name or Path(self._binary).name
         try:
             import subprocess
             result = subprocess.run(
@@ -164,6 +174,8 @@ class EmulatorManager:
             "configured_binary": self._configured_binary,
             "patched": self._is_patched,
             "config": self._config_file,
+            "kind": self.kind,
+            "process": self._process_name or Path(self._binary).name,
         }
 
     async def start(self) -> bool:
@@ -225,6 +237,9 @@ class EmulatorManager:
         if not self.is_running:
             return True
 
+        if self._process is None or self._process.returncode is not None:
+            return await self._stop_external()
+
         pid = self._process.pid
         logger.info("Stopping emulator (pid %d)", pid)
 
@@ -260,6 +275,31 @@ class EmulatorManager:
 
         logger.info("Emulator stopped")
         return True
+
+    async def _stop_external(self) -> bool:
+        """Stop an emulator devbench didn't start (found by process name)."""
+        pid = self._find_external_pid()
+        if pid is None:
+            return True
+        logger.info("Stopping external emulator %s (pid %d)",
+                    self._process_name or Path(self._binary).name, pid)
+        for sig, wait in ((signal.SIGTERM, 8.0), (signal.SIGKILL, 3.0)):
+            try:
+                os.kill(pid, sig)
+            except (OSError, ProcessLookupError):
+                break
+            deadline = time.time() + wait
+            while time.time() < deadline:
+                await asyncio.sleep(0.25)
+                if self._find_external_pid() != pid:
+                    break
+            if self._find_external_pid() != pid:
+                break
+        self._process = None
+        self._started_at = None
+        if self._event_bus:
+            self._event_bus.publish("emulator_status", self.get_status())
+        return self._find_external_pid() != pid
 
     async def restart(self) -> bool:
         """Stop then start the emulator."""
