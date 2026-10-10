@@ -1,0 +1,23 @@
+# Minimal local setup. Copy to devbench.local.toml in the repository root.
+# This is a complete configuration, not an overlay on devbench.toml.
+
+[serial]
+mode = "tcp"
+host = "127.0.0.1"
+port = 1234
+
+[emulator]
+auto_start = false
+
+[server]
+port = 3000
+log_level = "INFO"
+
+[bridge]
+crash_handler_auto_enable = false
+
+[llm]
+enabled = false
+
+[fsuae_rpc]
+enabled = "off"

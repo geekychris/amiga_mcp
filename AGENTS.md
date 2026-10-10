@@ -94,25 +94,17 @@ python3 -m amiga_devbench --simulator   # Starts with fake Amiga on TCP 1234
 ```
 
 ## Codex MCP Config
-```json
-{
-  "mcpServers": {
-    "amiga-dev": {
-      "type": "streamable-http",
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
+Start the Python host server first, then register its HTTP endpoint:
+
+```bash
+codex mcp add amiga-dev --url http://localhost:3000/mcp
 ```
 
+Codex reads `config.toml`; the repository's `.mcp.json` is for Claude Code.
+See [MCP client setup](docs/using-the-mcp.md) for both clients and
+[installation](docs/quickstart.md) for the virtual environment and local config.
+
 ## Windows Quick Start
-1. Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)
-2. Install Python 3.10+ from [python.org](https://www.python.org/downloads/)
-3. Clone the repo (with submodules): `git clone --recurse-submodules <repo-url> && cd amiga_mcp` — or after cloning, run `git submodule update --init` to fetch the `examples/` submodule
-4. Install devbench: `pip install -e amiga-devbench`
-5. Pull cross-compiler: `docker pull amigadev/crosstools:m68k-amigaos`
-6. Build everything: `make all` (or use Docker directly on Windows: `docker run --rm -v %cd%:/work -w /work amigadev/crosstools:m68k-amigaos make -C amiga-bridge`)
-7. Install [FS-UAE](https://fs-uae.net/) or [WinUAE](https://www.winuae.net/), configure serial as TCP `127.0.0.1:1234`
-8. Edit `devbench.toml` — set `deploy_dir` to your emulator's shared folder path
-9. Start devbench: `python -m amiga_devbench`
-10. Configure Codex MCP (see above), then use `amiga_build_deploy_run` to iterate
+Follow [Install DevBench](docs/quickstart.md) for PowerShell commands using
+an isolated Python environment, then [MCP client setup](docs/using-the-mcp.md).
+Target-specific setup is in [Target setup](docs/targets.md).
