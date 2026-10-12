@@ -119,22 +119,23 @@ Amiga over a serial link.
 
 Before we go any further.  The purpose of this tool is to make the amazing amiga community productive with AI.  Here are some screenshots of games I clobbered together in an afternoon.  They are included as examples and as of publishing are terrible.  Go ahead make them better:
 
-Frank the frog
+Frank the Frog
 
-![img.png](doc_images/frank.png)
+![Frank the Frog: hop across the road and ride the lily-pad rafts](doc_images/frank_the_frog.png)
 
-Invaded
+Nova Defense
 
-![img_1.png](doc_images/invaded.png)
+![Nova Defense: hold back the alien swarm from behind crystal shields](doc_images/nova_defense.png)
 
-Moon kindalookaround
+Lunar Rider
 
-![img_2.png](doc_images/mooooon.png)
+![Lunar Rider: jump the craters on the way to the next zone](doc_images/lunar_rider.png)
 
-PacBro
-![img_3.png](doc_images/pac1.png)
+Dot Chase
 
-![img_4.png](doc_images/pac2.png)
+![Dot Chase title: a ladybug in the hedge maze](doc_images/dot_chase_title.png)
+
+![Dot Chase: the ladybug, the seeds and the four spiders](doc_images/dot_chase.png)
 
 ```mermaid
 graph LR

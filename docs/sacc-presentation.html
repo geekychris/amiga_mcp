@@ -102,7 +102,7 @@
       <div class="card">
         <h3>An Actual Prompt</h3>
         <p style="font-size:0.95em;color:#999;font-style:italic;">
-          "Create me a Planet Patrol game for the Amiga with multi-layer parallax scrolling,
+          "Create me an Orbital Patrol game for the Amiga with multi-layer parallax scrolling,
           ProTracker music, 6 enemy types, a scanner minimap, smart bombs, hyperspace,
           keyboard and joystick support, and a high score table saved to disk."
         </p>
@@ -167,16 +167,16 @@
   <div class="two-col" style="margin-top:12px;">
     <div>
       <div class="code-block" style="font-size:0.9em;"><span class="code-comment">// During a conversation, Claude can call:</span>
-<span class="code-fn">amiga_build</span>(<span class="code-string">"defender"</span>)             <span class="code-comment">// cross-compile via Docker</span>
-<span class="code-fn">amiga_deploy</span>(<span class="code-string">"defender"</span>)            <span class="code-comment">// copy binary to Amiga</span>
-<span class="code-fn">amiga_launch</span>(<span class="code-string">"DH2:Dev/defender"</span>)   <span class="code-comment">// start the program</span>
+<span class="code-fn">amiga_build</span>(<span class="code-string">"orbital_patrol"</span>)       <span class="code-comment">// cross-compile via Docker</span>
+<span class="code-fn">amiga_deploy</span>(<span class="code-string">"orbital_patrol"</span>)      <span class="code-comment">// copy binary to Amiga</span>
+<span class="code-fn">amiga_launch</span>(<span class="code-string">"DH2:Dev/orbital_patrol"</span>) <span class="code-comment">// start the program</span>
 <span class="code-fn">amiga_screenshot</span>()                  <span class="code-comment">// SEE the Amiga screen</span>
 <span class="code-fn">amiga_input_key</span>(<span class="code-string">"space"</span>)            <span class="code-comment">// press a key</span>
 <span class="code-fn">amiga_call_hook</span>(<span class="code-string">"status"</span>)           <span class="code-comment">// ask the app for state</span>
 <span class="code-fn">amiga_get_var</span>(<span class="code-string">"score"</span>)              <span class="code-comment">// read a live variable</span>
 <span class="code-fn">amiga_set_var</span>(<span class="code-string">"lives"</span>, <span class="code-string">"99"</span>)       <span class="code-comment">// write a live variable</span>
 <span class="code-fn">amiga_inspect_memory</span>(<span class="code-string">"$DFF000"</span>)    <span class="code-comment">// read custom chips</span>
-<span class="code-fn">amiga_log</span>(<span class="code-string">"defender"</span>)              <span class="code-comment">// read debug logs</span></div>
+<span class="code-fn">amiga_log</span>(<span class="code-string">"orbital_patrol"</span>)        <span class="code-comment">// read debug logs</span></div>
       <p style="font-size:1em;">Every tool returns structured data that Claude can reason about and act on.</p>
     </div>
     <div>
@@ -402,7 +402,7 @@
   <h2>The Agentic Development Loop</h2>
   <div class="two-col">
     <div>
-      <div class="flow-step"><div class="flow-num">1</div><div><span class="blue">Prompt:</span> "Build me a Planet Patrol game with parallax&hellip;"</div></div>
+      <div class="flow-step"><div class="flow-num">1</div><div><span class="blue">Prompt:</span> "Build me an Orbital Patrol game with parallax&hellip;"</div></div>
       <div class="flow-step"><div class="flow-num">2</div><div><span class="blue">Clarify:</span> Claude asks: scanner? enemy types? resolution?</div></div>
       <div class="flow-step"><div class="flow-num">3</div><div><span class="blue">Plan:</span> Explores codebase, studies existing patterns</div></div>
       <div class="flow-step"><div class="flow-num">4</div><div><span class="blue">Write:</span> Creates game.h, main.c, draw.c, input.c, sound.c&hellip;</div></div>
@@ -439,11 +439,11 @@
   <h2>What's Been Built</h2>
   <p>All created through AI-assisted development with DevBench</p>
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:16px;">
-    <div style="text-align:center;"><img src="../doc_images/frank.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Frank the Frog</p></div>
-    <div style="text-align:center;"><img src="../doc_images/invaded.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Alien Storm</p></div>
-    <div style="text-align:center;"><img src="../doc_images/mooooon.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Lunar Rider</p></div>
-    <div style="text-align:center;"><img src="../doc_images/pac1.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">PacBro</p></div>
-    <div style="text-align:center;"><img src="../doc_images/pac2.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">PacBro Gameplay</p></div>
+    <div style="text-align:center;"><img src="../doc_images/frank_the_frog.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Frank the Frog</p></div>
+    <div style="text-align:center;"><img src="../doc_images/nova_defense.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Nova Defense</p></div>
+    <div style="text-align:center;"><img src="../doc_images/lunar_rider.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Lunar Rider</p></div>
+    <div style="text-align:center;"><img src="../doc_images/dot_chase_title.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Dot Chase</p></div>
+    <div style="text-align:center;"><img src="../doc_images/dot_chase.png" class="screenshot" style="max-height:18vh;width:100%;object-fit:contain;"><p class="dim" style="font-size:0.8em;margin-top:4px;">Dot Chase Gameplay</p></div>
   </div>
   <div class="three-col" style="margin-top:16px;">
     <div class="stat">
@@ -461,15 +461,15 @@
   </div>
   <div style="margin-top:10px;text-align:center;">
     <span class="badge">Rock Blaster</span>
-    <span class="badge">Planet Patrol</span>
+    <span class="badge">Orbital Patrol</span>
     <span class="badge">Lunar Rider</span>
-    <span class="badge">Alien Storm</span>
-    <span class="badge">Pac-Man</span>
+    <span class="badge">Nova Defense</span>
+    <span class="badge">Dot Chase</span>
     <span class="badge">Sky Knights</span>
-    <span class="badge">Gold Rush</span>
-    <span class="badge">Tetris</span>
+    <span class="badge">Bullion Dash</span>
+    <span class="badge">StakAttack</span>
     <span class="badge">Ace Pilot 3D</span>
-    <span class="badge">Frogger</span>
+    <span class="badge">Frank the Frog</span>
     <span class="badge">Boing Ball</span>
     <span class="badge">Starfield</span>
     <span class="badge">Jump Quest</span>
