@@ -46,6 +46,7 @@ TypeScript project and `amiga-debug-lib/` are deprecated.
 | Use WinUAE or FS-UAE | [Dual-emulator setup](docs/winuae-and-fsuae.md) |
 | Connect an emulator or physical Amiga | [Target setup](docs/targets.md) |
 | Set up AmigaOS 4.1 on QEMU | [AmigaOS 4 setup](docs/amigaos4-setup.md) |
+| Use WinUAE native debugging | [WinUAE debugger](docs/winuae-debugger.md) |
 | Choose between guest and emulator debugging | [Debugger guide](docs/debuggers.md) |
 | Find a tool or API | [Documentation index](docs/README.md) |
 
@@ -62,7 +63,8 @@ The dashboard is at `http://localhost:3000/`; the MCP endpoint is
 AmigaOS 4 on port 3000 and classic 68k on port 3001. DevBench must stay
 running while clients use it.
 
-Most guest tools work through the bridge. Emulator-level `amiga_fsuae_*`
+Most guest tools work through the bridge. Native [WinUAE debugging](docs/winuae-debugger.md)
+uses WinUAE's built-in GDB server. Emulator-level `amiga_fsuae_*`
 tools separately require [patched FS-UAE](https://github.com/geekychris/fsuae_remote_patch).
 Installing the Python server does not install an emulator, ROM or AmigaOS.
 

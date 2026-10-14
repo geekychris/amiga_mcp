@@ -113,6 +113,15 @@ port = 11434
 scheme = "http"
 model = "nemotron"
 
+[winuae_debug]
+# WinUAE's built-in GDB server (WinUAE 6.1.0+), used by the WinUAE tab and the
+# amiga_winuae_* tools; see docs/winuae-debugger.md. Off by default. enabled
+# must be a boolean and port an integer; other types fail at startup. Profiles
+# can set winuae_debug_enabled, winuae_debug_host and winuae_debug_port.
+enabled = false
+host = "127.0.0.1"
+port = 2345  # WinUAE's default gdb_port
+
 [fsuae_rpc]
 # Remote-debug HTTP API exposed by the patched fs-uae build
 # (see https://github.com/geekychris/fsuae_remote_patch). Stock fs-uae

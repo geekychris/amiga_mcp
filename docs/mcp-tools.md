@@ -356,6 +356,25 @@ amiga_fsuae_breakpoint_add(addr="<CopyMem addr>", skip=999)
 amiga_fsuae_resume()
 ```
 
+### WinUAE Native Debugger (`amiga_winuae_*`)
+
+Tools that talk to WinUAE's built-in GDB server (WinUAE 6.1.0 or newer),
+configured in `[winuae_debug]`. Like the FS-UAE tools they work at the
+emulator level, without the bridge daemon. `amiga_winuae_control` with
+`action="connect"` attaches and pauses the CPU; most other tools require a
+paused CPU. The [WinUAE debugger guide](winuae-debugger.md) lists every tool,
+its behavior and the FS-UAE equivalents.
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `amiga_winuae_control` | `action`, `count?`, `hard?`, `resume?`, `timeout?` | Connect, pause, resume, step N, step over, step out, wait, reset |
+| `amiga_winuae_registers` | `register?`, `value?` | Read registers or write one, including USP, ISP and MSP |
+| `amiga_winuae_breakpoint` | `operation`, `address?`, `skip?`, `oneshot?`, `symbol?` | Breakpoints with hit counts; `symbol` uses `amiga_load_symbols` tables |
+| `amiga_winuae_watch` | `operation`, `address?`, `size?`, `access?`, `value?`, `mask?`, `change_only?` | Watches like `amiga_fsuae_watchpoint_*`, plus fetches and an access log |
+| `amiga_winuae_disassemble` | `address?`, `count?`, `annotate?`, `library?`, `source_xref?` | Disassembly with library-call names |
+| `amiga_winuae_custom` / `amiga_winuae_stack` / `amiga_winuae_lookup` / `amiga_winuae_fd` | — | Chipset, stack, address names and library offsets |
+| `amiga_winuae_checkpoint` / `amiga_winuae_snapshots` | `operation`, `path?` / `slot?` | State files and slots |
+
 ### REST API for fs-uae debugger
 
 The same operations are available as HTTP endpoints for shell-script / curl use:

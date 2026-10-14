@@ -99,9 +99,25 @@ def test_mcp_tool_registration_golden():
     expected = (FIXTURES / "mcp_tools_v94a8888.txt").read_text().split()
     assert len(expected) == 129
     actual = sorted(t.name for t in asyncio.run(mcp.list_tools()))
-    assert set(actual) - set(expected) == set(), "tools added"
+    added = {
+        "amiga_winuae_autosnap", "amiga_winuae_backtrace", "amiga_winuae_bitmap",
+        "amiga_winuae_breakpoint", "amiga_winuae_capture", "amiga_winuae_checkpoint",
+        "amiga_winuae_condition", "amiga_winuae_control", "amiga_winuae_copper",
+        "amiga_winuae_custom", "amiga_winuae_disassemble", "amiga_winuae_disk",
+        "amiga_winuae_dma_watch", "amiga_winuae_exception_stops", "amiga_winuae_fd",
+        "amiga_winuae_guest_output", "amiga_winuae_history", "amiga_winuae_hunk",
+        "amiga_winuae_input", "amiga_winuae_input_sequence", "amiga_winuae_inspect",
+        "amiga_winuae_key_tap", "amiga_winuae_load", "amiga_winuae_lookup",
+        "amiga_winuae_memory_search", "amiga_winuae_postmortem", "amiga_winuae_process_break",
+        "amiga_winuae_range_step", "amiga_winuae_read_memory", "amiga_winuae_registers",
+        "amiga_winuae_screenshot", "amiga_winuae_snapshot_diff", "amiga_winuae_snapshots",
+        "amiga_winuae_source", "amiga_winuae_stack", "amiga_winuae_symbol_read",
+        "amiga_winuae_symbols", "amiga_winuae_type_text", "amiga_winuae_variable",
+        "amiga_winuae_watch", "amiga_winuae_write_memory",
+    }
+    assert set(actual) - set(expected) == added, "unexpected tool additions"
     assert set(expected) - set(actual) == set(), "tools removed"
-    assert actual == expected
+    assert [name for name in actual if name not in added] == expected
 
 
 def test_ready_handshake_publishes_event_and_sends_nothing():

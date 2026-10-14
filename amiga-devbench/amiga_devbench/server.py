@@ -28,8 +28,11 @@ from .builder import Builder
 from .config import DevBenchConfig
 from .deployer import Deployer
 from . import file_transfer
-from .emulator import EmulatorManager
+from .emulator import EmulatorManager, winuae_launch_args
 from .fsuae_rpc import FsuaeRpcClient
+from .winuae_debug import WinuaeDebugger
+from .winuae_tools import init_winuae_tools
+from .winuae_api import make_winuae_endpoint
 from .mcp_tools import mcp, init_tools
 from .persistent_log import PersistentLog
 from .protocol import format_hex_dump, level_name
@@ -1070,7 +1073,7 @@ async def serve_static(request: Request) -> Response:
     filepath = web_dir / filename
     if not filepath.is_file():
         return Response("Not found", status_code=404)
-    content_types = {".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+    content_types = {".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".js": "text/javascript", ".css": "text/css"}
     ct = content_types.get(filepath.suffix, "application/octet-stream")
     return Response(filepath.read_bytes(), media_type=ct)
 
@@ -1145,8 +1148,18 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             extra_env={**_build_fsuae_env(cfg), **cfg.emulator_env},
             process_name=cfg.emulator_process,
         )
+        if _emulator.kind == "winuae":
+            _emulator.set_launch_args(winuae_launch_args(cfg))
     else:
         _emulator = EmulatorManager(event_bus=_event_bus)
+
+    winuae_debug = WinuaeDebugger(
+        host=cfg.winuae_debug_host if cfg else "127.0.0.1",
+        port=cfg.winuae_debug_port if cfg else 2345,
+        enabled=cfg.winuae_debug_enabled if cfg else False,
+    )
+    winuae_debug.emulator = _emulator if getattr(_emulator, "kind", "") == "winuae" else None
+    init_winuae_tools(winuae_debug)
 
     # FS-UAE remote-debug HTTP client (no-op against stock fs-uae)
     if cfg:
@@ -1475,6 +1488,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 _auto_snap.task.cancel()
 
             # Shutdown
+            await winuae_debug.aclose()
             if _gdb_server:
                 await _gdb_server.stop()
             if _fsuae_rpc:
@@ -4499,7 +4513,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
 
             method = request.method
             req_body = None
-            if method in ("POST", "PUT", "PATCH"):
+            # The WinUAE endpoint limits and reads its own bodies.
+            if method in ("POST", "PUT", "PATCH") and not path.startswith("/api/winuae/"):
                 try:
                     raw = await request.body()
                     if raw:
@@ -5294,6 +5309,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/emulator/config", api_emulator_config_save, methods=["POST"]),
         # Rescue-channel keystroke injector (macOS + QEMU cocoa + cliclick)
         Route("/api/hostkey", api_hostkey, methods=["POST"]),
+        # Native WinUAE debugger, shared with MCP tools.
+        Route("/api/winuae/{action}", make_winuae_endpoint(winuae_debug), methods=["GET", "POST"]),
         # FS-UAE remote-debug RPC (patched fs-uae only; degrades gracefully)
         Route("/api/fsuae/status", api_fsuae_status, methods=["GET"]),
         Route("/api/fsuae/probe", api_fsuae_probe, methods=["POST"]),
