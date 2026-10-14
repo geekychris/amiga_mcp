@@ -2,14 +2,14 @@
 
 [Install DevBench](quickstart.md) · [Documentation index](README.md)
 
-DevBench's guest bridge can serve either emulator. Its native debugger API
-currently targets patched FS-UAE; WinUAE's GDB server is a different protocol
-and is not a replacement for the bridge connection.
+DevBench's guest bridge can serve either emulator. Native debugging uses separate backends:
+WinUAE GDB and patched FS-UAE HTTP. Neither replaces the guest bridge
+connection for files and AmigaDOS commands.
 
 | Feature | WinUAE | FS-UAE |
 |---|---|---|
 | Guest files, commands, tasks and registered application variables | `amiga-bridge` in the guest | `amiga-bridge` in the guest |
-| `amiga_fsuae_*` tools and FS-UAE dashboard tab | Not supported by this backend | Requires patched FS-UAE |
+| Native debugger tools and dashboard | `amiga_winuae_*` / WinUAE tab, requires WinUAE 6.1.0 | `amiga_fsuae_*` / FS-UAE tab, requires patched build |
 | Local launch through DevBench's emulator manager | Launch WinUAE separately | FS-UAE-oriented launcher |
 
 ## Keep separate profiles
@@ -118,6 +118,11 @@ connection is not automatically retried.
 
 Check `/health` for a recent heartbeat, then call `amiga_ping` through MCP.
 This verifies the guest bridge, independently of native debugger support.
+
+## Optional WinUAE native debugger
+
+Follow the [WinUAE debugger guide](winuae-debugger.md) to enable the separate
+GDB connection and use the WinUAE tab or `amiga_winuae_*` tools.
 
 ## Optional FS-UAE native debugger
 

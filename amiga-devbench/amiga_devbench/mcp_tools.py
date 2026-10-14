@@ -40,6 +40,9 @@ _emulator: Any = None  # EmulatorManager | RemoteEmulatorController | None
 
 mcp = FastMCP("amiga-dev")
 
+from .winuae_tools import register_winuae_tools
+register_winuae_tools(mcp)
+
 
 def init_tools(
     conn: SerialConnection,
