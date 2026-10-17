@@ -524,7 +524,7 @@ class SerialConnection:
             raw_msg = msg["message"]
             # Check for test harness messages embedded in CLOG
             if raw_msg.startswith("TEST_"):
-                test_parsed = protocol.parse_message(raw_msg)
+                test_parsed = parse_message(raw_msg)
                 if test_parsed:
                     test_parsed["client"] = msg.get("client", "")
                     test_parsed["timestamp"] = msg["timestamp"]

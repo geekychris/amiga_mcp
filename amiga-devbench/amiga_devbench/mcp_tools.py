@@ -1792,16 +1792,23 @@ async def amiga_run_tests(project: str, command: str | None = None) -> str:
     import asyncio
     conn, state, bus = _require_connected()
 
-    # Build and deploy
-    from . import builder
-    build_result = await builder.build_project(project)
-    if "error" in build_result.get("status", "").lower():
-        return f"Build failed: {build_result.get('output', '?')}"
+    # Build and deploy. A project may build its tests as a separate binary
+    # (command); deploy that one if it exists, else the project's binary.
+    assert _builder is not None and _deployer is not None
+    build_result = await _builder.build(project)
+    if not build_result.success:
+        return f"Build failed ({build_result.duration}ms)\n{build_result.errors}"
 
-    await builder.deploy_project(project)
+    cmd_name = command or project.rstrip("/").split("/")[-1]
+    test_bin = _deployer._root / project / cmd_name
+    if test_bin.is_file():
+        deploy_result = _deployer.deploy_file(str(test_bin), cmd_name)
+    else:
+        deploy_result = await _deployer.deploy_smart(project, conn=_conn, bus=_event_bus)
+    if not deploy_result.success:
+        return f"Build OK but deploy failed: {deploy_result.message}"
 
     # Stop any previous instance
-    cmd_name = command or project
     conn.send({"type": "STOP", "name": cmd_name})
     await asyncio.sleep(0.5)
 

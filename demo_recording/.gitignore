@@ -1,0 +1,15 @@
+# Raw screen recordings, crops, the rough cut and render intermediates stay
+# local: the full-screen captures show the whole desktop (mail, other apps),
+# and they are hundreds of MB. Only the final narrated short is committed.
+video/*
+!video/terra_strike_short.mp4
+!video/terra_strike_short.srt
+!video/terra_strike_short_beats.json
+
+# full-desktop screenshots (window layout checks)
+shots/layout_check*.png
+
+# recorder / MCP client state
+.rec.pid
+.rec.seg
+.mcp_session

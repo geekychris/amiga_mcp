@@ -1,0 +1,552 @@
+{"t": 1792175577.156, "iso": "2026-10-16T11:32:57.155", "kind": "session_start", "label": "Demo session start", "note": "user prompt received ~11:30"}
+{"t": 1792175674.323, "iso": "2026-10-16T11:34:34.323", "kind": "rec_start", "label": "113434-01-recon-and-design", "note": ""}
+{"t": 1792175674.354, "iso": "2026-10-16T11:34:34.354", "kind": "phase", "label": "Recon", "note": "devbench :3001 up, bridge heartbeat green, MCP 129 tools; studied ace_pilot 3D engine + ptplayer"}
+{"t": 1792175679.348, "iso": "2026-10-16T11:34:39.348", "kind": "mcp", "label": "amiga_ping", "note": "{}"}
+{"t": 1792175679.4, "iso": "2026-10-16T11:34:39.400", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792175679.454, "iso": "2026-10-16T11:34:39.453", "kind": "mcp", "label": "amiga_proc_list", "note": "{}"}
+{"t": 1792175680.833, "iso": "2026-10-16T11:34:40.833", "kind": "mcp", "label": "amiga_list_tasks", "note": "{}"}
+{"t": 1792175816.286, "iso": "2026-10-16T11:36:56.285", "kind": "phase", "label": "Design", "note": "Terra Strike: Zarch-like; portable logic (ts_*.c) + Amiga render/main; tests shared host+Amiga"}
+{"t": 1792176133.239, "iso": "2026-10-16T11:42:13.238", "kind": "test", "label": "Host unit tests run 1: 54/58 pass", "note": "combat: shots fall short of the tank; ship shells don't reach the craft"}
+{"t": 1792176160.731, "iso": "2026-10-16T11:42:40.730", "kind": "test", "label": "Host unit tests run 2: 60/60 pass", "note": "fixed enemy fire timer bug found by tests"}
+{"t": 1792176166.942, "iso": "2026-10-16T11:42:46.942", "kind": "test", "label": "CORRECTION: run 2 had 1 fail (new fire-rate test, craft respawned out of range); run 3: 60/60 pass", "note": ""}
+{"t": 1792176550.89, "iso": "2026-10-16T11:49:10.889", "kind": "phase", "label": "Code written", "note": "ts_math/terrain/world (portable), models, render, main, sound, tests; first cross-compile next"}
+{"t": 1792176555.193, "iso": "2026-10-16T11:49:15.192", "kind": "rec_stop", "label": "113434-01-recon-and-design", "note": ""}
+{"t": 1792176555.228, "iso": "2026-10-16T11:49:15.228", "kind": "rec_start", "label": "114915-02-build-deploy-run", "note": ""}
+{"t": 1792176555.274, "iso": "2026-10-16T11:49:15.274", "kind": "mcp", "label": "amiga_build", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176562.794, "iso": "2026-10-16T11:49:22.793", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176570.834, "iso": "2026-10-16T11:49:30.834", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792176583.727, "iso": "2026-10-16T11:49:43.726", "kind": "milestone", "label": "FIRST LAUNCH works: title flyover renders", "note": "fps=5 - too slow; text JAM2 boxes"}
+{"t": 1792176583.772, "iso": "2026-10-16T11:49:43.771", "kind": "mcp", "label": "amiga_perf_report", "note": "{}"}
+{"t": 1792176583.824, "iso": "2026-10-16T11:49:43.823", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792176584.015, "iso": "2026-10-16T11:49:44.015", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"polys\"}"}
+{"t": 1792176586.543, "iso": "2026-10-16T11:49:46.543", "kind": "mcp", "label": "amiga_perf_report", "note": "{\"client\": \"terra_strike\"}"}
+{"t": 1792176616.811, "iso": "2026-10-16T11:50:16.811", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176627.972, "iso": "2026-10-16T11:50:27.971", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792176628.182, "iso": "2026-10-16T11:50:28.182", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_update\"}"}
+{"t": 1792176628.541, "iso": "2026-10-16T11:50:28.541", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_build\"}"}
+{"t": 1792176628.9, "iso": "2026-10-16T11:50:28.900", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_draw\"}"}
+{"t": 1792176629.263, "iso": "2026-10-16T11:50:29.263", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_hud\"}"}
+{"t": 1792176629.622, "iso": "2026-10-16T11:50:29.622", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"polys\"}"}
+{"t": 1792176667.751, "iso": "2026-10-16T11:51:07.751", "kind": "perf", "label": "Bridge perf vars: us_draw=159046 us_build=2241 us_hud=13765 fps=5", "note": "AreaFill ~0.94ms/poly -> replace with CPU planar span filler"}
+{"t": 1792176686.701, "iso": "2026-10-16T11:51:26.700", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176695.825, "iso": "2026-10-16T11:51:35.825", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792176700.881, "iso": "2026-10-16T11:51:40.880", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_build\"}"}
+{"t": 1792176705.939, "iso": "2026-10-16T11:51:45.939", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_draw\"}"}
+{"t": 1792176710.995, "iso": "2026-10-16T11:51:50.995", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_hud\"}"}
+{"t": 1792176719.436, "iso": "2026-10-16T11:51:59.436", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792176719.499, "iso": "2026-10-16T11:51:59.498", "kind": "mcp", "label": "amiga_last_crash", "note": "{}"}
+{"t": 1792176738.056, "iso": "2026-10-16T11:52:18.056", "kind": "perf", "label": "CPU span filler: fps 5 -> 27 (screen)", "note": "bridge registration raced old instance shutdown -> add ab_init retry"}
+{"t": 1792176738.096, "iso": "2026-10-16T11:52:18.096", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176746.031, "iso": "2026-10-16T11:52:26.031", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792176746.202, "iso": "2026-10-16T11:52:26.202", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792176746.455, "iso": "2026-10-16T11:52:26.455", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_update\"}"}
+{"t": 1792176746.694, "iso": "2026-10-16T11:52:26.693", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_build\"}"}
+{"t": 1792176746.938, "iso": "2026-10-16T11:52:26.938", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_draw\"}"}
+{"t": 1792176747.172, "iso": "2026-10-16T11:52:27.172", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_hud\"}"}
+{"t": 1792176747.411, "iso": "2026-10-16T11:52:27.411", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"polys\"}"}
+{"t": 1792176771.657, "iso": "2026-10-16T11:52:51.656", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176780.543, "iso": "2026-10-16T11:53:00.543", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792176780.818, "iso": "2026-10-16T11:53:00.817", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_build\"}"}
+{"t": 1792176781.139, "iso": "2026-10-16T11:53:01.138", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_draw\"}"}
+{"t": 1792176781.418, "iso": "2026-10-16T11:53:01.417", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_hud\"}"}
+{"t": 1792176787.577, "iso": "2026-10-16T11:53:07.576", "kind": "perf", "label": "HUD line cache: fps 32 on title, us_draw 18.5ms us_hud 9.9ms", "note": ""}
+{"t": 1792176787.832, "iso": "2026-10-16T11:53:07.832", "kind": "rec_stop", "label": "114915-02-build-deploy-run", "note": ""}
+{"t": 1792176787.867, "iso": "2026-10-16T11:53:07.866", "kind": "rec_start", "label": "115307-03-gameplay-key-injection", "note": ""}
+{"t": 1792176787.897, "iso": "2026-10-16T11:53:07.897", "kind": "phase", "label": "Gameplay test via key injection", "note": ""}
+{"t": 1792176787.942, "iso": "2026-10-16T11:53:07.942", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792176803.608, "iso": "2026-10-16T11:53:23.608", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792176803.857, "iso": "2026-10-16T11:53:23.857", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792176804.555, "iso": "2026-10-16T11:53:24.555", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"state\"}"}
+{"t": 1792176804.841, "iso": "2026-10-16T11:53:24.840", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"pstate\"}"}
+{"t": 1792176805.126, "iso": "2026-10-16T11:53:25.126", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792176806.767, "iso": "2026-10-16T11:53:26.766", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792176807.292, "iso": "2026-10-16T11:53:27.292", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"pstate\"}"}
+{"t": 1792176807.576, "iso": "2026-10-16T11:53:27.576", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"alt\"}"}
+{"t": 1792176807.815, "iso": "2026-10-16T11:53:27.814", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fuel\"}"}
+{"t": 1792176814.427, "iso": "2026-10-16T11:53:34.427", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"down\"}"}
+{"t": 1792176815.616, "iso": "2026-10-16T11:53:35.616", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"up\"}"}
+{"t": 1792176816.422, "iso": "2026-10-16T11:53:36.421", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"speed\"}"}
+{"t": 1792176816.662, "iso": "2026-10-16T11:53:36.661", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"alt\"}"}
+{"t": 1792176816.901, "iso": "2026-10-16T11:53:36.900", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792176817.144, "iso": "2026-10-16T11:53:37.143", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_draw\"}"}
+{"t": 1792176817.381, "iso": "2026-10-16T11:53:37.380", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_hud\"}"}
+{"t": 1792176844.797, "iso": "2026-10-16T11:54:04.796", "kind": "bug", "label": "Black dashed cracks at screen edges: clip T-junction (opposite winding rounds differently)", "note": "fix: interpolate from inside endpoint; regression test added"}
+{"t": 1792176850.679, "iso": "2026-10-16T11:54:10.679", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792176862.287, "iso": "2026-10-16T11:54:22.286", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792176869.947, "iso": "2026-10-16T11:54:29.947", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792176873.688, "iso": "2026-10-16T11:54:33.687", "kind": "mcp", "label": "amiga_proc_list", "note": "{}"}
+{"t": 1792176873.741, "iso": "2026-10-16T11:54:33.740", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792176876.807, "iso": "2026-10-16T11:54:36.806", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792176881.603, "iso": "2026-10-16T11:54:41.603", "kind": "devbench-note", "label": "amiga_run LAUNCH got no response once (client still shutting down); manual amiga_launch fixed it", "note": ""}
+{"t": 1792176881.645, "iso": "2026-10-16T11:54:41.644", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792176894.59, "iso": "2026-10-16T11:54:54.589", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792176894.782, "iso": "2026-10-16T11:54:54.782", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"down\"}"}
+{"t": 1792176895.589, "iso": "2026-10-16T11:54:55.588", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"up\"}"}
+{"t": 1792176898.421, "iso": "2026-10-16T11:54:58.421", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792176898.61, "iso": "2026-10-16T11:54:58.610", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"score\"}"}
+{"t": 1792176898.889, "iso": "2026-10-16T11:54:58.888", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"targets\"}"}
+{"t": 1792176899.111, "iso": "2026-10-16T11:54:59.111", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"speed\"}"}
+{"t": 1792176899.372, "iso": "2026-10-16T11:54:59.371", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"alt\"}"}
+{"t": 1792176899.609, "iso": "2026-10-16T11:54:59.609", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"shield\"}"}
+{"t": 1792176924.136, "iso": "2026-10-16T11:55:24.136", "kind": "mcp", "label": "amiga_get_palette", "note": "{}"}
+{"t": 1792176943.864, "iso": "2026-10-16T11:55:43.863", "kind": "mcp", "label": "amiga_set_var", "note": "{\"name\": \"god_mode\", \"value\": \"1\"}"}
+{"t": 1792176943.915, "iso": "2026-10-16T11:55:43.915", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"city\"}"}
+{"t": 1792177013.243, "iso": "2026-10-16T11:56:53.243", "kind": "fix", "label": "Aim assist + debris pens + red tanks; host tests 67/67", "note": ""}
+{"t": 1792177013.285, "iso": "2026-10-16T11:56:53.285", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792177020.776, "iso": "2026-10-16T11:57:00.775", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177022.905, "iso": "2026-10-16T11:57:02.904", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792177023.87, "iso": "2026-10-16T11:57:03.869", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177026.236, "iso": "2026-10-16T11:57:06.235", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177026.57, "iso": "2026-10-16T11:57:06.569", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"score\"}"}
+{"t": 1792177026.845, "iso": "2026-10-16T11:57:06.845", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"targets\"}"}
+{"t": 1792177027.085, "iso": "2026-10-16T11:57:07.085", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"shield\"}"}
+{"t": 1792177036.58, "iso": "2026-10-16T11:57:16.580", "kind": "milestone", "label": "FIRST KILL via key injection: tank destroyed, score 100", "note": ""}
+{"t": 1792177036.622, "iso": "2026-10-16T11:57:16.621", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"sea\"}"}
+{"t": 1792177038.068, "iso": "2026-10-16T11:57:18.068", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177040.779, "iso": "2026-10-16T11:57:20.779", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177041.112, "iso": "2026-10-16T11:57:21.111", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\"}"}
+{"t": 1792177068.517, "iso": "2026-10-16T11:57:48.517", "kind": "bug", "label": "Transient wrong colours = blitter clearing the DISPLAYED buffer (double-buffer SafeMessage wait off by one, inherited from ace_pilot)", "note": "evidence: shadow pen31 shown as pen30 = plane0 cleared; fixed swap_buffers"}
+{"t": 1792177068.558, "iso": "2026-10-16T11:57:48.557", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792177075.197, "iso": "2026-10-16T11:57:55.197", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177078.272, "iso": "2026-10-16T11:57:58.271", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792177086.948, "iso": "2026-10-16T11:58:06.947", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"sea\"}"}
+{"t": 1792177087.732, "iso": "2026-10-16T11:58:07.732", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"down\"}"}
+{"t": 1792177090.037, "iso": "2026-10-16T11:58:10.037", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"up\"}"}
+{"t": 1792177099.969, "iso": "2026-10-16T11:58:19.968", "kind": "milestone", "label": "Double buffer fix verified: 6-frame burst clean, 22-25 fps vsync", "note": ""}
+{"t": 1792177100.225, "iso": "2026-10-16T11:58:20.225", "kind": "rec_stop", "label": "115307-03-gameplay-key-injection", "note": ""}
+{"t": 1792177100.259, "iso": "2026-10-16T11:58:20.259", "kind": "rec_start", "label": "115820-04-amiga-unit-tests", "note": ""}
+{"t": 1792177100.305, "iso": "2026-10-16T11:58:20.305", "kind": "mcp", "label": "amiga_run_tests", "note": "{\"project\": \"examples/terra_strike\", \"command\": \"terra_strike_test\"}"}
+{"t": 1792177145.71, "iso": "2026-10-16T11:59:05.710", "kind": "devbench-fix", "label": "amiga_run_tests called nonexistent builder.build_project -> fixed in mcp_tools.py; devbench restart also restarted FS-UAE (child process)", "note": ""}
+{"t": 1792177146.686, "iso": "2026-10-16T11:59:06.685", "kind": "mcp", "label": "amiga_run_tests", "note": "{\"project\": \"examples/terra_strike\", \"command\": \"terra_strike_test\"}"}
+{"t": 1792177193.202, "iso": "2026-10-16T11:59:53.202", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177193.256, "iso": "2026-10-16T11:59:53.256", "kind": "mcp", "label": "amiga_ping", "note": "{}"}
+{"t": 1792177211.972, "iso": "2026-10-16T12:00:11.971", "kind": "bug", "label": "On-Amiga tests: devbench wire log shows TEST_BEGIN then 'disconnected' - assertion burst overruns serial/TCP", "note": "pace check() with Delay(2)"}
+{"t": 1792177212.012, "iso": "2026-10-16T12:00:12.011", "kind": "mcp", "label": "amiga_run_tests", "note": "{\"project\": \"examples/terra_strike\", \"command\": \"terra_strike_test\"}"}
+{"t": 1792177274.652, "iso": "2026-10-16T12:01:14.651", "kind": "devbench-fix", "label": "serial_conn.py: protocol.parse_message NameError on TEST_ lines killed TCP read loop -> parse_message; restarted devbench with SIGKILL (FS-UAE survives)", "note": ""}
+{"t": 1792177274.695, "iso": "2026-10-16T12:01:14.694", "kind": "mcp", "label": "amiga_run_tests", "note": "{\"project\": \"examples/terra_strike\", \"command\": \"terra_strike_test\"}"}
+{"t": 1792177285.553, "iso": "2026-10-16T12:01:25.552", "kind": "milestone", "label": "ON-AMIGA UNIT TESTS: 67/67 pass via amiga_run_tests (68060 FS-UAE)", "note": "pacing wasn't the cause; comment corrected"}
+{"t": 1792177339.541, "iso": "2026-10-16T12:02:19.541", "kind": "rec_stop", "label": "115820-04-amiga-unit-tests", "note": ""}
+{"t": 1792177339.577, "iso": "2026-10-16T12:02:19.577", "kind": "rec_start", "label": "120219-05-e2e-devbench-test", "note": ""}
+{"t": 1792177339.609, "iso": "2026-10-16T12:02:19.608", "kind": "phase", "label": "E2E devbench test (build->selftest->keys->scenes->tuning->memregion->level clear->game over->stop)", "note": ""}
+{"t": 1792177339.68, "iso": "2026-10-16T12:02:19.679", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792177348.185, "iso": "2026-10-16T12:02:28.185", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792177348.543, "iso": "2026-10-16T12:02:28.542", "kind": "e2e", "label": "in-game self-test hook", "note": ""}
+{"t": 1792177353.582, "iso": "2026-10-16T12:02:33.581", "kind": "e2e", "label": "title screen and music", "note": ""}
+{"t": 1792177358.548, "iso": "2026-10-16T12:02:38.547", "kind": "e2e", "label": "key injection: start and lift off", "note": ""}
+{"t": 1792177361.578, "iso": "2026-10-16T12:02:41.577", "kind": "e2e", "label": "scene hook: tank battle, fire with aim assist", "note": ""}
+{"t": 1792177365.773, "iso": "2026-10-16T12:02:45.773", "kind": "e2e", "label": "scene hook: ships at sea", "note": ""}
+{"t": 1792177369.846, "iso": "2026-10-16T12:02:49.846", "kind": "e2e", "label": "landing on the pad", "note": ""}
+{"t": 1792177375.637, "iso": "2026-10-16T12:02:55.636", "kind": "e2e", "label": "live tuning through bridge variables", "note": ""}
+{"t": 1792177377.457, "iso": "2026-10-16T12:02:57.456", "kind": "e2e", "label": "memory region: heightmap", "note": ""}
+{"t": 1792177377.57, "iso": "2026-10-16T12:02:57.570", "kind": "e2e", "label": "level clear", "note": ""}
+{"t": 1792177383.338, "iso": "2026-10-16T12:03:03.337", "kind": "e2e", "label": "game over", "note": ""}
+{"t": 1792177392.654, "iso": "2026-10-16T12:03:12.653", "kind": "e2e", "label": "status hook, process list, stop", "note": ""}
+{"t": 1792177424.5, "iso": "2026-10-16T12:03:44.500", "kind": "fix", "label": "e2e run 2: 28/30. selftest -> async (hook queues, main loop runs); memregion retry (VAR err cross-talk; bridge caps reads at 256B)", "note": ""}
+{"t": 1792177424.572, "iso": "2026-10-16T12:03:44.571", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792177428.783, "iso": "2026-10-16T12:03:48.782", "kind": "e2e", "label": "in-game self-test hook", "note": ""}
+{"t": 1792177432.043, "iso": "2026-10-16T12:03:52.043", "kind": "e2e", "label": "title screen and music", "note": ""}
+{"t": 1792177436.66, "iso": "2026-10-16T12:03:56.659", "kind": "e2e", "label": "key injection: start and lift off", "note": ""}
+{"t": 1792177445.713, "iso": "2026-10-16T12:04:05.712", "kind": "e2e", "label": "scene hook: tank battle, fire with aim assist", "note": ""}
+{"t": 1792177460.743, "iso": "2026-10-16T12:04:20.743", "kind": "e2e", "label": "scene hook: ships at sea", "note": ""}
+{"t": 1792177476.441, "iso": "2026-10-16T12:04:36.441", "kind": "e2e", "label": "landing on the pad", "note": ""}
+{"t": 1792177485.78, "iso": "2026-10-16T12:04:45.779", "kind": "e2e", "label": "live tuning through bridge variables", "note": ""}
+{"t": 1792177488.173, "iso": "2026-10-16T12:04:48.173", "kind": "e2e", "label": "memory region: heightmap", "note": ""}
+{"t": 1792177488.482, "iso": "2026-10-16T12:04:48.481", "kind": "e2e", "label": "level clear", "note": ""}
+{"t": 1792177503.553, "iso": "2026-10-16T12:05:03.552", "kind": "e2e", "label": "game over", "note": ""}
+{"t": 1792177524.286, "iso": "2026-10-16T12:05:24.286", "kind": "e2e", "label": "status hook, process list, stop", "note": ""}
+{"t": 1792177576.066, "iso": "2026-10-16T12:06:16.065", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177576.121, "iso": "2026-10-16T12:06:16.120", "kind": "mcp", "label": "amiga_client_info", "note": "{\"client\": \"miner-meteor\"}"}
+{"t": 1792177585.149, "iso": "2026-10-16T12:06:25.149", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"miner-meteor\"}"}
+{"t": 1792177585.193, "iso": "2026-10-16T12:06:25.193", "kind": "bug", "label": "Wrong var values: a 2nd bridge client (miner-meteor, auto-launched by the Amiga's Launcher) registered score/level/lives; GETVAR/SETVAR have no client field so they hit it", "note": "stopped it via amiga_stop_client; e2e now stops foreign clients first"}
+{"t": 1792177585.283, "iso": "2026-10-16T12:06:25.282", "kind": "e2e", "label": "clean slate: stop other bridge clients", "note": ""}
+{"t": 1792177585.336, "iso": "2026-10-16T12:06:25.335", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792177589.454, "iso": "2026-10-16T12:06:29.454", "kind": "e2e", "label": "in-game self-test hook", "note": ""}
+{"t": 1792177592.752, "iso": "2026-10-16T12:06:32.751", "kind": "e2e", "label": "title screen and music", "note": ""}
+{"t": 1792177597.184, "iso": "2026-10-16T12:06:37.183", "kind": "e2e", "label": "key injection: start and lift off", "note": ""}
+{"t": 1792177606.488, "iso": "2026-10-16T12:06:46.488", "kind": "e2e", "label": "scene hook: tank battle, fire with aim assist", "note": ""}
+{"t": 1792177621.127, "iso": "2026-10-16T12:07:01.126", "kind": "e2e", "label": "scene hook: ships at sea", "note": ""}
+{"t": 1792177637.442, "iso": "2026-10-16T12:07:17.441", "kind": "e2e", "label": "landing on the pad", "note": ""}
+{"t": 1792177646.725, "iso": "2026-10-16T12:07:26.725", "kind": "e2e", "label": "live tuning through bridge variables", "note": ""}
+{"t": 1792177649.122, "iso": "2026-10-16T12:07:29.122", "kind": "e2e", "label": "memory region: heightmap", "note": ""}
+{"t": 1792177649.385, "iso": "2026-10-16T12:07:29.384", "kind": "e2e", "label": "level clear", "note": ""}
+{"t": 1792177664.889, "iso": "2026-10-16T12:07:44.889", "kind": "e2e", "label": "game over", "note": ""}
+{"t": 1792177685.879, "iso": "2026-10-16T12:08:05.878", "kind": "e2e", "label": "status hook, process list, stop", "note": ""}
+{"t": 1792177692.34, "iso": "2026-10-16T12:08:12.339", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792177695.468, "iso": "2026-10-16T12:08:15.468", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177695.534, "iso": "2026-10-16T12:08:15.533", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"start\"}"}
+{"t": 1792177695.785, "iso": "2026-10-16T12:08:15.785", "kind": "mcp", "label": "amiga_set_var", "note": "{\"name\": \"score\", \"value\": \"4242\"}"}
+{"t": 1792177696.342, "iso": "2026-10-16T12:08:16.341", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"score\"}"}
+{"t": 1792177696.519, "iso": "2026-10-16T12:08:16.519", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\"}"}
+{"t": 1792177705.073, "iso": "2026-10-16T12:08:25.073", "kind": "mcp", "label": "amiga_list_tasks", "note": "{}"}
+{"t": 1792177705.135, "iso": "2026-10-16T12:08:25.135", "kind": "mcp", "label": "amiga_list_screens", "note": "{}"}
+{"t": 1792177705.207, "iso": "2026-10-16T12:08:25.206", "kind": "mcp", "label": "amiga_client_info", "note": "{\"client\": \"miner-meteor\"}"}
+{"t": 1792177710.48, "iso": "2026-10-16T12:08:30.480", "kind": "mcp", "label": "amiga_read_file", "note": "{\"path\": \"S:User-Startup\"}"}
+{"t": 1792177721.101, "iso": "2026-10-16T12:08:41.101", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Status\"}"}
+{"t": 1792177725.043, "iso": "2026-10-16T12:08:45.043", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Break 4 C\"}"}
+{"t": 1792177725.684, "iso": "2026-10-16T12:08:45.683", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"miner-meteor\"}"}
+{"t": 1792177727.797, "iso": "2026-10-16T12:08:47.797", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Status\"}"}
+{"t": 1792177728.317, "iso": "2026-10-16T12:08:48.317", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177742.557, "iso": "2026-10-16T12:09:02.557", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792177744.128, "iso": "2026-10-16T12:09:04.128", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"down\"}"}
+{"t": 1792177744.321, "iso": "2026-10-16T12:09:04.321", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"up\"}"}
+{"t": 1792177746.428, "iso": "2026-10-16T12:09:06.428", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Status\"}"}
+{"t": 1792177746.914, "iso": "2026-10-16T12:09:06.913", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792177755.076, "iso": "2026-10-16T12:09:15.075", "kind": "bug", "label": "ROOT CAUSE: examples/launcher (from User-Startup) has a global input handler; it queued our injected Return and launched miner_meteor when our game closed", "note": "found via amiga_dos_command Status; quit it with injected Esc"}
+{"t": 1792177755.168, "iso": "2026-10-16T12:09:15.167", "kind": "e2e", "label": "clean slate: stop other bridge clients", "note": ""}
+{"t": 1792177756.08, "iso": "2026-10-16T12:09:16.080", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792177759.887, "iso": "2026-10-16T12:09:19.887", "kind": "e2e", "label": "in-game self-test hook", "note": ""}
+{"t": 1792177761.043, "iso": "2026-10-16T12:09:21.043", "kind": "e2e", "label": "title screen and music", "note": ""}
+{"t": 1792177762.597, "iso": "2026-10-16T12:09:22.596", "kind": "e2e", "label": "key injection: start and lift off", "note": ""}
+{"t": 1792177765.611, "iso": "2026-10-16T12:09:25.610", "kind": "e2e", "label": "scene hook: tank battle, fire with aim assist", "note": ""}
+{"t": 1792177769.807, "iso": "2026-10-16T12:09:29.807", "kind": "e2e", "label": "scene hook: ships at sea", "note": ""}
+{"t": 1792177773.914, "iso": "2026-10-16T12:09:33.914", "kind": "e2e", "label": "landing on the pad", "note": ""}
+{"t": 1792177779.745, "iso": "2026-10-16T12:09:39.745", "kind": "e2e", "label": "live tuning through bridge variables", "note": ""}
+{"t": 1792177781.572, "iso": "2026-10-16T12:09:41.572", "kind": "e2e", "label": "memory region: heightmap", "note": ""}
+{"t": 1792177781.695, "iso": "2026-10-16T12:09:41.694", "kind": "e2e", "label": "level clear", "note": ""}
+{"t": 1792177786.953, "iso": "2026-10-16T12:09:46.953", "kind": "e2e", "label": "game over", "note": ""}
+{"t": 1792177796.381, "iso": "2026-10-16T12:09:56.381", "kind": "e2e", "label": "status hook, process list, stop", "note": ""}
+{"t": 1792177814.369, "iso": "2026-10-16T12:10:14.369", "kind": "milestone", "label": "E2E ALL PASSED (32 checks) - run 5", "note": ""}
+{"t": 1792177814.624, "iso": "2026-10-16T12:10:14.623", "kind": "rec_stop", "label": "120219-05-e2e-devbench-test", "note": ""}
+{"t": 1792177814.658, "iso": "2026-10-16T12:10:14.657", "kind": "rec_start", "label": "121014-06-showcase-flight", "note": ""}
+{"t": 1792177814.688, "iso": "2026-10-16T12:10:14.687", "kind": "phase", "label": "Showcase flight: Claude plays via key injection", "note": ""}
+{"t": 1792177814.731, "iso": "2026-10-16T12:10:14.730", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792177820.787, "iso": "2026-10-16T12:10:20.786", "kind": "showcase", "label": "title flyover", "note": ""}
+{"t": 1792177820.832, "iso": "2026-10-16T12:10:20.832", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792177821.023, "iso": "2026-10-16T12:10:21.022", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792177822.139, "iso": "2026-10-16T12:10:22.138", "kind": "showcase", "label": "lift off", "note": ""}
+{"t": 1792177822.185, "iso": "2026-10-16T12:10:22.184", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792177823.701, "iso": "2026-10-16T12:10:23.700", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792177823.782, "iso": "2026-10-16T12:10:23.781", "kind": "showcase", "label": "throttle + bank toward targets", "note": ""}
+{"t": 1792177823.828, "iso": "2026-10-16T12:10:23.828", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"down\"}"}
+{"t": 1792177823.92, "iso": "2026-10-16T12:10:23.919", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4E\", \"direction\": \"down\"}"}
+{"t": 1792177825.247, "iso": "2026-10-16T12:10:25.246", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4E\", \"direction\": \"up\"}"}
+{"t": 1792177825.856, "iso": "2026-10-16T12:10:25.856", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"up\"}"}
+{"t": 1792177825.938, "iso": "2026-10-16T12:10:25.938", "kind": "showcase", "label": "cruise + fire", "note": ""}
+{"t": 1792177825.979, "iso": "2026-10-16T12:10:25.979", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177829.084, "iso": "2026-10-16T12:10:29.084", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"down\"}"}
+{"t": 1792177830.0, "iso": "2026-10-16T12:10:30.000", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"up\"}"}
+{"t": 1792177832.117, "iso": "2026-10-16T12:10:32.117", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177832.221, "iso": "2026-10-16T12:10:32.221", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\"}"}
+{"t": 1792177838.947, "iso": "2026-10-16T12:10:38.947", "kind": "showcase", "label": "scene hook: tanks", "note": ""}
+{"t": 1792177838.989, "iso": "2026-10-16T12:10:38.989", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792177840.323, "iso": "2026-10-16T12:10:40.322", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177842.939, "iso": "2026-10-16T12:10:42.939", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177844.524, "iso": "2026-10-16T12:10:44.524", "kind": "showcase", "label": "scene hook: sea", "note": ""}
+{"t": 1792177844.564, "iso": "2026-10-16T12:10:44.564", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"sea\"}"}
+{"t": 1792177845.888, "iso": "2026-10-16T12:10:45.888", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177848.508, "iso": "2026-10-16T12:10:48.508", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177850.087, "iso": "2026-10-16T12:10:50.087", "kind": "showcase", "label": "scene hook: landing, descend onto pad", "note": ""}
+{"t": 1792177850.13, "iso": "2026-10-16T12:10:50.130", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"landing\"}"}
+{"t": 1792177851.267, "iso": "2026-10-16T12:10:51.267", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4D\", \"direction\": \"down\"}"}
+{"t": 1792177854.882, "iso": "2026-10-16T12:10:54.881", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4D\", \"direction\": \"up\"}"}
+{"t": 1792177857.475, "iso": "2026-10-16T12:10:57.474", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\"}"}
+{"t": 1792177857.621, "iso": "2026-10-16T12:10:57.620", "kind": "showcase", "label": "landed + refuelling", "note": ""}
+{"t": 1792177863.027, "iso": "2026-10-16T12:11:03.027", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792177864.116, "iso": "2026-10-16T12:11:04.116", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792177864.198, "iso": "2026-10-16T12:11:04.198", "kind": "showcase", "label": "clear hook -> LEVEL 1 CLEARED", "note": ""}
+{"t": 1792177864.239, "iso": "2026-10-16T12:11:04.238", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"clear\"}"}
+{"t": 1792177870.06, "iso": "2026-10-16T12:11:10.060", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"level\"}"}
+{"t": 1792177872.238, "iso": "2026-10-16T12:11:12.238", "kind": "showcase", "label": "stop client", "note": ""}
+{"t": 1792177872.281, "iso": "2026-10-16T12:11:12.281", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792177873.863, "iso": "2026-10-16T12:11:13.862", "kind": "rec_stop", "label": "121014-06-showcase-flight", "note": ""}
+{"t": 1792177873.895, "iso": "2026-10-16T12:11:13.894", "kind": "session_end", "label": "Demo recording complete", "note": ""}
+{"t": 1792177893.565, "iso": "2026-10-16T12:11:33.564", "kind": "rec_start", "label": "121133-06-showcase-flight", "note": ""}
+{"t": 1792177900.81, "iso": "2026-10-16T12:11:40.809", "kind": "phase", "label": "Showcase flight (re-recorded; first attempt lost to camera device index shift)", "note": ""}
+{"t": 1792177901.04, "iso": "2026-10-16T12:11:41.040", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792177907.095, "iso": "2026-10-16T12:11:47.095", "kind": "showcase", "label": "title flyover", "note": ""}
+{"t": 1792177909.132, "iso": "2026-10-16T12:11:49.132", "kind": "showcase", "label": "Return: start", "note": ""}
+{"t": 1792177909.178, "iso": "2026-10-16T12:11:49.178", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792177909.401, "iso": "2026-10-16T12:11:49.400", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792177911.02, "iso": "2026-10-16T12:11:51.019", "kind": "showcase", "label": "lift off", "note": ""}
+{"t": 1792177911.067, "iso": "2026-10-16T12:11:51.067", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792177912.563, "iso": "2026-10-16T12:11:52.562", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792177913.147, "iso": "2026-10-16T12:11:53.146", "kind": "showcase", "label": "throttle + bank", "note": ""}
+{"t": 1792177913.189, "iso": "2026-10-16T12:11:53.189", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"down\"}"}
+{"t": 1792177913.295, "iso": "2026-10-16T12:11:53.295", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4E\", \"direction\": \"down\"}"}
+{"t": 1792177914.624, "iso": "2026-10-16T12:11:54.624", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4E\", \"direction\": \"up\"}"}
+{"t": 1792177915.232, "iso": "2026-10-16T12:11:55.232", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"up\"}"}
+{"t": 1792177915.314, "iso": "2026-10-16T12:11:55.313", "kind": "showcase", "label": "cruise + fire", "note": ""}
+{"t": 1792177915.355, "iso": "2026-10-16T12:11:55.354", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177918.464, "iso": "2026-10-16T12:11:58.464", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"down\"}"}
+{"t": 1792177919.369, "iso": "2026-10-16T12:11:59.369", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"up\"}"}
+{"t": 1792177921.486, "iso": "2026-10-16T12:12:01.485", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177921.587, "iso": "2026-10-16T12:12:01.586", "kind": "showcase", "label": "scene hook: tanks", "note": ""}
+{"t": 1792177921.628, "iso": "2026-10-16T12:12:01.628", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792177922.946, "iso": "2026-10-16T12:12:02.945", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177925.565, "iso": "2026-10-16T12:12:05.565", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177927.146, "iso": "2026-10-16T12:12:07.145", "kind": "showcase", "label": "scene hook: sea", "note": ""}
+{"t": 1792177927.187, "iso": "2026-10-16T12:12:07.187", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"sea\"}"}
+{"t": 1792177928.514, "iso": "2026-10-16T12:12:08.514", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177931.136, "iso": "2026-10-16T12:12:11.135", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177932.723, "iso": "2026-10-16T12:12:12.722", "kind": "showcase", "label": "scene hook: landing", "note": ""}
+{"t": 1792177932.763, "iso": "2026-10-16T12:12:12.763", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"landing\"}"}
+{"t": 1792177933.89, "iso": "2026-10-16T12:12:13.889", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4D\", \"direction\": \"down\"}"}
+{"t": 1792177937.518, "iso": "2026-10-16T12:12:17.517", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4D\", \"direction\": \"up\"}"}
+{"t": 1792177940.132, "iso": "2026-10-16T12:12:20.132", "kind": "showcase", "label": "landed + refuelling", "note": ""}
+{"t": 1792177940.173, "iso": "2026-10-16T12:12:20.173", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\", \"args\": \"\"}"}
+{"t": 1792177942.355, "iso": "2026-10-16T12:12:22.354", "kind": "showcase", "label": "lift off again", "note": ""}
+{"t": 1792177942.403, "iso": "2026-10-16T12:12:22.402", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792177943.51, "iso": "2026-10-16T12:12:23.510", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792177943.59, "iso": "2026-10-16T12:12:23.590", "kind": "showcase", "label": "clear hook: level cleared", "note": ""}
+{"t": 1792177943.632, "iso": "2026-10-16T12:12:23.631", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"clear\", \"args\": \"\"}"}
+{"t": 1792177949.805, "iso": "2026-10-16T12:12:29.804", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"level\"}"}
+{"t": 1792177949.982, "iso": "2026-10-16T12:12:29.982", "kind": "showcase", "label": "stop client", "note": ""}
+{"t": 1792177950.023, "iso": "2026-10-16T12:12:30.023", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792177951.787, "iso": "2026-10-16T12:12:31.787", "kind": "rec_stop", "label": "121133-06-showcase-flight", "note": ""}
+{"t": 1792177951.823, "iso": "2026-10-16T12:12:31.823", "kind": "session_end", "label": "Demo recording complete", "note": ""}
+{"t": 1792177963.009, "iso": "2026-10-16T12:12:43.008", "kind": "phase", "label": "Showcase flight #2: FS-UAE window only, native screencapture -V (smooth)", "note": ""}
+{"t": 1792177964.062, "iso": "2026-10-16T12:12:44.062", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792177970.12, "iso": "2026-10-16T12:12:50.119", "kind": "showcase", "label": "title flyover", "note": ""}
+{"t": 1792177972.153, "iso": "2026-10-16T12:12:52.153", "kind": "showcase", "label": "Return: start", "note": ""}
+{"t": 1792177972.201, "iso": "2026-10-16T12:12:52.201", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792177972.422, "iso": "2026-10-16T12:12:52.422", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792177974.037, "iso": "2026-10-16T12:12:54.036", "kind": "showcase", "label": "lift off", "note": ""}
+{"t": 1792177974.085, "iso": "2026-10-16T12:12:54.084", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792177975.578, "iso": "2026-10-16T12:12:55.578", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792177976.173, "iso": "2026-10-16T12:12:56.173", "kind": "showcase", "label": "throttle + bank", "note": ""}
+{"t": 1792177976.216, "iso": "2026-10-16T12:12:56.216", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"down\"}"}
+{"t": 1792177976.317, "iso": "2026-10-16T12:12:56.317", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4E\", \"direction\": \"down\"}"}
+{"t": 1792177977.638, "iso": "2026-10-16T12:12:57.637", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4E\", \"direction\": \"up\"}"}
+{"t": 1792177978.259, "iso": "2026-10-16T12:12:58.258", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"20\", \"direction\": \"up\"}"}
+{"t": 1792177978.336, "iso": "2026-10-16T12:12:58.335", "kind": "showcase", "label": "cruise + fire", "note": ""}
+{"t": 1792177978.378, "iso": "2026-10-16T12:12:58.378", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177981.48, "iso": "2026-10-16T12:13:01.479", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"down\"}"}
+{"t": 1792177982.386, "iso": "2026-10-16T12:13:02.386", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4F\", \"direction\": \"up\"}"}
+{"t": 1792177984.514, "iso": "2026-10-16T12:13:04.513", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177984.61, "iso": "2026-10-16T12:13:04.610", "kind": "showcase", "label": "scene hook: tanks", "note": ""}
+{"t": 1792177984.653, "iso": "2026-10-16T12:13:04.653", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792177985.964, "iso": "2026-10-16T12:13:05.963", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177988.588, "iso": "2026-10-16T12:13:08.587", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177990.164, "iso": "2026-10-16T12:13:10.164", "kind": "showcase", "label": "scene hook: sea", "note": ""}
+{"t": 1792177990.206, "iso": "2026-10-16T12:13:10.205", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"sea\"}"}
+{"t": 1792177991.537, "iso": "2026-10-16T12:13:11.536", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792177994.156, "iso": "2026-10-16T12:13:14.156", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792177995.742, "iso": "2026-10-16T12:13:15.742", "kind": "showcase", "label": "scene hook: landing", "note": ""}
+{"t": 1792177995.785, "iso": "2026-10-16T12:13:15.784", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"landing\"}"}
+{"t": 1792177996.91, "iso": "2026-10-16T12:13:16.909", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4D\", \"direction\": \"down\"}"}
+{"t": 1792178000.466, "iso": "2026-10-16T12:13:20.466", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4D\", \"direction\": \"up\"}"}
+{"t": 1792178003.073, "iso": "2026-10-16T12:13:23.073", "kind": "showcase", "label": "landed + refuelling", "note": ""}
+{"t": 1792178003.118, "iso": "2026-10-16T12:13:23.118", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\", \"args\": \"\"}"}
+{"t": 1792178005.282, "iso": "2026-10-16T12:13:25.281", "kind": "showcase", "label": "lift off again", "note": ""}
+{"t": 1792178005.329, "iso": "2026-10-16T12:13:25.329", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792178006.45, "iso": "2026-10-16T12:13:26.450", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792178006.532, "iso": "2026-10-16T12:13:26.531", "kind": "showcase", "label": "clear hook: level cleared", "note": ""}
+{"t": 1792178006.574, "iso": "2026-10-16T12:13:26.574", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"clear\", \"args\": \"\"}"}
+{"t": 1792178012.741, "iso": "2026-10-16T12:13:32.741", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"level\"}"}
+{"t": 1792178012.922, "iso": "2026-10-16T12:13:32.921", "kind": "showcase", "label": "stop client", "note": ""}
+{"t": 1792178012.965, "iso": "2026-10-16T12:13:32.965", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792177964.009, "iso": "2026-10-16T12:12:44.009", "kind": "rec_start", "label": "121240-07-showcase-amiga-window", "note": "native screencapture -V, FS-UAE window only, .mov"}
+{"t": 1792178026.009, "iso": "2026-10-16T12:13:46.009", "kind": "rec_stop", "label": "121240-07-showcase-amiga-window", "note": "native screencapture -V, FS-UAE window only, .mov"}
+{"t": 1792183768.174, "iso": "2026-10-16T13:49:28.173", "kind": "rec_start", "label": "134927-08-stage2-title-prompt", "note": ""}
+{"t": 1792183768.249, "iso": "2026-10-16T13:49:28.249", "kind": "phase", "label": "STAGE 2: main screen via multi-modal hand-off (Claude writes ChatGPT prompt -> user generates image -> Claude converts for Amiga)", "note": ""}
+{"t": 1792183788.673, "iso": "2026-10-16T13:49:48.673", "kind": "milestone", "label": "ChatGPT prompt written: stage2/chatgpt_prompt.md", "note": "hand-off to user for image generation"}
+{"t": 1792183788.979, "iso": "2026-10-16T13:49:48.979", "kind": "rec_stop", "label": "134927-08-stage2-title-prompt", "note": ""}
+{"t": 1792183789.051, "iso": "2026-10-16T13:49:49.051", "kind": "handoff", "label": "Waiting for user's ChatGPT image", "note": ""}
+{"t": 1792184132.793, "iso": "2026-10-16T13:55:32.792", "kind": "rec_start", "label": "135532-09-stage2-title-convert", "note": ""}
+{"t": 1792184132.859, "iso": "2026-10-16T13:55:32.858", "kind": "handoff", "label": "Image received from ChatGPT (user hand-off back)", "note": "1402x1122 PNG, logo spelled correctly"}
+{"t": 1792184279.821, "iso": "2026-10-16T13:57:59.821", "kind": "test", "label": "make_title.py round-trip test 6/6 (after fixing the test's own regex)", "note": ""}
+{"t": 1792184279.937, "iso": "2026-10-16T13:57:59.936", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184280.069, "iso": "2026-10-16T13:58:00.068", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792184288.251, "iso": "2026-10-16T13:58:08.250", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184291.408, "iso": "2026-10-16T13:58:11.408", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184301.434, "iso": "2026-10-16T13:58:21.433", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184304.435, "iso": "2026-10-16T13:58:24.434", "kind": "mcp", "label": "amiga_get_palette", "note": "{}"}
+{"t": 1792184312.604, "iso": "2026-10-16T13:58:32.603", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184312.848, "iso": "2026-10-16T13:58:32.848", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184313.093, "iso": "2026-10-16T13:58:33.092", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184314.574, "iso": "2026-10-16T13:58:34.573", "kind": "mcp", "label": "amiga_get_palette", "note": "{}"}
+{"t": 1792184314.727, "iso": "2026-10-16T13:58:34.726", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"us_draw\"}"}
+{"t": 1792184325.585, "iso": "2026-10-16T13:58:45.585", "kind": "milestone", "label": "MAIN SCREEN on the Amiga: ChatGPT art -> 32-colour planar, title palette loaded", "note": "bridge screenshot shots/13_main_screen_bridge.png, us_draw 3.7 ms"}
+{"t": 1792184325.683, "iso": "2026-10-16T13:58:45.683", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792184325.955, "iso": "2026-10-16T13:58:45.954", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792184327.278, "iso": "2026-10-16T13:58:47.277", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"state\"}"}
+{"t": 1792184327.604, "iso": "2026-10-16T13:58:47.604", "kind": "mcp", "label": "amiga_get_palette", "note": "{}"}
+{"t": 1792184327.782, "iso": "2026-10-16T13:58:47.781", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184334.241, "iso": "2026-10-16T13:58:54.240", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"down\"}"}
+{"t": 1792184334.511, "iso": "2026-10-16T13:58:54.511", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"up\"}"}
+{"t": 1792184335.689, "iso": "2026-10-16T13:58:55.689", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"state\"}"}
+{"t": 1792184335.927, "iso": "2026-10-16T13:58:55.927", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184336.185, "iso": "2026-10-16T13:58:56.185", "kind": "mcp", "label": "amiga_get_palette", "note": "{}"}
+{"t": 1792184336.311, "iso": "2026-10-16T13:58:56.311", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184351.475, "iso": "2026-10-16T13:59:11.474", "kind": "e2e", "label": "Re-run E2E with main-screen checks", "note": ""}
+{"t": 1792184351.631, "iso": "2026-10-16T13:59:11.630", "kind": "e2e", "label": "clean slate: stop other bridge clients", "note": ""}
+{"t": 1792184352.88, "iso": "2026-10-16T13:59:12.879", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792184353.401, "iso": "2026-10-16T13:59:13.401", "kind": "e2e", "label": "in-game self-test hook", "note": ""}
+{"t": 1792184354.756, "iso": "2026-10-16T13:59:14.755", "kind": "e2e", "label": "main screen (ChatGPT artwork) and music", "note": ""}
+{"t": 1792184356.336, "iso": "2026-10-16T13:59:16.335", "kind": "e2e", "label": "key injection: start and lift off", "note": ""}
+{"t": 1792184363.616, "iso": "2026-10-16T13:59:23.616", "kind": "e2e", "label": "scene hook: tank battle, fire with aim assist", "note": ""}
+{"t": 1792184368.786, "iso": "2026-10-16T13:59:28.785", "kind": "e2e", "label": "scene hook: ships at sea", "note": ""}
+{"t": 1792184375.435, "iso": "2026-10-16T13:59:35.435", "kind": "e2e", "label": "landing on the pad", "note": ""}
+{"t": 1792184385.293, "iso": "2026-10-16T13:59:45.293", "kind": "e2e", "label": "live tuning through bridge variables", "note": ""}
+{"t": 1792184387.38, "iso": "2026-10-16T13:59:47.379", "kind": "e2e", "label": "memory region: heightmap", "note": ""}
+{"t": 1792184387.53, "iso": "2026-10-16T13:59:47.530", "kind": "e2e", "label": "level clear", "note": ""}
+{"t": 1792184395.48, "iso": "2026-10-16T13:59:55.479", "kind": "e2e", "label": "game over", "note": ""}
+{"t": 1792184405.669, "iso": "2026-10-16T14:00:05.669", "kind": "e2e", "label": "status hook, process list, stop", "note": ""}
+{"t": 1792184431.851, "iso": "2026-10-16T14:00:31.851", "kind": "phase", "label": "Stage 2 showcase: smooth FS-UAE capture of the main screen", "note": ""}
+{"t": 1792184431.908, "iso": "2026-10-16T14:00:31.907", "kind": "rec_start", "label": "140031-10-stage2-main-screen-amiga-window", "note": "native screencapture -V, FS-UAE window only"}
+{"t": 1792184432.398, "iso": "2026-10-16T14:00:32.398", "kind": "showcase2", "label": "launch: main screen", "note": ""}
+{"t": 1792184432.483, "iso": "2026-10-16T14:00:32.482", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792184441.59, "iso": "2026-10-16T14:00:41.590", "kind": "showcase2", "label": "Return: palette switch into the game", "note": ""}
+{"t": 1792184441.684, "iso": "2026-10-16T14:00:41.684", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792184441.945, "iso": "2026-10-16T14:00:41.944", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792184443.605, "iso": "2026-10-16T14:00:43.604", "kind": "showcase2", "label": "lift off", "note": ""}
+{"t": 1792184443.717, "iso": "2026-10-16T14:00:43.717", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792184445.209, "iso": "2026-10-16T14:00:45.208", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792184445.363, "iso": "2026-10-16T14:00:45.363", "kind": "showcase2", "label": "scene tanks + fire", "note": ""}
+{"t": 1792184445.455, "iso": "2026-10-16T14:00:45.454", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792184446.624, "iso": "2026-10-16T14:00:46.624", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792184449.329, "iso": "2026-10-16T14:00:49.328", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792184450.985, "iso": "2026-10-16T14:00:50.985", "kind": "showcase2", "label": "Esc: back to the main screen", "note": ""}
+{"t": 1792184451.093, "iso": "2026-10-16T14:00:51.093", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"down\"}"}
+{"t": 1792184451.353, "iso": "2026-10-16T14:00:51.353", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"up\"}"}
+{"t": 1792184457.496, "iso": "2026-10-16T14:00:57.496", "kind": "showcase2", "label": "stop", "note": ""}
+{"t": 1792184457.593, "iso": "2026-10-16T14:00:57.593", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792184461.698, "iso": "2026-10-16T14:01:01.698", "kind": "rec_stop", "label": "140031-10-stage2-main-screen-amiga-window", "note": ""}
+{"t": 1792184525.144, "iso": "2026-10-16T14:02:05.144", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792184528.268, "iso": "2026-10-16T14:02:08.267", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"frame\"}"}
+{"t": 1792184528.914, "iso": "2026-10-16T14:02:08.914", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"frame\"}"}
+{"t": 1792184529.542, "iso": "2026-10-16T14:02:09.542", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"frame\"}"}
+{"t": 1792184542.531, "iso": "2026-10-16T14:02:22.531", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184542.748, "iso": "2026-10-16T14:02:22.747", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184543.936, "iso": "2026-10-16T14:02:23.935", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184586.969, "iso": "2026-10-16T14:03:06.968", "kind": "bug", "label": "PRESS FIRE never appears on the main screen (26 video samples + exact-pixel bridge screenshots)", "note": "experiment: draw unconditionally + count blink branch"}
+{"t": 1792184587.051, "iso": "2026-10-16T14:03:07.051", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792184594.102, "iso": "2026-10-16T14:03:14.102", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184596.222, "iso": "2026-10-16T14:03:16.221", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184596.447, "iso": "2026-10-16T14:03:16.446", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184597.709, "iso": "2026-10-16T14:03:17.709", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184597.954, "iso": "2026-10-16T14:03:17.954", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"frame\"}"}
+{"t": 1792184598.178, "iso": "2026-10-16T14:03:18.177", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184635.178, "iso": "2026-10-16T14:03:55.177", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792184642.173, "iso": "2026-10-16T14:04:02.173", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184644.296, "iso": "2026-10-16T14:04:04.296", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184644.533, "iso": "2026-10-16T14:04:04.533", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_frame_at_draw\"}"}
+{"t": 1792184644.751, "iso": "2026-10-16T14:04:04.751", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_draws\"}"}
+{"t": 1792184644.996, "iso": "2026-10-16T14:04:04.996", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_swapfail\"}"}
+{"t": 1792184645.213, "iso": "2026-10-16T14:04:05.212", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184645.457, "iso": "2026-10-16T14:04:05.457", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_frame_at_draw\"}"}
+{"t": 1792184645.677, "iso": "2026-10-16T14:04:05.676", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_draws\"}"}
+{"t": 1792184645.901, "iso": "2026-10-16T14:04:05.901", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_swapfail\"}"}
+{"t": 1792184646.127, "iso": "2026-10-16T14:04:06.127", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184646.37, "iso": "2026-10-16T14:04:06.369", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_frame_at_draw\"}"}
+{"t": 1792184646.579, "iso": "2026-10-16T14:04:06.579", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_draws\"}"}
+{"t": 1792184646.814, "iso": "2026-10-16T14:04:06.814", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_swapfail\"}"}
+{"t": 1792184647.044, "iso": "2026-10-16T14:04:07.044", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184647.271, "iso": "2026-10-16T14:04:07.270", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_frame_at_draw\"}"}
+{"t": 1792184647.499, "iso": "2026-10-16T14:04:07.498", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_draws\"}"}
+{"t": 1792184647.735, "iso": "2026-10-16T14:04:07.735", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_swapfail\"}"}
+{"t": 1792184647.964, "iso": "2026-10-16T14:04:07.963", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184648.198, "iso": "2026-10-16T14:04:08.197", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_frame_at_draw\"}"}
+{"t": 1792184648.423, "iso": "2026-10-16T14:04:08.422", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_draws\"}"}
+{"t": 1792184648.658, "iso": "2026-10-16T14:04:08.658", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_swapfail\"}"}
+{"t": 1792184648.876, "iso": "2026-10-16T14:04:08.876", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184649.119, "iso": "2026-10-16T14:04:09.119", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_frame_at_draw\"}"}
+{"t": 1792184649.377, "iso": "2026-10-16T14:04:09.377", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_draws\"}"}
+{"t": 1792184649.608, "iso": "2026-10-16T14:04:09.607", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"dbg_swapfail\"}"}
+{"t": 1792184649.838, "iso": "2026-10-16T14:04:09.838", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_blinks\"}"}
+{"t": 1792184656.895, "iso": "2026-10-16T14:04:16.895", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184660.634, "iso": "2026-10-16T14:04:20.633", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184664.865, "iso": "2026-10-16T14:04:24.864", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184684.804, "iso": "2026-10-16T14:04:44.803", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184691.835, "iso": "2026-10-16T14:04:51.835", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184718.323, "iso": "2026-10-16T14:05:18.323", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792184725.15, "iso": "2026-10-16T14:05:25.150", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184727.277, "iso": "2026-10-16T14:05:27.276", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184739.185, "iso": "2026-10-16T14:05:39.185", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184739.339, "iso": "2026-10-16T14:05:39.338", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Status\"}"}
+{"t": 1792184751.979, "iso": "2026-10-16T14:05:51.979", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184752.277, "iso": "2026-10-16T14:05:52.277", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184753.012, "iso": "2026-10-16T14:05:53.011", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184753.777, "iso": "2026-10-16T14:05:53.777", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184754.544, "iso": "2026-10-16T14:05:54.543", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184755.292, "iso": "2026-10-16T14:05:55.291", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184756.069, "iso": "2026-10-16T14:05:56.068", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184756.805, "iso": "2026-10-16T14:05:56.804", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184757.572, "iso": "2026-10-16T14:05:57.571", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184763.076, "iso": "2026-10-16T14:06:03.076", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184797.505, "iso": "2026-10-16T14:06:37.504", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792184804.3, "iso": "2026-10-16T14:06:44.299", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184806.43, "iso": "2026-10-16T14:06:46.430", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184842.587, "iso": "2026-10-16T14:07:22.586", "kind": "bug", "label": "FALSE ALARM: PRESS FIRE was there all along - macOS colour management shows pen 30 as (255,255,84), detector wanted blue<80; bridge samples hit the blink off-phase", "note": "experiments reverted"}
+{"t": 1792184842.676, "iso": "2026-10-16T14:07:22.676", "kind": "mcp", "label": "amiga_run", "note": "{\"project\": \"examples/terra_strike\"}"}
+{"t": 1792184849.711, "iso": "2026-10-16T14:07:29.711", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792184851.831, "iso": "2026-10-16T14:07:31.830", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184867.011, "iso": "2026-10-16T14:07:47.011", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Status\"}"}
+{"t": 1792184867.783, "iso": "2026-10-16T14:07:47.783", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184874.707, "iso": "2026-10-16T14:07:54.706", "kind": "mcp", "label": "amiga_list_screens", "note": "{}"}
+{"t": 1792184874.818, "iso": "2026-10-16T14:07:54.817", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792184875.092, "iso": "2026-10-16T14:07:55.092", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"frame\"}"}
+{"t": 1792184876.406, "iso": "2026-10-16T14:07:56.405", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"frame\"}"}
+{"t": 1792184891.072, "iso": "2026-10-16T14:08:11.072", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"title_phase\"}"}
+{"t": 1792184891.359, "iso": "2026-10-16T14:08:11.358", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184904.199, "iso": "2026-10-16T14:08:24.198", "kind": "bug", "label": "2nd false lead: macOS FS-UAE window stops repainting when the user works in other apps (frontmost: Activity Monitor) - mac captures stale; bridge screenshot = ground truth", "note": ""}
+{"t": 1792184904.284, "iso": "2026-10-16T14:08:24.284", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184904.712, "iso": "2026-10-16T14:08:24.711", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184905.83, "iso": "2026-10-16T14:08:25.829", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184906.462, "iso": "2026-10-16T14:08:26.461", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184907.567, "iso": "2026-10-16T14:08:27.566", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184908.4, "iso": "2026-10-16T14:08:28.399", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184909.527, "iso": "2026-10-16T14:08:29.527", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"title\", \"args\": \"image\"}"}
+{"t": 1792184910.581, "iso": "2026-10-16T14:08:30.581", "kind": "mcp", "label": "amiga_screenshot", "note": "{}"}
+{"t": 1792184973.887, "iso": "2026-10-16T14:09:33.886", "kind": "fix", "label": "PRESS FIRE now alternates yellow/white (always present) - robust for row-by-row bridge screenshots; e2e checks the pixels", "note": ""}
+{"t": 1792184974.055, "iso": "2026-10-16T14:09:34.054", "kind": "e2e", "label": "clean slate: stop other bridge clients", "note": ""}
+{"t": 1792184975.309, "iso": "2026-10-16T14:09:35.309", "kind": "e2e", "label": "build, deploy, launch", "note": ""}
+{"t": 1792184979.389, "iso": "2026-10-16T14:09:39.388", "kind": "e2e", "label": "in-game self-test hook", "note": ""}
+{"t": 1792184980.604, "iso": "2026-10-16T14:09:40.603", "kind": "e2e", "label": "main screen (ChatGPT artwork) and music", "note": ""}
+{"t": 1792184983.391, "iso": "2026-10-16T14:09:43.391", "kind": "e2e", "label": "key injection: start and lift off", "note": ""}
+{"t": 1792184986.944, "iso": "2026-10-16T14:09:46.943", "kind": "e2e", "label": "scene hook: tank battle, fire with aim assist", "note": ""}
+{"t": 1792184992.465, "iso": "2026-10-16T14:09:52.464", "kind": "e2e", "label": "scene hook: ships at sea", "note": ""}
+{"t": 1792184997.028, "iso": "2026-10-16T14:09:57.027", "kind": "e2e", "label": "landing on the pad", "note": ""}
+{"t": 1792185006.86, "iso": "2026-10-16T14:10:06.860", "kind": "e2e", "label": "live tuning through bridge variables", "note": ""}
+{"t": 1792185008.927, "iso": "2026-10-16T14:10:08.926", "kind": "e2e", "label": "memory region: heightmap", "note": ""}
+{"t": 1792185009.08, "iso": "2026-10-16T14:10:09.079", "kind": "e2e", "label": "level clear", "note": ""}
+{"t": 1792185017.108, "iso": "2026-10-16T14:10:17.107", "kind": "e2e", "label": "game over", "note": ""}
+{"t": 1792185027.197, "iso": "2026-10-16T14:10:27.197", "kind": "e2e", "label": "status hook, process list, stop", "note": ""}
+{"t": 1792185041.972, "iso": "2026-10-16T14:10:41.972", "kind": "milestone", "label": "STAGE 2 DONE: main screen on the Amiga, e2e all passed", "note": ""}
+{"t": 1792185042.263, "iso": "2026-10-16T14:10:42.262", "kind": "rec_stop", "label": "135532-09-stage2-title-convert", "note": ""}
+{"t": 1792185374.405, "iso": "2026-10-16T14:16:14.404", "kind": "mcp", "label": "amiga_list_clients", "note": "{}"}
+{"t": 1792185374.517, "iso": "2026-10-16T14:16:14.517", "kind": "mcp", "label": "amiga_dos_command", "note": "{\"command\": \"Status\"}"}
+{"t": 1792185385.216, "iso": "2026-10-16T14:16:25.215", "kind": "phase", "label": "Stage 2 showcase RE-RECORD: FS-UAE frontmost, final yellow/white PRESS FIRE", "note": ""}
+{"t": 1792185385.784, "iso": "2026-10-16T14:16:25.784", "kind": "rec_start", "label": "141625-11-stage2-main-screen-rerecord-amiga-window", "note": "native screencapture -V, FS-UAE window only, re-record"}
+{"t": 1792185385.868, "iso": "2026-10-16T14:16:25.867", "kind": "showcase2", "label": "launch: main screen", "note": ""}
+{"t": 1792185385.973, "iso": "2026-10-16T14:16:25.972", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792185395.084, "iso": "2026-10-16T14:16:35.084", "kind": "showcase2", "label": "Return: palette switch into the game", "note": ""}
+{"t": 1792185395.19, "iso": "2026-10-16T14:16:35.189", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792185395.451, "iso": "2026-10-16T14:16:35.450", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792185397.133, "iso": "2026-10-16T14:16:37.132", "kind": "showcase2", "label": "lift off", "note": ""}
+{"t": 1792185397.232, "iso": "2026-10-16T14:16:37.232", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792185398.716, "iso": "2026-10-16T14:16:38.716", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792185398.921, "iso": "2026-10-16T14:16:38.921", "kind": "showcase2", "label": "scene tanks + fire", "note": ""}
+{"t": 1792185399.01, "iso": "2026-10-16T14:16:39.009", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792185400.199, "iso": "2026-10-16T14:16:40.198", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792185402.934, "iso": "2026-10-16T14:16:42.934", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792185404.639, "iso": "2026-10-16T14:16:44.638", "kind": "showcase2", "label": "Esc: back to the main screen", "note": ""}
+{"t": 1792185404.747, "iso": "2026-10-16T14:16:44.746", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"down\"}"}
+{"t": 1792185405.013, "iso": "2026-10-16T14:16:45.012", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"45\", \"direction\": \"up\"}"}
+{"t": 1792185411.142, "iso": "2026-10-16T14:16:51.141", "kind": "showcase2", "label": "stop", "note": ""}
+{"t": 1792185411.23, "iso": "2026-10-16T14:16:51.230", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792185422.461, "iso": "2026-10-16T14:17:02.461", "kind": "rec_stop", "label": "141625-11-stage2-main-screen-rerecord-amiga-window", "note": ""}
+{"t": 1792185638.108, "iso": "2026-10-16T14:20:38.107", "kind": "phase", "label": "Web UI capture session (headless Chrome on devbench UI)", "note": ""}
+{"t": 1792185638.189, "iso": "2026-10-16T14:20:38.189", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792185642.302, "iso": "2026-10-16T14:20:42.302", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"selftest\"}"}
+{"t": 1792185645.536, "iso": "2026-10-16T14:20:45.535", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"down\"}"}
+{"t": 1792185645.779, "iso": "2026-10-16T14:20:45.779", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"44\", \"direction\": \"up\"}"}
+{"t": 1792185646.949, "iso": "2026-10-16T14:20:46.948", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"down\"}"}
+{"t": 1792185648.33, "iso": "2026-10-16T14:20:48.329", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"4C\", \"direction\": \"up\"}"}
+{"t": 1792185648.492, "iso": "2026-10-16T14:20:48.491", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"scene\", \"args\": \"tanks\"}"}
+{"t": 1792185648.872, "iso": "2026-10-16T14:20:48.872", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"down\"}"}
+{"t": 1792185651.528, "iso": "2026-10-16T14:20:51.528", "kind": "mcp", "label": "amiga_input_key", "note": "{\"rawkey\": \"40\", \"direction\": \"up\"}"}
+{"t": 1792185651.699, "iso": "2026-10-16T14:20:51.699", "kind": "mcp", "label": "amiga_set_var", "note": "{\"name\": \"turn_rate\", \"value\": \"4\"}"}
+{"t": 1792185651.798, "iso": "2026-10-16T14:20:51.798", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"score\"}"}
+{"t": 1792185652.073, "iso": "2026-10-16T14:20:52.072", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"targets\"}"}
+{"t": 1792185652.317, "iso": "2026-10-16T14:20:52.317", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"fps\"}"}
+{"t": 1792185652.533, "iso": "2026-10-16T14:20:52.532", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"alt\"}"}
+{"t": 1792185652.822, "iso": "2026-10-16T14:20:52.821", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"status\"}"}
+{"t": 1792185689.511, "iso": "2026-10-16T14:21:29.510", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792185689.706, "iso": "2026-10-16T14:21:29.705", "kind": "milestone", "label": "Web UI screenshots: shots/webui/01-07 (dashboard, logs, game events, tests, traffic, call detail)", "note": ""}
+{"t": 1792186136.846, "iso": "2026-10-16T14:28:56.845", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
+{"t": 1792186140.962, "iso": "2026-10-16T14:29:00.961", "kind": "mcp", "label": "amiga_call_hook", "note": "{\"client\": \"terra_strike\", \"hook\": \"selftest\"}"}
+{"t": 1792186147.436, "iso": "2026-10-16T14:29:07.436", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
+{"t": 1792186155.765, "iso": "2026-10-16T14:29:15.765", "kind": "milestone", "label": "Web UI test-log recaptured at 2x for the short", "note": ""}
+{"t": 1792186273.605, "iso": "2026-10-16T14:31:13.605", "kind": "milestone", "label": "Short cut rendered: video/terra_strike_short.mp4 (2:46, 16 beats)", "note": ""}
+{"t": 1792186878.711, "iso": "2026-10-16T14:41:18.711", "kind": "milestone", "label": "Narrated short: bf_emma (en-gb) via local Kokoro, 2:57", "note": ""}

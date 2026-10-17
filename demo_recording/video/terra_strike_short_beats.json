@@ -1,0 +1,114 @@
+[
+ {
+  "beat": 1,
+  "start": 0.0,
+  "end": 7.45,
+  "title": "Terra Strike - A Zarch-style Amiga game, agent-coded with Claude Code + Amiga DevBench",
+  "narration": "This is Terra Strike: an Amiga game, written by Claude Code, and tested live through Amiga DevBench."
+ },
+ {
+  "beat": 2,
+  "start": 7.45,
+  "end": 18.5,
+  "title": "The prompt - One request: build it, test it through devbench, record it",
+  "narration": "It started with one request: a Zarch-style landscape shooter for the sixty-eight K Amiga, with tanks, buildings and ships to destroy, unit tests, and testing through devbench."
+ },
+ {
+  "beat": 3,
+  "start": 18.5,
+  "end": 29.05,
+  "title": "Recon over MCP - Devbench exposes 129 tools; the Amiga answers over the bridge",
+  "narration": "Claude began by talking to the Amiga over M C P: a ping, a task list, and a look at the existing games, to reuse their 3D maths and music player."
+ },
+ {
+  "beat": 4,
+  "start": 29.05,
+  "end": 41.1,
+  "title": "Code + unit tests first - Portable core, one test suite for three runners (Mac \u00b7 Amiga \u00b7 in-game)",
+  "narration": "The game logic is portable C, with sixty-seven unit tests that run on the Mac, on the Amiga, and inside the game. The first run caught a real bug: enemies firing every frame."
+ },
+ {
+  "beat": 5,
+  "start": 41.1,
+  "end": 51.1,
+  "title": "Cross-compile, deploy, launch - Docker m68k toolchain behind devbench's amiga_build / amiga_run",
+  "narration": "Devbench cross-compiles in Docker, deploys to the emulator, and launches the game. First frame on the Amiga. But only five frames a second."
+ },
+ {
+  "beat": 6,
+  "start": 51.1,
+  "end": 63.55,
+  "title": "Profiling through bridge variables - Stage timers exposed as vars, read live with amiga_get_var",
+  "narration": "So Claude exposed timers as bridge variables, and read them live. A hundred and fifty-nine milliseconds were going on area fills. A hand-written span filler took it to twenty-seven frames a second."
+ },
+ {
+  "beat": 7,
+  "start": 63.55,
+  "end": 76.14999999999999,
+  "title": "Playing it with key injection - Raw Amiga key codes into input.device; state checked over the bridge",
+  "narration": "Then it played the game. Key presses are injected straight into the Amiga's input device. Return starts the game, holding cursor up lifts off, and the take-off event arrives in the remote log."
+ },
+ {
+  "beat": 8,
+  "start": 76.14999999999999,
+  "end": 86.36999999999999,
+  "title": "Bugs found on screen - Screenshots + palette reads pin down what the eye sees",
+  "narration": "Screenshots exposed bugs the tests couldn't: cracks at the screen edge, and flickering colours. A palette read showed the blitter was clearing the buffer still on screen."
+ },
+ {
+  "beat": 9,
+  "start": 86.36999999999999,
+  "end": 96.36999999999999,
+  "title": "Scene hooks + first kill - A bridge hook drops the craft into a tank battle",
+  "narration": "A scene hook drops the craft straight into a tank battle. Hold fire, and the score comes back over the bridge. One hundred. First kill."
+ },
+ {
+  "beat": 10,
+  "start": 96.36999999999999,
+  "end": 107.02,
+  "title": "Unit tests on the Amiga - The same 67 tests on the 68060 - after fixing two devbench bugs",
+  "narration": "Running the tests on the Amiga uncovered two bugs in devbench itself. Once those were fixed, all sixty-seven passed on the emulated sixty-eight oh sixty."
+ },
+ {
+  "beat": 11,
+  "start": 107.02,
+  "end": 119.02,
+  "title": "How devbench talks to the bridge - Devbench web UI: live log, MCP traffic, and the wire protocol",
+  "narration": "Underneath, devbench speaks a simple line protocol to the bridge daemon. Here is the first kill, verbatim: the hook, the fire key, and the Amiga reporting the kill."
+ },
+ {
+  "beat": 12,
+  "start": 119.02,
+  "end": 131.62,
+  "title": "End-to-end test - and a mystery - 32 checks through MCP; the wrong score came from another game",
+  "narration": "The end-to-end test turned up a mystery: the wrong score. A second game, started by the Amiga's launcher, had grabbed our key presses and variable names. Claude tracked it down, and every check passed."
+ },
+ {
+  "beat": 13,
+  "start": 131.62,
+  "end": 144.62,
+  "title": "Stage 2: a main screen from ChatGPT - Claude to ChatGPT and back",
+  "narration": "For the main screen, Claude wrote an image prompt, ChatGPT painted it, and Claude converted it to thirty-two Amiga colours, choosing a palette that keeps the logo and the craft intact."
+ },
+ {
+  "beat": 14,
+  "start": 144.62,
+  "end": 156.62,
+  "title": "The main screen, live - Own palette per screen; checked with palette reads and key injection",
+  "narration": "Each screen loads its own palette. Devbench checks the colour registers and the on-screen text, and a key press takes us into the game."
+ },
+ {
+  "beat": 15,
+  "start": 156.62,
+  "end": 169.62,
+  "title": "Terra Strike on the Amiga - Played by Claude through devbench key injection and scene hooks",
+  "narration": "And here it is: played entirely by Claude, through devbench key injection and scene hooks."
+ },
+ {
+  "beat": 16,
+  "start": 169.62,
+  "end": 176.62,
+  "title": "One session",
+  "narration": "One session. Under forty minutes from a prompt to a tested, playable Amiga game."
+ }
+]

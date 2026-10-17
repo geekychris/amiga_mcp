@@ -1,0 +1,64 @@
+1
+00:00:00,000 --> 00:00:07,450
+Terra Strike - A Zarch-style Amiga game, agent-coded with Claude Code + Amiga DevBench
+
+2
+00:00:07,450 --> 00:00:18,500
+The prompt - One request: build it, test it through devbench, record it
+
+3
+00:00:18,500 --> 00:00:29,050
+Recon over MCP - Devbench exposes 129 tools; the Amiga answers over the bridge
+
+4
+00:00:29,050 --> 00:00:41,100
+Code + unit tests first - Portable core, one test suite for three runners (Mac · Amiga · in-game)
+
+5
+00:00:41,100 --> 00:00:51,100
+Cross-compile, deploy, launch - Docker m68k toolchain behind devbench's amiga_build / amiga_run
+
+6
+00:00:51,100 --> 00:01:03,550
+Profiling through bridge variables - Stage timers exposed as vars, read live with amiga_get_var
+
+7
+00:01:03,550 --> 00:01:16,149
+Playing it with key injection - Raw Amiga key codes into input.device; state checked over the bridge
+
+8
+00:01:16,149 --> 00:01:26,369
+Bugs found on screen - Screenshots + palette reads pin down what the eye sees
+
+9
+00:01:26,369 --> 00:01:36,369
+Scene hooks + first kill - A bridge hook drops the craft into a tank battle
+
+10
+00:01:36,369 --> 00:01:47,020
+Unit tests on the Amiga - The same 67 tests on the 68060 - after fixing two devbench bugs
+
+11
+00:01:47,020 --> 00:01:59,020
+How devbench talks to the bridge - Devbench web UI: live log, MCP traffic, and the wire protocol
+
+12
+00:01:59,020 --> 00:02:11,620
+End-to-end test - and a mystery - 32 checks through MCP; the wrong score came from another game
+
+13
+00:02:11,620 --> 00:02:24,620
+Stage 2: a main screen from ChatGPT - Claude to ChatGPT and back
+
+14
+00:02:24,620 --> 00:02:36,620
+The main screen, live - Own palette per screen; checked with palette reads and key injection
+
+15
+00:02:36,620 --> 00:02:49,620
+Terra Strike on the Amiga - Played by Claude through devbench key injection and scene hooks
+
+16
+00:02:49,620 --> 00:02:56,620
+One session
+
