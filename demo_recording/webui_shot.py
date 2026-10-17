@@ -7,6 +7,7 @@
   webui_shot.py stop
 
 Nothing appears on the user's screen. Chrome's DevTools protocol on :9333.
+macOS only (Chrome path); the demo tooling as a whole is macOS-specific.
 """
 import base64, json, os, subprocess, sys, time, urllib.request
 import websocket   # websocket-client
@@ -43,7 +44,7 @@ cmd = sys.argv[1]
 if cmd == "start":
     os.makedirs(PROFILE, exist_ok=True)
     subprocess.Popen([CHROME, "--headless=new", f"--remote-debugging-port={PORT}", f"--user-data-dir={PROFILE}",
-                      "--remote-allow-origins=*", "--window-size=1600,1000", "--hide-scrollbars", URL],
+                      f"--remote-allow-origins=http://127.0.0.1:{PORT}", "--window-size=1600,1000", "--hide-scrollbars", URL],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(40):
         try:

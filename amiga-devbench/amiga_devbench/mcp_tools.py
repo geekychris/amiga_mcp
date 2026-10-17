@@ -19,7 +19,7 @@ from .disasm import disassemble_hex, format_listing
 from .state import AmigaState, EventBus
 from .serial_conn import SerialConnection
 from .builder import Builder
-from .deployer import Deployer
+from .deployer import Deployer, DeployResult
 from .scaffolder import create_project
 from .screenshot import save_screenshot, parse_palette
 from .copper import decode_copper_list, format_copper_list
@@ -1802,7 +1802,19 @@ async def amiga_run_tests(project: str, command: str | None = None) -> str:
     cmd_name = command or project.rstrip("/").split("/")[-1]
     test_bin = _deployer._root / project / cmd_name
     if test_bin.is_file():
-        deploy_result = _deployer.deploy_file(str(test_bin), cmd_name)
+        deploy_result = (_deployer.deploy_file(str(test_bin), cmd_name) if _deployer.has_shared_folder
+                         else DeployResult(success=False, message="no shared folder", files=[]))
+        if not deploy_result.success:
+            # no (writable) shared folder: stream this exact binary over the
+            # bridge, as deploy_smart does for a project's main binary
+            from . import file_transfer
+            amiga_path = f"DH2:Dev/{cmd_name}"
+            pushed = await file_transfer.push_file(conn, bus, str(test_bin), amiga_path)
+            deploy_result = DeployResult(
+                success=pushed.success,
+                message=(f"Deployed via bridge -> {amiga_path} ({pushed.message})" if pushed.success
+                         else f"Bridge deploy failed: {pushed.message}"),
+                files=[amiga_path] if pushed.success else [])
     else:
         deploy_result = await _deployer.deploy_smart(project, conn=_conn, bus=_event_bus)
     if not deploy_result.success:

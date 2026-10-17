@@ -37,6 +37,15 @@ run `make_short.py`.
 
 ## What's here
 
+Everything under `video/` except the three `terra_strike_short.*` files is
+**local only** (gitignored): the raw full-screen segments show the whole
+desktop, so they're not in this public repo. `TIMELINE.md` and
+`make_rough_cut.py` refer to them by name. To re-cut, use the recording Mac's
+copy of `demo_recording/video/` or record a new session with `rec.sh`.
+The tooling is macOS-specific: avfoundation and `screencapture` for
+capture, macOS fonts in `make_short.py`, and Chrome's macOS path in
+`webui_shot.py`.
+
 | | |
 |---|---|
 | `TIMELINE.md` | **start here for the edit**: every event with wall clock, elapsed time, offset inside its segment video, and position in the rough cut |

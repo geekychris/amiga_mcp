@@ -24,8 +24,8 @@ SKIP = {"10"}          # superseded by the 11 re-record (FS-UAE frontmost, final
 CAPTION_KINDS = {"handoff", "showcase2", "phase", "milestone", "bug", "fix", "perf", "test", "showcase", "e2e",
                  "devbench-fix", "devbench-note"}
 
-ev = [json.loads(l) for l in open(os.path.join(D, "timeline.jsonl"))]
-t_prompt = datetime.datetime(2026, 10, 16, 11, 31, 45).timestamp()
+ev = sorted((json.loads(l) for l in open(os.path.join(D, "timeline.jsonl"))), key=lambda e: e["t"])
+t_prompt = datetime.datetime(2026, 10, 16, 18, 31, 45, tzinfo=datetime.timezone.utc).timestamp()  # 11:31:45 PDT
 segs = []
 for e in ev:
     if e["kind"] == "rec_start":
@@ -108,6 +108,6 @@ with open(os.path.join(D, "TIMELINE.md"), "w") as f:
             rat = f"{int(r) // 60}:{int(r) % 60:02d}"
         label = (e["label"] + (" - " + e["note"] if e.get("note") else "")).replace("|", "/")
         if e["kind"] == "mcp":
-            label = e["label"] + " " + e.get("note", "")[:60].replace("|", "/")
+            label = e["label"] + " " + e.get("note", "").replace("|", "/")
         f.write(f"| {datetime.datetime.fromtimestamp(e['t']):%H:%M:%S} | {el // 60}:{el % 60:02d} | {sat} | {rat} | {e['kind']} | {label} |\n")
 print(f"rough cut {pos / 60:.1f} min from {len(segs)} segments, {len(srt)} captions")

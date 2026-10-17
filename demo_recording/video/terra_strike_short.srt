@@ -1,64 +1,64 @@
 1
 00:00:00,000 --> 00:00:07,450
-Terra Strike - A Zarch-style Amiga game, agent-coded with Claude Code + Amiga DevBench
+This is Terra Strike: an Amiga game, written by Claude Code, and tested live through Amiga DevBench.
 
 2
 00:00:07,450 --> 00:00:18,500
-The prompt - One request: build it, test it through devbench, record it
+It started with one request: a Zarch-style landscape shooter for the sixty-eight K Amiga, with tanks, buildings and ships to destroy, unit tests, and testing through devbench.
 
 3
 00:00:18,500 --> 00:00:29,050
-Recon over MCP - Devbench exposes 129 tools; the Amiga answers over the bridge
+Claude began by talking to the Amiga over M C P: a ping, a task list, and a look at the existing games, to reuse their 3D maths and music player.
 
 4
 00:00:29,050 --> 00:00:41,100
-Code + unit tests first - Portable core, one test suite for three runners (Mac · Amiga · in-game)
+The game logic is portable C, with sixty-seven unit tests that run on the Mac, on the Amiga, and inside the game. The first run caught a real bug: enemies firing every frame.
 
 5
 00:00:41,100 --> 00:00:51,100
-Cross-compile, deploy, launch - Docker m68k toolchain behind devbench's amiga_build / amiga_run
+Devbench cross-compiles in Docker, deploys to the emulator, and launches the game. First frame on the Amiga. But only five frames a second.
 
 6
 00:00:51,100 --> 00:01:03,550
-Profiling through bridge variables - Stage timers exposed as vars, read live with amiga_get_var
+So Claude exposed timers as bridge variables, and read them live. A hundred and fifty-nine milliseconds were going on area fills. A hand-written span filler took it to twenty-seven frames a second.
 
 7
 00:01:03,550 --> 00:01:16,149
-Playing it with key injection - Raw Amiga key codes into input.device; state checked over the bridge
+Then it played the game. Key presses are injected straight into the Amiga's input device. Return starts the game, holding cursor up lifts off, and the take-off event arrives in the remote log.
 
 8
 00:01:16,149 --> 00:01:26,369
-Bugs found on screen - Screenshots + palette reads pin down what the eye sees
+Screenshots exposed bugs the tests couldn't: cracks at the screen edge, and flickering colours. A palette read showed the blitter was clearing the buffer still on screen.
 
 9
 00:01:26,369 --> 00:01:36,369
-Scene hooks + first kill - A bridge hook drops the craft into a tank battle
+A scene hook drops the craft straight into a tank battle. Hold fire, and the score comes back over the bridge. One hundred. First kill.
 
 10
 00:01:36,369 --> 00:01:47,020
-Unit tests on the Amiga - The same 67 tests on the 68060 - after fixing two devbench bugs
+Running the tests on the Amiga uncovered two bugs in devbench itself. Once those were fixed, all sixty-seven passed on the emulated sixty-eight oh sixty.
 
 11
 00:01:47,020 --> 00:01:59,020
-How devbench talks to the bridge - Devbench web UI: live log, MCP traffic, and the wire protocol
+Underneath, devbench speaks a simple line protocol to the bridge daemon. Here is the first kill, verbatim: the hook, the fire key, and the Amiga reporting the kill.
 
 12
 00:01:59,020 --> 00:02:11,620
-End-to-end test - and a mystery - 32 checks through MCP; the wrong score came from another game
+The end-to-end test turned up a mystery: the wrong score. A second game, started by the Amiga's launcher, had grabbed our key presses and variable names. Claude tracked it down, and every check passed.
 
 13
 00:02:11,620 --> 00:02:24,620
-Stage 2: a main screen from ChatGPT - Claude to ChatGPT and back
+For the main screen, Claude wrote an image prompt, ChatGPT painted it, and Claude converted it to thirty-two Amiga colours, choosing a palette that keeps the logo and the craft intact.
 
 14
 00:02:24,620 --> 00:02:36,620
-The main screen, live - Own palette per screen; checked with palette reads and key injection
+Each screen loads its own palette. Devbench checks the colour registers and the on-screen text, and a key press takes us into the game.
 
 15
 00:02:36,620 --> 00:02:49,620
-Terra Strike on the Amiga - Played by Claude through devbench key injection and scene hooks
+And here it is: played entirely by Claude, through devbench key injection and scene hooks.
 
 16
 00:02:49,620 --> 00:02:56,620
-One session
+One session. Under forty minutes from a prompt to a tested, playable Amiga game.
 

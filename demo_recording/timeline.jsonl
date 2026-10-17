@@ -295,6 +295,7 @@
 {"t": 1792177951.787, "iso": "2026-10-16T12:12:31.787", "kind": "rec_stop", "label": "121133-06-showcase-flight", "note": ""}
 {"t": 1792177951.823, "iso": "2026-10-16T12:12:31.823", "kind": "session_end", "label": "Demo recording complete", "note": ""}
 {"t": 1792177963.009, "iso": "2026-10-16T12:12:43.008", "kind": "phase", "label": "Showcase flight #2: FS-UAE window only, native screencapture -V (smooth)", "note": ""}
+{"t": 1792177964.009, "iso": "2026-10-16T12:12:44.009", "kind": "rec_start", "label": "121240-07-showcase-amiga-window", "note": "native screencapture -V, FS-UAE window only, .mov"}
 {"t": 1792177964.062, "iso": "2026-10-16T12:12:44.062", "kind": "mcp", "label": "amiga_launch", "note": "{\"command\": \"Dropbox:Dev/terra_strike\"}"}
 {"t": 1792177970.12, "iso": "2026-10-16T12:12:50.119", "kind": "showcase", "label": "title flyover", "note": ""}
 {"t": 1792177972.153, "iso": "2026-10-16T12:12:52.153", "kind": "showcase", "label": "Return: start", "note": ""}
@@ -335,7 +336,6 @@
 {"t": 1792178012.741, "iso": "2026-10-16T12:13:32.741", "kind": "mcp", "label": "amiga_get_var", "note": "{\"name\": \"level\"}"}
 {"t": 1792178012.922, "iso": "2026-10-16T12:13:32.921", "kind": "showcase", "label": "stop client", "note": ""}
 {"t": 1792178012.965, "iso": "2026-10-16T12:13:32.965", "kind": "mcp", "label": "amiga_stop_client", "note": "{\"name\": \"terra_strike\"}"}
-{"t": 1792177964.009, "iso": "2026-10-16T12:12:44.009", "kind": "rec_start", "label": "121240-07-showcase-amiga-window", "note": "native screencapture -V, FS-UAE window only, .mov"}
 {"t": 1792178026.009, "iso": "2026-10-16T12:13:46.009", "kind": "rec_stop", "label": "121240-07-showcase-amiga-window", "note": "native screencapture -V, FS-UAE window only, .mov"}
 {"t": 1792183768.174, "iso": "2026-10-16T13:49:28.173", "kind": "rec_start", "label": "134927-08-stage2-title-prompt", "note": ""}
 {"t": 1792183768.249, "iso": "2026-10-16T13:49:28.249", "kind": "phase", "label": "STAGE 2: main screen via multi-modal hand-off (Claude writes ChatGPT prompt -> user generates image -> Claude converts for Amiga)", "note": ""}

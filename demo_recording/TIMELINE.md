@@ -1,6 +1,6 @@
 # Terra Strike demo - timeline
 
-Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `seg @` is the offset inside that segment's video (use it to cut); `rough @` is the position in `video/rough_cut.mp4`.
+Prompt received 11:31:45; last event 14:41:18. `elapsed` is from the prompt; `seg @` is the offset inside that segment's video (use it to cut); `rough @` is the position in `video/rough_cut.mp4`.
 
 ## Segments
 
@@ -138,15 +138,15 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 11:58:19 | 26:34 |  |  | milestone | Double buffer fix verified: 6-frame burst clean, 22-25 fps vsync |
 | 11:58:20 | 26:35 |  |  | rec_stop | 115307-03-gameplay-key-injection |
 | 11:58:20 | 26:35 | 04 0:00 | 2:07 | rec_start | 115820-04-amiga-unit-tests |
-| 11:58:20 | 26:35 | 04 0:00 | 2:07 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strik |
+| 11:58:20 | 26:35 | 04 0:00 | 2:07 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strike_test"} |
 | 11:59:05 | 27:20 | 04 0:45 | 2:14 | devbench-fix | amiga_run_tests called nonexistent builder.build_project -> fixed in mcp_tools.py; devbench restart also restarted FS-UAE (child process) |
-| 11:59:06 | 27:21 | 04 0:46 | 2:14 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strik |
+| 11:59:06 | 27:21 | 04 0:46 | 2:14 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strike_test"} |
 | 11:59:53 | 28:08 | 04 1:32 | 2:22 | mcp | amiga_list_clients {} |
 | 11:59:53 | 28:08 | 04 1:32 | 2:22 | mcp | amiga_ping {} |
 | 12:00:11 | 28:26 | 04 1:51 | 2:25 | bug | On-Amiga tests: devbench wire log shows TEST_BEGIN then 'disconnected' - assertion burst overruns serial/TCP - pace check() with Delay(2) |
-| 12:00:12 | 28:27 | 04 1:51 | 2:25 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strik |
+| 12:00:12 | 28:27 | 04 1:51 | 2:25 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strike_test"} |
 | 12:01:14 | 29:29 | 04 2:54 | 2:36 | devbench-fix | serial_conn.py: protocol.parse_message NameError on TEST_ lines killed TCP read loop -> parse_message; restarted devbench with SIGKILL (FS-UAE survives) |
-| 12:01:14 | 29:29 | 04 2:54 | 2:36 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strik |
+| 12:01:14 | 29:29 | 04 2:54 | 2:36 | mcp | amiga_run_tests {"project": "examples/terra_strike", "command": "terra_strike_test"} |
 | 12:01:25 | 29:40 | 04 3:05 | 2:38 | milestone | ON-AMIGA UNIT TESTS: 67/67 pass via amiga_run_tests (68060 FS-UAE) - pacing wasn't the cause; comment corrected |
 | 12:02:19 | 30:34 |  |  | rec_stop | 115820-04-amiga-unit-tests |
 | 12:02:19 | 30:34 | 05 0:00 | 2:46 | rec_start | 120219-05-e2e-devbench-test |
@@ -259,7 +259,7 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 12:10:45 | 39:00 |  |  | mcp | amiga_input_key {"rawkey": "40", "direction": "down"} |
 | 12:10:48 | 39:03 |  |  | mcp | amiga_input_key {"rawkey": "40", "direction": "up"} |
 | 12:10:50 | 39:05 |  |  | showcase | scene hook: landing, descend onto pad |
-| 12:10:50 | 39:05 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "landing |
+| 12:10:50 | 39:05 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "landing"} |
 | 12:10:51 | 39:06 |  |  | mcp | amiga_input_key {"rawkey": "4D", "direction": "down"} |
 | 12:10:54 | 39:09 |  |  | mcp | amiga_input_key {"rawkey": "4D", "direction": "up"} |
 | 12:10:57 | 39:12 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "status"} |
@@ -302,7 +302,7 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 12:12:08 | 40:23 | 06 0:34 | 4:29 | mcp | amiga_input_key {"rawkey": "40", "direction": "down"} |
 | 12:12:11 | 40:26 | 06 0:37 | 4:31 | mcp | amiga_input_key {"rawkey": "40", "direction": "up"} |
 | 12:12:12 | 40:27 | 06 0:39 | 4:32 | showcase | scene hook: landing |
-| 12:12:12 | 40:27 | 06 0:39 | 4:32 | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "landing |
+| 12:12:12 | 40:27 | 06 0:39 | 4:32 | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "landing"} |
 | 12:12:13 | 40:28 | 06 0:40 | 4:32 | mcp | amiga_input_key {"rawkey": "4D", "direction": "down"} |
 | 12:12:17 | 40:32 | 06 0:43 | 4:35 | mcp | amiga_input_key {"rawkey": "4D", "direction": "up"} |
 | 12:12:20 | 40:35 | 06 0:46 | 4:37 | showcase | landed + refuelling |
@@ -318,6 +318,7 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 12:12:31 | 40:46 |  |  | rec_stop | 121133-06-showcase-flight |
 | 12:12:31 | 40:46 |  |  | session_end | Demo recording complete |
 | 12:12:43 | 40:58 |  |  | phase | Showcase flight #2: FS-UAE window only, native screencapture -V (smooth) |
+| 12:12:44 | 40:59 | 07 0:00 | 4:44 | rec_start | 121240-07-showcase-amiga-window - native screencapture -V, FS-UAE window only, .mov |
 | 12:12:44 | 40:59 | 07 0:00 | 4:44 | mcp | amiga_launch {"command": "Dropbox:Dev/terra_strike"} |
 | 12:12:50 | 41:05 | 07 0:06 | 4:50 | showcase | title flyover |
 | 12:12:52 | 41:07 | 07 0:08 | 4:52 | showcase | Return: start |
@@ -345,7 +346,7 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 12:13:11 | 41:26 | 07 0:27 | 5:11 | mcp | amiga_input_key {"rawkey": "40", "direction": "down"} |
 | 12:13:14 | 41:29 | 07 0:30 | 5:14 | mcp | amiga_input_key {"rawkey": "40", "direction": "up"} |
 | 12:13:15 | 41:30 | 07 0:31 | 5:16 | showcase | scene hook: landing |
-| 12:13:15 | 41:30 | 07 0:31 | 5:16 | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "landing |
+| 12:13:15 | 41:30 | 07 0:31 | 5:16 | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "landing"} |
 | 12:13:16 | 41:31 | 07 0:32 | 5:17 | mcp | amiga_input_key {"rawkey": "4D", "direction": "down"} |
 | 12:13:20 | 41:35 | 07 0:36 | 5:20 | mcp | amiga_input_key {"rawkey": "4D", "direction": "up"} |
 | 12:13:23 | 41:38 | 07 0:39 | 5:23 | showcase | landed + refuelling |
@@ -358,7 +359,6 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 12:13:32 | 41:47 | 07 0:48 | 5:33 | mcp | amiga_get_var {"name": "level"} |
 | 12:13:32 | 41:47 | 07 0:48 | 5:33 | showcase | stop client |
 | 12:13:32 | 41:47 | 07 0:48 | 5:33 | mcp | amiga_stop_client {"name": "terra_strike"} |
-| 12:12:44 | 40:59 | 07 0:00 | 4:44 | rec_start | 121240-07-showcase-amiga-window - native screencapture -V, FS-UAE window only, .mov |
 | 12:13:46 | 42:01 |  |  | rec_stop | 121240-07-showcase-amiga-window - native screencapture -V, FS-UAE window only, .mov |
 | 13:49:28 | 137:43 | 08 0:00 | 5:46 | rec_start | 134927-08-stage2-title-prompt |
 | 13:49:28 | 137:43 | 08 0:00 | 5:46 | phase | STAGE 2: main screen via multi-modal hand-off (Claude writes ChatGPT prompt -> user generates image -> Claude converts for Amiga) |
@@ -549,3 +549,27 @@ Prompt received 11:31:45; last event 14:17:02. `elapsed` is from the prompt; `se
 | 14:16:51 | 165:06 | 11 0:25 | 8:14 | showcase2 | stop |
 | 14:16:51 | 165:06 | 11 0:25 | 8:14 | mcp | amiga_stop_client {"name": "terra_strike"} |
 | 14:17:02 | 165:17 |  |  | rec_stop | 141625-11-stage2-main-screen-rerecord-amiga-window |
+| 14:20:38 | 168:53 |  |  | phase | Web UI capture session (headless Chrome on devbench UI) |
+| 14:20:38 | 168:53 |  |  | mcp | amiga_launch {"command": "Dropbox:Dev/terra_strike"} |
+| 14:20:42 | 168:57 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "selftest"} |
+| 14:20:45 | 169:00 |  |  | mcp | amiga_input_key {"rawkey": "44", "direction": "down"} |
+| 14:20:45 | 169:00 |  |  | mcp | amiga_input_key {"rawkey": "44", "direction": "up"} |
+| 14:20:46 | 169:01 |  |  | mcp | amiga_input_key {"rawkey": "4C", "direction": "down"} |
+| 14:20:48 | 169:03 |  |  | mcp | amiga_input_key {"rawkey": "4C", "direction": "up"} |
+| 14:20:48 | 169:03 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "scene", "args": "tanks"} |
+| 14:20:48 | 169:03 |  |  | mcp | amiga_input_key {"rawkey": "40", "direction": "down"} |
+| 14:20:51 | 169:06 |  |  | mcp | amiga_input_key {"rawkey": "40", "direction": "up"} |
+| 14:20:51 | 169:06 |  |  | mcp | amiga_set_var {"name": "turn_rate", "value": "4"} |
+| 14:20:51 | 169:06 |  |  | mcp | amiga_get_var {"name": "score"} |
+| 14:20:52 | 169:07 |  |  | mcp | amiga_get_var {"name": "targets"} |
+| 14:20:52 | 169:07 |  |  | mcp | amiga_get_var {"name": "fps"} |
+| 14:20:52 | 169:07 |  |  | mcp | amiga_get_var {"name": "alt"} |
+| 14:20:52 | 169:07 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "status"} |
+| 14:21:29 | 169:44 |  |  | mcp | amiga_stop_client {"name": "terra_strike"} |
+| 14:21:29 | 169:44 |  |  | milestone | Web UI screenshots: shots/webui/01-07 (dashboard, logs, game events, tests, traffic, call detail) |
+| 14:28:56 | 177:11 |  |  | mcp | amiga_launch {"command": "Dropbox:Dev/terra_strike"} |
+| 14:29:00 | 177:15 |  |  | mcp | amiga_call_hook {"client": "terra_strike", "hook": "selftest"} |
+| 14:29:07 | 177:22 |  |  | mcp | amiga_stop_client {"name": "terra_strike"} |
+| 14:29:15 | 177:30 |  |  | milestone | Web UI test-log recaptured at 2x for the short |
+| 14:31:13 | 179:28 |  |  | milestone | Short cut rendered: video/terra_strike_short.mp4 (2:46, 16 beats) |
+| 14:41:18 | 189:33 |  |  | milestone | Narrated short: bf_emma (en-gb) via local Kokoro, 2:57 |

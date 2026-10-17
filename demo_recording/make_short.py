@@ -252,7 +252,7 @@ def wire_card(path):
     """The bridge wire protocol, from logs/bridge_protocol.log (this session)."""
     # verbatim: the first kill, 11:57:02.912-11:57:06.800 (heartbeats already filtered out)
     log = open(os.path.join(D, "logs", "bridge_protocol.log")).read().splitlines()
-    start = next(k for k, l in enumerate(log) if l.startswith("11:57:02.912"))
+    start = next(k for k, l in enumerate(log) if "CALLHOOK|22912|terra_strike|scene|tanks" in l)
     rows = [l for l in log[start:start + 20] if "[VAR] send_and_wait" not in l][:12]
     im = Image.new("RGB", (1600, 900), TERM)
     d = ImageDraw.Draw(im)
@@ -370,7 +370,8 @@ for i, b in enumerate(BEATS, 1):
     run(inputs + ["-filter_complex", fc, "-map", "[v]", "-t", str(b["dur"]), "-r", str(FPS),
                   "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", out])
     parts.append(out)
-    srt.append((t_acc, t_acc + b["dur"], f"{b['title']} - {b['sub']}" if b["sub"] else b["title"]))
+    srt.append((t_acc, t_acc + b["dur"], (f"{b['title']} - {b['sub']}" if b["sub"] else b["title"]),
+                narr[i - 1]["text"] if i - 1 < len(narr) else ""))
     t_acc += b["dur"]
     print(f"beat {i:02d} {b['title']:<38s} {b['dur']:>4.0f}s  ({t_acc:5.0f}s)")
 
@@ -399,9 +400,9 @@ def ts(x):
     ms = int(x * 1000)
     return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 with open(final.replace(".mp4", ".srt"), "w") as f:
-    for k, (a, z, txt) in enumerate(srt, 1):
-        f.write(f"{k}\n{ts(a)} --> {ts(z)}\n{txt}\n\n")
-json.dump([{"beat": k + 1, "start": a, "end": z, "title": t,
-            "narration": narr[k]["text"] if k < len(narr) else ""} for k, (a, z, t) in enumerate(srt)],
+    for k, (a, z, txt, spoken) in enumerate(srt, 1):
+        f.write(f"{k}\n{ts(a)} --> {ts(z)}\n{spoken or txt}\n\n")      # caption what is said
+json.dump([{"beat": k + 1, "start": a, "end": z, "title": t, "narration": sp}
+           for k, (a, z, t, sp) in enumerate(srt)],
           open(final.replace(".mp4", "_beats.json"), "w"), indent=1)
 print(f"{final}: {t_acc:.0f} s")

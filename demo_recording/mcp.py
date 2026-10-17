@@ -26,7 +26,9 @@ def session():
     _, sid = post({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
         "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "demo", "version": "1"}}})
     post({"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
-    open(SESSF, "w").write(sid); return sid
+    if sid:                                   # stateless servers send no session id
+        open(SESSF, "w").write(sid)
+    return sid
 
 def call(method, params):
     for attempt in range(2):
@@ -52,3 +54,5 @@ rec = {"t": round(t0, 3), "iso": datetime.datetime.fromtimestamp(t0).isoformat(t
 open(os.path.join(D, "logs", "mcp_calls.jsonl"), "a").write(json.dumps(rec) + "\n")
 open(os.path.join(D, "timeline.jsonl"), "a").write(json.dumps({"t": rec["t"], "iso": rec["iso"], "kind": "mcp", "label": tool, "note": json.dumps(args)}) + "\n")
 print(text)
+is_err = isinstance(res, dict) and (res.get("isError") or "error" in m[-1])
+sys.exit(1 if is_err else 0)
