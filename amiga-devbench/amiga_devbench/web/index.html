@@ -2532,7 +2532,7 @@ function updateEmulatorStatus(data) {
   const uptimeEl = document.getElementById('dashEmuUptime');
   const title = document.getElementById('emuCardTitle');
   if (title && data.kind)
-    title.textContent = data.kind === 'qemu' ? 'Emulator — QEMU (AmigaOS 4)' : 'Emulator — FS-UAE (classic Amiga)';
+    title.textContent = data.kind === 'qemu' ? 'Emulator — QEMU (AmigaOS 4)' : data.kind === 'winuae' ? 'Emulator — WinUAE (classic Amiga)' : 'Emulator — FS-UAE (classic Amiga)';
   if (data.running) {
     dot.className = 'emu-dot running';
     text.textContent = 'Emu: running';
@@ -7565,5 +7565,6 @@ function dbgHandleSSE(event, data) {
   }
 }
 </script>
+<script src="/static/winuae.js"></script>
 </body>
 </html>

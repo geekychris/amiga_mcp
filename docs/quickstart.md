@@ -139,8 +139,9 @@ to `S:User-Startup`. See [target setup](targets.md) and
 
 Stock emulators can use the guest bridge. Only the `amiga_fsuae_*` tools
 require patched FS-UAE; installing DevBench does not add native debugger
-support to other emulators. The local emulator manager is FS-UAE-oriented;
-launch other emulators yourself and use `--no-emulator`.
+support to other emulators. The local emulator manager launches FS-UAE and,
+for the [WinUAE debugger](winuae-debugger.md), WinUAE; launch other emulators
+yourself and use `--no-emulator`.
 
 ## Optional: build the bridge and examples
 

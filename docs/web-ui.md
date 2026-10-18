@@ -409,3 +409,11 @@ The web UI connects to `/api/events` for real-time updates:
 | `fsuae_event` | `{event, ...}` — pushed from fs-uae's `/v1/events` WebSocket. Events: `hello`, `paused`, `running`, `wp_hit`, `auto_paused` (synthetic), `ws_connected` / `ws_disconnected` (synthetic) | FS-UAE tab auto-refresh on paused; flash tab amber on wp_hit / auto_paused |
 
 ---
+
+### WinUAE tab
+
+The [WinUAE native debugger](winuae-debugger.md) has separate explicit connection
+controls and run control, plus sub-tabs for CPU and breakpoints, memory, the
+chipset, state snapshots and symbols, watches and stops, guest input, and
+files and disks. Its `[winuae_debug]` settings are not in the config editor;
+edit `devbench.toml` and restart DevBench.

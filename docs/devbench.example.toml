@@ -21,3 +21,9 @@ enabled = false
 
 [fsuae_rpc]
 enabled = "off"
+
+# Native WinUAE debugger: connect explicitly from its tab or MCP tools.
+[winuae_debug]
+enabled = false
+host = "127.0.0.1"
+port = 2346

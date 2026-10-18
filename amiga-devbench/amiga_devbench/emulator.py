@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-"""FS-UAE emulator process manager."""
+"""Emulator process manager: FS-UAE, WinUAE, or a launcher script for QEMU."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -55,6 +56,31 @@ def _looks_patched(binary: str) -> bool | None:
         return None
 
 
+def is_winuae(binary: str) -> bool:
+    return "winuae" in Path(binary).name.lower()
+
+
+def winuae_executable(binary: str) -> str:
+    """The executable inside a macOS WinUAE.app bundle, or binary itself."""
+    path = Path(binary).expanduser()
+    inner = path / "Contents" / "MacOS" / "WinUAE"
+    return str(inner) if path.suffix == ".app" and inner.is_file() else str(path)
+
+
+def winuae_launch_args(cfg: Any) -> list[str]:
+    """Overrides for a WinUAE that DevBench launches: no configuration GUI,
+    and the GDB server when [winuae_debug] is enabled. WinUAE does not start
+    its GDB server with the threaded CPU."""
+    args = ["-s", "use_gui=no"]
+    if getattr(cfg, "winuae_debug_enabled", False):
+        args += ["-s", "debugging_features=gdbserver", "-s", f"gdb_port={cfg.winuae_debug_port}",
+                 "-s", "cpu_threaded=false"]
+    if os.name == "nt":
+        for key in ("active_not_captured_pause", "inactive_pause", "iconified_pause"):
+            args += ["-s", f"win32.{key}=no"]
+    return args
+
+
 def discover_fsuae_binary(configured: str = "auto") -> tuple[str, bool]:
     """Pick an fs-uae binary path. Returns (path, is_patched_likely).
 
@@ -65,6 +91,8 @@ def discover_fsuae_binary(configured: str = "auto") -> tuple[str, bool]:
     fs-uae on PATH; otherwise the (likely stale) default.
     """
     if configured and configured.lower() != "auto":
+        if is_winuae(configured):
+            return winuae_executable(configured), False
         return configured, bool(_looks_patched(configured))
 
     for cand in _PATCHED_FSUAE_CANDIDATES:
@@ -86,8 +114,9 @@ def discover_fsuae_binary(configured: str = "auto") -> tuple[str, bool]:
 
 
 class EmulatorManager:
-    """Manages a local emulator process: FS-UAE, or a launcher script such as
-    scripts/start-qemu-os4.sh (then process_name names the QEMU it runs)."""
+    """Manages a local emulator process: FS-UAE, WinUAE, or a launcher script
+    such as scripts/start-qemu-os4.sh (then process_name names the QEMU it
+    runs). WinUAE takes `-f config`, launch arguments and floppy overrides."""
 
     def __init__(
         self,
@@ -107,6 +136,8 @@ class EmulatorManager:
         self._event_bus = event_bus
         self._extra_env = dict(extra_env) if extra_env else {}
         self._process_name = process_name
+        self._launch_args: list[str] = []
+        self._floppies: dict[int, str] = {}
         self._process: asyncio.subprocess.Process | None = None
         self._monitor_task: asyncio.Task | None = None
         self._started_at: float | None = None
@@ -124,6 +155,20 @@ class EmulatorManager:
         """
         self._extra_env = dict(env)
 
+    def set_launch_args(self, args: list[str]) -> None:
+        """Command-line arguments added after a WinUAE configuration."""
+        self._launch_args = list(args)
+
+    def set_floppy(self, drive: int, path: str | None) -> None:
+        """Override a WinUAE floppy drive on the next start; None ejects it."""
+        if drive not in range(4):
+            raise ValueError("drive must be 0..3")
+        self._floppies[drive] = str(Path(path).expanduser().resolve()) if path else ""
+
+    @property
+    def floppies(self) -> dict[int, str]:
+        return dict(self._floppies)
+
     @property
     def is_running(self) -> bool:
         if self._process is not None and self._process.returncode is None:
@@ -139,18 +184,27 @@ class EmulatorManager:
 
     @property
     def kind(self) -> str:
-        """What the emulator is, for the UI: "qemu" or "fs-uae"."""
+        """What the emulator is, for the UI: "qemu", "winuae" or "fs-uae"."""
         name = (self._process_name or Path(self._binary).name).lower()
-        return "qemu" if "qemu" in name else "fs-uae"
+        return "qemu" if "qemu" in name else "winuae" if "winuae" in name else "fs-uae"
 
     def _find_external_pid(self) -> int | None:
         """Check if the emulator is running as an external process. For a
         launcher script that's the emulator it starts (process_name)."""
         binary_name = self._process_name or Path(self._binary).name
+        if self.kind == "winuae":
+            # WinUAE often runs on its own; only one using this configuration
+            # is DevBench's, so that Stop cannot end an unrelated instance.
+            if not self._config_file:
+                return None
+            config = re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", str(Path(self._config_file).expanduser()))
+            pattern = ["pgrep", "-f", "--", f"-f {config}"]
+        else:
+            pattern = ["pgrep", "-x", binary_name]
         try:
             import subprocess
             result = subprocess.run(
-                ["pgrep", "-x", binary_name],
+                pattern,
                 capture_output=True, text=True, timeout=2
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -176,6 +230,7 @@ class EmulatorManager:
             "config": self._config_file,
             "kind": self.kind,
             "process": self._process_name or Path(self._binary).name,
+            **({"floppies": self.floppies} if self.kind == "winuae" else {}),
         }
 
     async def start(self) -> bool:
@@ -202,6 +257,10 @@ class EmulatorManager:
             logger.info("Starting emulator: %s %s", self._binary, config_path)
         else:
             logger.info("Starting emulator: %s", self._binary)
+        if self.kind == "winuae":
+            config_arg = (["-f", config_arg[0]] if config_arg else []) + self._launch_args
+            for drive, image in sorted(self._floppies.items()):
+                config_arg += ["-s", f"floppy{drive}={image}"]
 
         env = os.environ.copy()
         env.update(self._extra_env)
@@ -214,8 +273,9 @@ class EmulatorManager:
                 self._binary, *config_arg,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
-                # Create new process group so we can cleanly kill it
-                preexec_fn=os.setsid,
+                # A new process group (session) so we can cleanly kill it.
+                **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+                   else {"start_new_session": True}),
                 env=env,
             )
             self._started_at = time.time()
@@ -244,8 +304,11 @@ class EmulatorManager:
         logger.info("Stopping emulator (pid %d)", pid)
 
         try:
-            # Send SIGTERM to the process group
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
+            # Send SIGTERM to the process group (Windows: terminate the process)
+            if os.name == "nt":
+                self._process.terminate()
+            else:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
         except (OSError, ProcessLookupError):
             pass
 
@@ -255,7 +318,10 @@ class EmulatorManager:
         except asyncio.TimeoutError:
             logger.warning("Emulator didn't stop gracefully, force killing")
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                if os.name == "nt":
+                    self._process.kill()
+                else:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
             except (OSError, ProcessLookupError):
                 pass
             try:
