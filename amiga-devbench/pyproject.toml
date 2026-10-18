@@ -31,4 +31,4 @@ amiga-devbench = "amiga_devbench.__main__:main"
 include = ["amiga_devbench*"]
 
 [tool.setuptools.package-data]
-amiga_devbench = ["web/*.html"]
+amiga_devbench = ["web/*.html", "web/*.js", "web/*.css"]

@@ -99,9 +99,14 @@ def test_mcp_tool_registration_golden():
     expected = (FIXTURES / "mcp_tools_v94a8888.txt").read_text().split()
     assert len(expected) == 129
     actual = sorted(t.name for t in asyncio.run(mcp.list_tools()))
-    assert set(actual) - set(expected) == set(), "tools added"
+    added = {
+        "amiga_winuae_control", "amiga_winuae_registers", "amiga_winuae_read_memory",
+        "amiga_winuae_write_memory", "amiga_winuae_disassemble", "amiga_winuae_breakpoint",
+        "amiga_winuae_inspect", "amiga_winuae_process_break", "amiga_winuae_exception_stops",
+    }
+    assert set(actual) - set(expected) == added, "unexpected tool additions"
     assert set(expected) - set(actual) == set(), "tools removed"
-    assert actual == expected
+    assert [name for name in actual if name not in added] == expected
 
 
 def test_ready_handshake_publishes_event_and_sends_nothing():

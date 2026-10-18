@@ -86,6 +86,11 @@ class DevBenchConfig:
     # GDB RSP server
     gdb_port: int = 2159
 
+    # Native WinUAE RSP client: explicit connection, separate from bridge GDB.
+    winuae_debug_enabled: bool = False
+    winuae_debug_host: str = "127.0.0.1"
+    winuae_debug_port: int = 2345
+
     # FS-UAE Remote Debug HTTP RPC (patched fs-uae build)
     # See https://github.com/geekychris/fsuae_remote_patch
     # `enabled = "auto"` probes /v1/ping on startup; "on" forces; "off" disables.
@@ -229,6 +234,8 @@ def apply_profile(cfg: DevBenchConfig, name: str) -> None:
         cfg.arch = str(p["arch"]).lower()
     if "docker_image" in p:
         cfg.docker_image = str(p["docker_image"])
+    _apply_winuae_debug(cfg, {k.removeprefix("winuae_debug_"): v
+                             for k, v in p.items() if k.startswith("winuae_debug_")})
     # Remember which profile was applied
     cfg.active_profile = name
 
@@ -292,6 +299,8 @@ def _apply_toml(cfg: DevBenchConfig, data: dict[str, Any]) -> None:
     if "client_name" in llm:   cfg.llm_client_name = str(llm["client_name"])
     if "hook_name" in llm:     cfg.llm_hook_name = str(llm["hook_name"])
 
+    _apply_winuae_debug(cfg, data.get("winuae_debug", {}))
+
     rpc = data.get("fsuae_rpc", {})
     if "enabled" in rpc:
         val = rpc["enabled"]
@@ -311,6 +320,25 @@ def _apply_toml(cfg: DevBenchConfig, data: dict[str, Any]) -> None:
         cfg.fsuae_auto_snapshot_interval_s = int(rpc["auto_snapshot_interval_s"])
     if "auto_snapshot_ring_size" in rpc:
         cfg.fsuae_auto_snapshot_ring_size = int(rpc["auto_snapshot_ring_size"])
+
+
+def _apply_winuae_debug(cfg: DevBenchConfig, values: dict) -> None:
+    if not isinstance(values, dict):
+        raise ValueError("winuae_debug must be a TOML table")
+    if "enabled" in values:
+        if type(values["enabled"]) is not bool:
+            raise ValueError("winuae_debug.enabled must be true or false")
+        cfg.winuae_debug_enabled = values["enabled"]
+    if "host" in values:
+        host = values["host"]
+        if not isinstance(host, str) or not host.strip():
+            raise ValueError("winuae_debug.host must be a nonempty hostname")
+        cfg.winuae_debug_host = host
+    if "port" in values:
+        port = values["port"]
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError("winuae_debug.port must be in 1..65535")
+        cfg.winuae_debug_port = port
 
 
 def apply_cli_overrides(cfg: DevBenchConfig, args: Any) -> None:
@@ -416,6 +444,11 @@ def save_config(cfg: DevBenchConfig, path: str | None = None) -> str:
         '[build]',
         f'arch = "{_toml_escape(cfg.arch)}"',
         f'docker_image = "{_toml_escape(cfg.docker_image)}"',
+        '',
+        '[winuae_debug]',
+        f'enabled = {"true" if cfg.winuae_debug_enabled else "false"}',
+        f'host = "{_toml_escape(cfg.winuae_debug_host)}"',
+        f'port = {cfg.winuae_debug_port}',
         '',
         '[fsuae_rpc]',
         '# Remote-debug HTTP API exposed by the patched fs-uae build',

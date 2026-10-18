@@ -188,6 +188,8 @@ Line-based text protocol over serial/TCP, pipe-delimited fields.
 - Sample FS-UAE config: `AmiKit-Debug.fs-uae` in project root (copy and customize)
 - Key setting: `serial_port = tcp://0.0.0.0:1234` enables serial-over-TCP
 - Emulator config path goes in `devbench.toml` under `[emulator] config = "..."`
+- WinUAE's native debugger is configured in `[winuae_debug]` (`enabled`, `host`,
+  `port`; profiles use `winuae_debug_*`); see `docs/winuae-debugger.md`
 - Once running, edit FS-UAE config from web UI: Settings tab → FS-UAE Config Editor
 - AmiKit users: run `./scripts/configure-amikit.sh` for automatic setup
 - See `/fsuae-setup` skill for detailed walkthrough

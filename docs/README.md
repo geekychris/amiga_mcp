@@ -18,6 +18,7 @@
 - [MCP tools](mcp-tools.md)
 - [Web UI](web-ui.md)
 - [Choosing a debugger](debuggers.md)
+- [WinUAE native debugger](winuae-debugger.md): browser and MCP setup, controls and limits.
 - [Build and development workflow](development.md)
 - [Examples and programming guide](examples.md)
 - [Classic and PPC workflow notes](target-workflows.md)
