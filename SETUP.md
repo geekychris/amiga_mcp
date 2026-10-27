@@ -88,6 +88,12 @@ now `make devbench`.)
 until the Amiga has booted and its bridge answers, and prints the URLs.
 Logs are written to `~/.amiga-devbench/logs/`.
 
+If something else already uses one of the ports (on Linux, Open WebUI often
+holds :3000), pick another with `PORT_OS4` / `PORT_68K`, e.g.
+`PORT_OS4=3002 scripts/start.sh os4`, and use that port in step 4.
+On Linux the emulator windows open on `$DISPLAY`; from an ssh login, set it
+to the desktop session's (e.g. `DISPLAY=:1`, with that session's `XAUTHORITY`).
+
 Each devbench's web UI says which Amiga it drives: an orange **AmigaOS 4 ·
 PowerPC** banner or a blue **Classic Amiga · 68k** one. Its Dashboard has
 Start / Restart / Stop for the emulator.

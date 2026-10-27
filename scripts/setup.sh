@@ -72,6 +72,8 @@ scripts/install-toolchains.sh
 if want os4; then
     step "AmigaOS 4: QEMU, lha, amitools"
     have qemu-system-ppc || pkg_install qemu qemu-system-ppc
+    # apt's QEMU keeps its GTK window in a separate package
+    [ "$OS" = Darwin ] || pkg_install qemu qemu-system-gui
     # lha: only needed to install OS4 from its ISO (Homebrew has no lha formula)
     have lha || pkg_install lhasa lhasa || echo "lha not installed: get it from https://github.com/jca02266/lha if you need to install OS4"
 

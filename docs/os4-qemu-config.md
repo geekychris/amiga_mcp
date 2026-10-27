@@ -16,8 +16,10 @@ Codified in `scripts/start-qemu-os4.sh`.  The load-bearing pieces:
 qemu-system-ppc \
     -machine sam460ex \
     -m 512 \
-    -drive file=~/AmigaOS4/amigaos4-system.hdf,format=raw,if=ide,index=0 \
-    -drive file=~/AmigaOS4/amigaos4-dev.hdf,format=raw,if=ide,index=1 \
+    -drive file=~/AmigaOS4/amigaos4-system.hdf,format=raw,if=none,id=sysdrv \
+    -device ide-hd,drive=sysdrv,bus=ide.0,unit=0 \
+    -drive file=~/AmigaOS4/amigaos4-dev.hdf,format=raw,if=none,id=devdrv \
+    -device ide-hd,drive=devdrv,bus=ide.1,unit=0 \
     -serial tcp::2346,server,nowait \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2345-:2345 \
     -device rtl8139,netdev=n0 \
@@ -31,7 +33,7 @@ Why each flag:
 | ---- | --- |
 | `-machine sam460ex` | The A-EON Sam460ex machine model — matches what OS4.1 FE was actually released to run on. |
 | `-m 512` | 512MB is the QEMU sam460ex cap in practice; OS4 handles anything up to that. |
-| `-drive ... if=ide,index=0/1` | Two IDE disks: system HDF (index 0) + dev HDF (index 1). Guest sees them as `SYS:` / `DH1:`. |
+| `-drive ... if=none` + `-device ide-hd,bus=ide.0/ide.1` | Two disks on the sii3112's two buses: system HDF (`ide.0`) + dev HDF (`ide.1`). Guest sees them as `SYS:` / `DH1:`. The `if=ide,index=N` shorthand works on newer QEMU, but QEMU 8.x (Ubuntu 24.04's) refuses it on sam460ex. |
 | `-serial tcp::2346,server,nowait` | UART16550 routed to host TCP :2346. Console output + serial-mode bridge fallback. |
 | `-netdev user,id=n0,hostfwd=tcp:127.0.0.1:2345-:2345` | User-mode (slirp) NAT.  `hostfwd` forwards host `127.0.0.1:2345` → guest `:2345` so devbench can reach the TCP bridge from the mac.  Bind is loopback-only on purpose (don't expose the bridge to the LAN). |
 | `-device rtl8139,netdev=n0` | Add-in NIC on the PCI bus.  **The old `-net nic,model=rtl8139 -net user` shorthand silently fails on sam460ex** with `requested NIC (model rtl8139) was not created (not supported by this machine?)` — the modern `-netdev`/`-device` split is what its PCI bus wants.  OS4 has an rtl8139.device driver in the base install so no extra software needed. |

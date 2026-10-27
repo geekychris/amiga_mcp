@@ -23,7 +23,8 @@
 set -e
 
 # Paths — adjust these for your setup
-QEMU=/opt/homebrew/bin/qemu-system-ppc
+# QEMU: $QEMU, else qemu-system-ppc on PATH (Homebrew, apt), else Homebrew's
+QEMU="${QEMU:-$(command -v qemu-system-ppc || echo /opt/homebrew/bin/qemu-system-ppc)}"
 OS4_DIR="${OS4_DIR:-$HOME/AmigaOS4}"
 HDD_SYSTEM="${OS4_DIR}/amigaos4-system.hdf"
 HDD_DEV="${OS4_DIR}/amigaos4-dev.hdf"
@@ -132,8 +133,8 @@ if [ $INSTALL_MODE -eq 1 ]; then
         echo "Download AmigaOS 4.1 FE from hyperion-entertainment.com"
         exit 1
     fi
-    DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
-                -drive file=$CDROM,format=raw,if=ide,index=1,media=cdrom"
+    DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=none,id=sysdrv -device ide-hd,drive=sysdrv,bus=ide.0,unit=0 \
+                -drive file=$CDROM,format=raw,if=none,id=cddrv,media=cdrom -device ide-cd,drive=cddrv,bus=ide.1,unit=0"
     BOOT_ARGS="-boot d"
     echo "=== INSTALL MODE ==="
     echo "Booting from CDROM: $CDROM"
@@ -142,9 +143,10 @@ else
     # (ide.0 and ide.1), each supporting exactly one device. QEMU
     # attaches an empty ide-cd on ide.1 by default. To land the dev
     # HDF on ide.1 we attach it explicitly with if=none + ide-hd,
-    # which overrides the default CD-ROM. System HDD stays on ide.0
-    # via the simpler if=ide,index=0 shorthand.
-    DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=ide,index=0 \
+    # which overrides the default CD-ROM. The system HDD goes on ide.0
+    # the same way: QEMU 8.x (Ubuntu 24.04's) refuses the if=ide
+    # shorthand on sam460ex ("machine type does not support if=ide").
+    DRIVE_ARGS="-drive file=$HDD_SYSTEM,format=raw,if=none,id=sysdrv -device ide-hd,drive=sysdrv,bus=ide.0,unit=0 \
                 -drive file=$HDD_DEV,format=raw,if=none,id=devdrv \
                 -device ide-hd,drive=devdrv,bus=ide.1,unit=0"
     BOOT_ARGS=""
@@ -230,9 +232,12 @@ if [ "$NET_MODE" -eq 1 ]; then
     #             -device rtl8139,netdev=n3,mac=52:54:00:12:34:59 )
     QEMU_CMD+=( -netdev "user,id=n1,net=192.168.100.0/24,hostfwd=udp::17777-192.168.100.15:17777,hostfwd=tcp::17778-192.168.100.15:17778,hostfwd=tcp::2347-192.168.100.15:2345" \
                 -device e1000-82540em,netdev=n1 )
-    QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
     QEMU_CMD+=( -netdev "user,id=n2,net=192.168.101.0/24,hostfwd=udp::17877-192.168.101.15:17877,hostfwd=tcp::17878-192.168.101.15:17878" \
                 -device virtio-net-pci,netdev=n2,mac=52:54:00:e1:00:02 )
+    # Packet captures and virtio tracing for the driver work; NET_DEBUG=0
+    # turns them off (they cost speed and fill /tmp).
+    if [ "${NET_DEBUG:-1}" = 1 ]; then
+    QEMU_CMD+=( -object "filter-dump,id=n1-dump,netdev=n1,file=/tmp/qemu-n1.pcap" )
     QEMU_CMD+=( -object "filter-dump,id=n2-dump,netdev=n2,file=/tmp/qemu-n2.pcap" )
     # Trace virtio events so we can see whether the guest driver's
     # notify actually reaches QEMU. Every virtqueue_pop event = one
@@ -245,6 +250,7 @@ if [ "$NET_MODE" -eq 1 ]; then
                 -trace "virtio_notify*"
                 -trace "virtio_pci_*"
                 --trace "file=/tmp/qemu-trace.log" )
+    fi
     NET_STATUS="dual NIC: e1000 n1 (virte1000, 192.168.100.0/24), virtio-net n2 (virtnet, 192.168.101.0/24); pcaps /tmp/qemu-n[12].pcap; virtio-trace /tmp/qemu-trace.log"
 else
     QEMU_CMD+=( -nic none )

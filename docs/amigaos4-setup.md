@@ -10,11 +10,13 @@ working macOS setup — the aspirational full plan lives in
 
 ## Prerequisites
 
-- **macOS** (Apple Silicon or Intel). Windows / Linux paths differ.
+- **macOS** (Apple Silicon or Intel), or **Linux** (tested on Ubuntu 24.04
+  arm64: `sudo apt install qemu-system-ppc qemu-system-gui qemu-utils lhasa`;
+  the brew lines below are the macOS equivalents). Windows paths differ.
 - **QEMU** with `qemu-system-ppc` and the `sam460ex` machine:
   ```
   brew install qemu
-  qemu-system-ppc --version           # 11.x tested
+  qemu-system-ppc --version           # 11.x tested (macOS); 8.2 (Ubuntu 24.04)
   qemu-system-ppc -machine help | grep sam460ex
   ```
 - **lha** for extracting the install ISO:
@@ -334,8 +336,9 @@ The script creates fresh sparse HDF containers when they're missing.
   relaunch with `--install`, U-Boot keeps booting the CD. Drop
   `--install` to boot from HDD.
 - **sam460ex has only one IDE bus** with two slots. `-cdrom` implicitly
-  maps to bus 1 which doesn't exist — the script uses
-  `-drive if=ide,index=1,media=cdrom` explicitly.
+  maps to bus 1 which doesn't exist — the script attaches the CD with
+  `-drive if=none,media=cdrom` + `-device ide-cd,bus=ide.1` explicitly
+  (and the disks with `ide-hd`: QEMU 8.x refuses `if=ide` on sam460ex).
 - **`-nic user,model=rtl8139` is silently rejected** on sam460ex —
   QEMU emits "requested NIC was not created (not supported by this
   machine?)". The `-netdev` + `-device` two-flag form works fine

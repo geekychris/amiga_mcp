@@ -164,7 +164,7 @@ if [ "$TARGET" = all ] || [ "$TARGET" = os4 ]; then
     if [ -f "$ROOT/third_party/mesa-os4/out/lib/libOSMesa.a" ]; then ok "Software OpenGL for OS4 (third_party/mesa-os4)"
     else warn "OSMesa not built (only planet_chomp and rolling_steel need it)" "third_party/mesa-os4/build.sh"; fi
 
-    for p in 3000 2346 2347 2348; do check_port "$p" '^(qemu|[Pp]ython)'; done
+    for p in "${PORT_OS4:-3000}" 2346 2347 2348; do check_port "$p" '^(qemu|[Pp]ython)'; done
 fi
 
 echo
