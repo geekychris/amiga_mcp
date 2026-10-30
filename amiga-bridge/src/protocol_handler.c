@@ -1301,8 +1301,8 @@ static void handle_callhook(const char *args)
     bm->dataLen = strlen(bm->data) + 1;
 
     {
-        char dbg[200];
-        sprintf(dbg, "LOG|I|0|[HOOK] Sending to port %lx payload='%s'",
+        char dbg[200];      /* the payload (up to AB_MAX_DATA) is cut to 120 chars */
+        sprintf(dbg, "LOG|I|0|[HOOK] Sending to port %lx payload='%.120s'",
                 (unsigned long)ce->replyPort, payload);
         send_line(dbg);
     }
