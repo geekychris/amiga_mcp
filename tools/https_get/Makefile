@@ -10,7 +10,7 @@
 # Or from the project root:
 #   scripts/build-tool-ppc.sh https_get
 CC = ppc-amigaos-gcc
-CFLAGS = -mcrt=newlib -O2 -mcpu=440 -Wall \
+CFLAGS = -mcrt=newlib -O2 -mcpu=powerpc -Wall \
          -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
 LDFLAGS = -mcrt=newlib
 # Use libamisslauto — it opens amissl.library + amisslmaster + wires

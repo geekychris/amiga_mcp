@@ -117,11 +117,14 @@ scripts/gdb-os4.sh amiga-bridge/amiga-bridge      # gdb-multiarch attached
   `make ARCH=m68k`
 
 ## Amiga C Conventions (PPC OS4)
-- Compile with `-mcrt=newlib -O2 -mcpu=440 -Wall -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__`
-- Link with `-mcrt=newlib -L../../amiga-bridge -lbridge -lauto` (drop `-noixemul`, `-lamiga`)
-- Code that does floating-point maths needs `-mcpu=440fp`: with this GCC 11,
-  plain `-mcpu=440` means soft float and won't link against hard-float
-  libraries (libm, `third_party/mesa-os4`'s libOSMesa)
+- Compile with `-mcrt=newlib -O2 -mcpu=powerpc -Wall -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__`
+- **Never `-mcpu=440` or `-mcpu=440fp`.** With them GCC inlines string
+  functions (`strlen`, `strcat`, ...) using `dlmzb.`, a 440/460-only
+  instruction: it runs on QEMU's sam460ex, so tests pass, but real X5000
+  (e5500), A1222 and G3/G4 machines crash with an illegal instruction
+  (alert 0x80000004). Generic `-mcpu=powerpc` is hard float with this GCC 11
+  and links against hard-float libraries (libm, `third_party/mesa-os4`).
+  Check a binary: `ppc-amigaos-objdump -d <file> | grep -c dlmzb` must be 0
 - OpenGL: no Warp3D driver exists for QEMU's SM502, so MiniGL can't be used.
   `third_party/mesa-os4/build.sh` builds software Mesa (OSMesa 7.8.2); see
   `examples/planet_chomp` (perspective 3D) and `examples/rolling_steel`

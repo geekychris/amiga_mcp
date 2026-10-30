@@ -25,6 +25,7 @@ examples/*/tests/test_core
 examples/*/tests/test_direct
 amiga-bridge/src/*.d
 amiga-bridge/src/*.o
+amiga-bridge/amiga-bridge_os4
 
 # Runtime snapshots (encoded absolute paths)
 %2F*

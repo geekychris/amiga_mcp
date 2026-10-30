@@ -9,11 +9,13 @@ CC     = ppc-amigaos-gcc
 AR     = ppc-amigaos-ar
 RANLIB = ppc-amigaos-ranlib
 
-# NOTE: plain -mcpu=440 makes this GCC 11 emit SOFT-float code (the 440
+# Generic -mcpu=powerpc (hard float): 440/440fp code can contain dlmzb, a
+# 440/460-only instruction that crashes the X5000, A1222 and G3/G4.
+# (Before: plain -mcpu=440 makes this GCC 11 emit SOFT-float code (the 440
 # core has no FPU), which then fails to link against the hard-float
 # libgcc/newlib ("uses hard float, ... uses soft float"). The sam460ex's
 # 460EX has an FPU, so use -mcpu=440fp (== -mcpu=440 -mhard-float).
-CPU    ?= -mcpu=440fp
+CPU    ?= -mcpu=powerpc
 CFLAGS ?= -mcrt=newlib -O2 $(CPU) -D__USE_INLINE__ \
           -DUSE_EXTERNAL_DXTN_LIB=0 -DNDEBUG \
           -fno-strict-aliasing -Wall -Wno-unused -Wno-sign-compare -Wno-array-parameter
