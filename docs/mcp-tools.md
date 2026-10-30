@@ -57,6 +57,7 @@ All tools are available through Claude Code when connected to the MCP server.
 | `amiga_run_script` | `script` | Execute multi-line AmigaDOS script |
 | `amiga_break` | `name` | Send CTRL-C break to a task |
 | `amiga_stop_client` | `name` | Gracefully stop a bridge client |
+| `amiga_kill_task` | `name` | Send CTRL-C to any Amiga task by name (not just bridge clients) |
 | `amiga_proc_list` | — | List tracked async processes with IDs and status |
 | `amiga_proc_stat` | `proc_id` | Get status of a specific tracked process |
 | `amiga_signal` | `proc_id`, `signal?` | Send signal to tracked process (CTRL_C/D/E/F) |
