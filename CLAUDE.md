@@ -243,6 +243,22 @@ including one that isn't its child (here, the QEMU behind the qemu-os4 profile
 that `scripts/start.sh` brought up), which took the guest down. To stop the emulator, use
 `scripts/start.sh stop` (POST `/api/emulator/stop`).
 
+## Testing on an emulator the user also uses
+The user plays on the same emulators. A test takes the emulator lock and
+shows a "CLAUDE IS TESTING" banner on the Amiga's screen for as long as it
+runs (`scripts/claude_busy.py`, Amiga side `tools/claude_busy`):
+```python
+sys.path.insert(0, "<amiga_mcp>/scripts")
+from claude_busy import claude_testing
+with claude_testing("http://localhost:3010/mcp", "Boing Twist tests"):   # 3001 = 68k
+    ...
+```
+or `scripts/claude_busy.py run --url URL --message M -- <command>`. The
+banner's window is never active, so injected keys still reach the game.
+Read test state through a hook of your own client rather than a variable
+name another program could also register (devbench looks variables up by
+name only).
+
 ## Testing Without Emulator
 ```bash
 python3 -m amiga_devbench --simulator   # Starts with fake Amiga on TCP 1234
