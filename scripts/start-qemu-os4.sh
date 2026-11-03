@@ -338,6 +338,15 @@ echo "DevBench connection:"
 echo "  python3 -m amiga_devbench --serial-host 127.0.0.1 --serial-port $SERIAL_PORT"
 echo ""
 
+# On macOS, launch QEMU at the top throughput and latency QoS tiers. Otherwise
+# macOS treats it as a background app once its window is covered (App Nap):
+# its threads move to the efficiency cores, guest timers wake 40-90 ms late
+# and the guest runs several times slower. Override with QEMU_TASKPOLICY=0.
+if [ "$(uname -s)" = "Darwin" ] && [ "${QEMU_TASKPOLICY:-1}" != "0" ] \
+   && command -v taskpolicy >/dev/null; then
+    QEMU_CMD=( taskpolicy -t 0 -l 0 "${QEMU_CMD[@]}" )
+fi
+
 # Launch in background so we can post-launch-resize the window on macOS.
 "${QEMU_CMD[@]}" &
 QEMU_PID=$!
