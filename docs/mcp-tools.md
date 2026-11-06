@@ -66,7 +66,7 @@ All tools are available through Claude Code when connected to the MCP server.
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `amiga_capabilities` | — | Query daemon version, protocol level, and supported commands |
+| `amiga_capabilities` | — | Query daemon version, protocol level, supported commands, platform, features and profiles |
 | `amiga_list_clients` | — | List connected bridge clients |
 | `amiga_list_tasks` | — | List all running tasks/processes |
 | `amiga_list_libs` | — | List loaded libraries with versions |
@@ -174,7 +174,8 @@ Drives one Amiga task through the bridge daemon. See the
 | Tool | Parameters | Description |
 |---|---|---|
 | `amiga_input_key` | `rawkey`, `direction?` | Inject a keyboard event via input.device (raw key code) |
-| `amiga_input_mouse_move` | `dx`, `dy` | Inject a relative mouse move event |
+| `amiga_input_mouse_move` | `dx`, `dy` | Inject a relative mouse move event (goes through Input Prefs acceleration) |
+| `amiga_input_pointer_pos` | `x`, `y` | Put the pointer at an absolute screen position, exact (v1.22+, `INPUTPOS`) |
 | `amiga_input_click` | `button?`, `direction?` | Inject a mouse button press/release |
 
 ### ARexx

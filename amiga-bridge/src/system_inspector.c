@@ -25,6 +25,7 @@
 #include <stdlib.h>
 
 #include "bridge_internal.h"
+#include "caps_util.h"
 
 /* MEMF_TOTAL may not be defined in older NDK headers */
 #ifndef MEMF_TOTAL
@@ -521,6 +522,11 @@ void sys_handle_stackinfo(const char *taskname)
  */
 void sys_handle_chipregs(void)
 {
+#ifdef __PPC__
+    /* Classic custom chip registers at $DFF000 - not advertised on OS4. */
+    protocol_send_raw("ERR|Unknown command|CHIPREGS");
+    return;
+#else
     volatile UWORD *custom = (volatile UWORD *)0xDFF000;
     static char linebuf[1024];
     static char tmp[64];
@@ -567,6 +573,7 @@ void sys_handle_chipregs(void)
     }
 
     protocol_send_raw(linebuf);
+#endif
 }
 
 /*
@@ -580,6 +587,10 @@ void sys_handle_chipregs(void)
 
 void sys_handle_readregs(void)
 {
+#ifdef __PPC__
+    /* 68k register model does not apply - not advertised on OS4. */
+    protocol_send_raw("ERR|Unknown command|READREGS");
+#else
     ULONG dregs[8], aregs[7];
     ULONG sp_val;
     static char linebuf[512];
@@ -589,7 +600,6 @@ void sys_handle_readregs(void)
     /* Capture data and address registers via inline asm.
      * Note: these reflect the compiler's register allocation at this point,
      * not the caller's state, but still useful for inspection. */
-#ifndef __PPC__
     asm volatile(
         "movem.l %%d0-%%d7, %0\n\t"
         "movem.l %%a0-%%a6, %1\n\t"
@@ -598,13 +608,6 @@ void sys_handle_readregs(void)
         :
         : "memory"
     );
-#else
-    /* TODO OS4/PPC: 68k register model doesn't apply — zero out for now.
-     * A future pass could grab a snapshot of GPRs via inline PPC asm. */
-    for (i = 0; i < 8; i++) dregs[i] = 0;
-    for (i = 0; i < 7; i++) aregs[i] = 0;
-    sp_val = 0;
-#endif
 
     /* SR requires supervisor mode on 68010+ and Supervisor() trap
      * has calling convention issues that cause crashes. Skip it. */
@@ -627,6 +630,7 @@ void sys_handle_readregs(void)
     strcpy(linebuf + pos, tmp);
 
     protocol_send_raw(linebuf);
+#endif
 }
 
 /*
@@ -868,7 +872,7 @@ void sys_handle_libfuncs(const char *args)
      * jump table. Reporting fake data here would mislead host clients, so
      * fail loudly. Removed from CAPABILITIES on PPC too. */
     (void)args;
-    protocol_send_raw("ERR|LIBFUNCS|not supported on OS4 (interface-based exec)");
+    protocol_send_raw("ERR|Unknown command|LIBFUNCS");
     return;
 #else
     static char linebuf[BRIDGE_MAX_LINE];
@@ -1240,41 +1244,42 @@ void sys_handle_assign(const char *args)
 
 /*
  * CAPABILITIES - report daemon capabilities.
- * Format: CAPABILITIES|version|protocol|maxLine|commands
+ * Format: CAPABILITIES|version|protocolLevel|maxLine|commands|platform|features|profiles
+ *
+ * Protocol level 2 appends platform, features and profiles after the
+ * command list; a level-1 host parses positionally and ignores them.
+ * The command list is honest per build: verbs the PPC build cannot
+ * perform are not advertised and answer ERR|Unknown command|<VERB>.
+ * The three lists are built by caps_util.c (host-testable).
  */
 void sys_handle_capabilities(void)
 {
     static char linebuf[BRIDGE_MAX_LINE];
-
-    /* LIBFUNCS is 68k-only — it reads the jump-table format that OS4
-     * doesn't have (interface method tables instead). Drop it from
-     * PPC's advertised capability list so hosts don't try to call it. */
+    static char commands[2048];
+    static char features[512];
+    static char profiles[128];
 #ifdef __PPC__
-    #define LIBFUNCS_CAP ""
+    const int arch = CAPS_ARCH_PPC;
 #else
-    #define LIBFUNCS_CAP "LIBFUNCS,"
+    const int arch = CAPS_ARCH_68K;
 #endif
+
+    caps_build_commands(commands, sizeof(commands), arch);
+    caps_build_features(features, sizeof(features), arch);
+    caps_build_profiles(profiles, sizeof(profiles), arch);
+
+    /* %ld + (long) only: with -lamiga the sprintf is amiga.lib's, whose %d
+     * reads a 16-bit WORD and shifts every later argument - the four %s then
+     * walk garbage pointers and the machine hangs (seen on an A1200/Emu68,
+     * v1.21-v1.23). */
     sprintf(linebuf,
-        "CAPABILITIES|" BRIDGE_VERSION_STR "|1|%ld|"
-        "PING,INSPECT,GETVAR,SETVAR,EXEC,LISTCLIENTS,LISTTASKS,LISTLIBS,"
-        "LISTDEVICES,LISTDEVS,LISTVOLUMES,LISTDIR,READFILE,WRITEFILE,"
-        "FILEINFO,DELETE,DELETEFILE,MAKEDIR,LAUNCH,DOSCOMMAND,RUN,BREAK,"
-        "LISTHOOKS,CALLHOOK,LISTMEMREGS,READMEMREG,CLIENTINFO,STOP,"
-        "SCRIPT,WRITEMEM,SCREENSHOT,PALETTE,SETPALETTE,COPPERLIST,SPRITES,"
-        "LISTRESOURCES,GETPERF,LASTCRASH,CRASHINIT,CRASHREMOVE,CRASHTEST,"
-        "MEMMAP,STACKINFO,CHIPREGS,READREGS,SEARCH,LIBINFO,DEVINFO,"
-        LIBFUNCS_CAP
-        "SNOOPSTART,SNOOPSTOP,SNOOPSTATUS,AUDIOCHANNELS,"
-        "AUDIOSAMPLE,LISTSCREENS,LISTWINDOWS,LISTWINDOWS2,LISTGADGETS,"
-        "WINACTIVATE,WINTOFRONT,WINTOBACK,WINZIP,WINMOVE,WINSIZE,"
-        "SCRTOFRONT,SCRTOBACK,INPUTKEY,INPUTMOVE,INPUTCLICK,"
-        "LISTFONTS,FONTINFO,CHIPLOGSTART,CHIPLOGSTOP,CHIPLOGSNAPSHOT,"
-        "POOLSTART,POOLSTOP,POOLS,CLIPGET,CLIPSET,AREXXPORTS,AREXXSEND,"
-        "SHUTDOWN,CAPABILITIES,PROCLIST,PROCSTAT,SIGNAL,TAIL,STOPTAIL,"
-        "CHECKSUM,ASSIGNS,ASSIGN,PROTECT,RENAME,SETCOMMENT,COPY,APPEND,"
-        "VERSION,GETENV,SETENV,SETDATE,VOLUMES,PORTS,SYSINFO,UPTIME,REBOOT",
-        (long)BRIDGE_MAX_LINE);
-#undef LIBFUNCS_CAP
+        "CAPABILITIES|" BRIDGE_VERSION_STR "|%ld|%ld|%s|%s|%s|%s",
+        (long)CAPS_PROTOCOL_LEVEL,
+        (long)BRIDGE_MAX_LINE,
+        commands,
+        caps_platform(arch),
+        features,
+        profiles);
 
     protocol_send_raw(linebuf);
 }
@@ -1474,7 +1479,9 @@ void sys_handle_ports(void)
 
 /*
  * System info: memory, CPU, exec version, VBlank frequency.
- * Format: SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz
+ * Format: SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz|transport
+ *
+ * transport is "serial" or "tcp" - the link the daemon is currently serving.
  */
 void sys_handle_sysinfo(void)
 {
@@ -1525,7 +1532,7 @@ void sys_handle_sysinfo(void)
     }
 #endif
 
-    sprintf(linebuf, "SYSINFO|%lu|%lu|%lu|%lu|%ld|%ld|%s|%ld",
+    sprintf(linebuf, "SYSINFO|%lu|%lu|%lu|%lu|%ld|%ld|%s|%ld|%s",
         (unsigned long)chipFree,
         (unsigned long)fastFree,
         (unsigned long)chipTotal,
@@ -1533,7 +1540,8 @@ void sys_handle_sysinfo(void)
         (long)execVer,
         (long)execRev,
         cpuType,
-        (long)vblankHz);
+        (long)vblankHz,
+        (g_transport_mode == TRANSPORT_TCP) ? "tcp" : "serial");
 
     protocol_send_raw(linebuf);
 }

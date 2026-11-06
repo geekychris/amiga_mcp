@@ -395,7 +395,7 @@ The web UI connects to `/api/events` for real-time updates:
 | `libinfo` | `{name, version, revision, openCnt, ...}` | Library detail response |
 | `devinfo` | `{name, version, revision, openCnt, ...}` | Device detail response |
 | `libfuncs` | `{name, page, totalPages, entries: [...]}` | Library jump table entries |
-| `capabilities` | `{version, protocolLevel, maxLine, commands}` | Daemon capabilities response |
+| `capabilities` | `{version, protocolLevel, maxLine, commands, platform?, features?, profiles?}` | Daemon capabilities response (the last three only from a level-2 daemon) |
 | `proclist` | `{count, processes: [{id, command, status}]}` | Tracked process list |
 | `procstat` | `{id, command, status}` | Single process status |
 | `taildata` | `{path, data}` | New data appended to tailed file |

@@ -619,6 +619,11 @@ void gfx_handle_setpalette(const char *args)
  */
 void gfx_handle_copperlist(const char *args)
 {
+#ifdef __PPC__
+    /* Classic chipset copper list - not advertised on OS4. */
+    (void)args;
+    protocol_send_raw("ERR|Unknown command|COPPERLIST");
+#else
     struct cprlist *cpr;
     UWORD *copIns;
     ULONG numIns;
@@ -680,6 +685,7 @@ void gfx_handle_copperlist(const char *args)
             }
         }
     }
+#endif
 }
 
 /*
@@ -698,6 +704,11 @@ void gfx_handle_copperlist(const char *args)
  */
 void gfx_handle_sprites(const char *args)
 {
+#ifdef __PPC__
+    /* Classic chipset sprites - not advertised on OS4. */
+    (void)args;
+    protocol_send_raw("ERR|Unknown command|SPRITES");
+#else
     ULONG sprPtrs[8];
     int sprFound[8];
     int i;
@@ -824,6 +835,7 @@ void gfx_handle_sprites(const char *args)
                 hexbuf);
         protocol_send_raw(linebuf);
     }
+#endif
 }
 
 /*

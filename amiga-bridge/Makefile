@@ -44,7 +44,8 @@ DAEMON_SRCS_PORTABLE = src/main.c src/serial_io.c src/ipc_manager.c \
                        src/chipwrite_logger.c src/pool_tracker.c \
                        src/clipboard_bridge.c src/arexx_bridge.c \
                        src/transport.c src/net_io.c \
-                       src/b64.c src/script_util.c src/version.c
+                       src/b64.c src/script_util.c src/caps_util.c \
+                       src/version.c
 DAEMON_SRCS_68K_ONLY = src/crash_handler.c src/snoop.c src/debugger.c
 
 ifeq ($(ARCH),ppc)

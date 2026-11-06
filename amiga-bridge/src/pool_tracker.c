@@ -283,7 +283,7 @@ void pool_handle_start(void)
     /* OS4 uses IExec interface methods, not classic LVO jump tables — the
      * SetFunction() patch approach in the 68k build does not translate.
      * Report unsupported rather than pretending to install patches. */
-    protocol_send_raw("ERR|POOL|not supported on OS4 (interface-based exec)");
+    protocol_send_raw("ERR|Unknown command|POOLSTART");
 #else
     if (g_active) {
         protocol_send_raw("OK|POOL|already tracking");
@@ -322,8 +322,8 @@ void pool_handle_start(void)
 void pool_handle_stop(void)
 {
 #ifdef __PPC__
-    /* Symmetric with pool_handle_start(): no-op on OS4. */
-    protocol_send_raw("OK|POOL|not tracking (unsupported on OS4)");
+    /* Symmetric with pool_handle_start(): not advertised on OS4. */
+    protocol_send_raw("ERR|Unknown command|POOLSTOP");
 #else
     if (!g_active) {
         protocol_send_raw("OK|POOL|not tracking");
@@ -369,6 +369,10 @@ void pool_handle_stop(void)
  */
 void pool_handle_list(void)
 {
+#ifdef __PPC__
+    /* Symmetric with pool_handle_start(): not advertised on OS4. */
+    protocol_send_raw("ERR|Unknown command|POOLS");
+#else
     static char linebuf[BRIDGE_MAX_LINE];
     int pos, i, count;
 
@@ -405,4 +409,5 @@ void pool_handle_list(void)
 
     linebuf[pos] = '\0';
     protocol_send_raw(linebuf);
+#endif
 }

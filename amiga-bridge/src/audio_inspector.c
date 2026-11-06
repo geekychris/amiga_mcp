@@ -40,6 +40,10 @@ extern struct ExecBase *SysBase;
  */
 void audio_handle_channels(void)
 {
+#ifdef __PPC__
+    /* Paula registers at $DFF000 - not advertised on OS4. */
+    protocol_send_raw("ERR|Unknown command|AUDIOCHANNELS");
+#else
     volatile UWORD *custom = (volatile UWORD *)0xDFF000;
     static char linebuf[BRIDGE_MAX_LINE];
     UWORD dmaconr = custom[0x002 / 2];  /* DMACONR */
@@ -56,6 +60,7 @@ void audio_handle_channels(void)
         (unsigned long)audioIntReq,
         (unsigned long)audioIntEna);
     protocol_send_raw(linebuf);
+#endif
 }
 
 /*
@@ -71,6 +76,11 @@ void audio_handle_channels(void)
  */
 void audio_handle_sample(const char *args)
 {
+#ifdef __PPC__
+    /* Paula registers at $DFF000 - not advertised on OS4. */
+    (void)args;
+    protocol_send_raw("ERR|Unknown command|AUDIOSAMPLE");
+#else
     static char linebuf[BRIDGE_MAX_LINE];
     static char hexbuf[1026]; /* 512 bytes * 2 + nul */
     ULONG addr, size, i;
@@ -112,4 +122,5 @@ void audio_handle_sample(const char *args)
         (unsigned long)size,
         hexbuf);
     protocol_send_raw(linebuf);
+#endif
 }
