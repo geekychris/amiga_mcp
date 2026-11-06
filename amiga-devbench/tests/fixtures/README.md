@@ -44,9 +44,15 @@ Same structure, for the daemon binary the repository tracks (`amiga-bridge/amiga
 Daemon v1.22: v1.21 plus `INPUTPOS` (absolute pointer position) in the `input`
 profile - 121 verbs on 68k, 86 on PPC. Generated exactly like the v1.21 pair.
 
+## `bridge_v1.23_68k.txt` / `bridge_v1.23_ppc.txt`
+
+Daemon v1.23: the fork's v1.21/v1.22 rebased onto upstream main (which had its
+own v1.21: STOP signals the registered client's task, `STOP|HARD`). Same verb
+list as v1.22. Generated exactly like the v1.21 pair.
+
 ## `mcp_tools_v94a8888.txt`
 
-The 130 tool names registered on the `FastMCP("amiga-dev")` instance in
+The 129 tool names registered on the `FastMCP("amiga-dev")` instance in
 `amiga_devbench/mcp_tools.py`, sorted. Generated, not hand-typed:
 
 ```python

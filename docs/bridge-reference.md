@@ -180,13 +180,28 @@ fields are pipe-delimited (`|`), maximum 8192 characters per line (`BRIDGE_MAX_L
 
 | Message | Format | Description |
 |---|---|---|
-| CAPABILITIES | `CAPABILITIES\|version\|protocolLevel\|maxLine\|cmd1,cmd2,...` | Daemon capabilities |
+| CAPABILITIES | `CAPABILITIES\|version\|protocolLevel\|maxLine\|cmd1,cmd2,...\|platform\|feat1,feat2,...\|prof1,prof2,...` | Daemon capabilities (protocol level 2, see below) |
+| SYSINFO | `SYSINFO\|chipFree\|fastFree\|chipTotal\|fastTotal\|execVer\|execRev\|cpuType\|vblankHz\|transport` | System info; `transport` is `serial` or `tcp` (v1.21+) |
 | PROCLIST | `PROCLIST\|count\|id:cmd:status,...` | Tracked process list |
 | PROCSTAT | `PROCSTAT\|id\|command\|status` | Single process status |
 | TAILDATA | `TAILDATA\|path\|hexData` | New data appended to tailed file |
 | CHECKSUM | `CHECKSUM\|path\|crc32\|size` | File CRC32 and size |
 | ASSIGNS | `ASSIGNS\|count\|name:path:type,...` | Assign list (type: A=assign, L=late, N=nonbinding) |
 | PROTECT | `PROTECT\|path\|bits` | File protection bits (hex) |
+
+#### CAPABILITIES protocol level 2 (daemon v1.21+)
+
+The protocol level is the grammar version of the `CAPABILITIES` line. Level 1
+(daemons up to v1.20) sends `version|protocolLevel|maxLine|commands`; level 2
+appends three fields. A level-1 host parses positionally and ignores them; the
+host treats a level above 2 as level 2 and ignores any further fields.
+
+| Field | Meaning |
+|---|---|
+| `commands` | The verbs this build actually performs. The 68k build lists 121 as of v1.22 (including the debugger verbs `DBGATTACH`, `BPSET`, ...); the PPC/OS4 build omits every verb it cannot perform (debugger, crash handler, snoop, pool tracker, `READREGS`, `CHIPREGS`, `CHIPLOG*`, `SPRITES`, `COPPERLIST`, `AUDIOCHANNELS`, `AUDIOSAMPLE`, `LIBFUNCS`). An unadvertised verb answers `ERR\|Unknown command\|<VERB>`. |
+| `platform` | `amiga/aos3/unknown` (68k) or `amiga/aos4/unknown` (PPC); the third segment is reserved for the machine model. |
+| `features` | Dotted flags for behaviours that are not a single verb, e.g. `exec.async` (RUN returns before the program does), `fs.tail`, `gfx.truecolor`, `mem.regs` (READREGS), `dbg.crash` (LASTCRASH), `amiga.chipset` (CHIPREGS/CHIPLOG*/SPRITES). The full list with meanings is in `amiga-bridge/src/caps_util.c`. |
+| `profiles` | Named command sets implemented in full: `core,mem,fs,exec,gfx,input,debug,client` on 68k; PPC has no `debug`. Membership is listed in `amiga-bridge/src/caps_util.c`. |
 
 ---
 
