@@ -1268,9 +1268,13 @@ void sys_handle_capabilities(void)
     caps_build_features(features, sizeof(features), arch);
     caps_build_profiles(profiles, sizeof(profiles), arch);
 
+    /* %ld + (long) only: with -lamiga the sprintf is amiga.lib's, whose %d
+     * reads a 16-bit WORD and shifts every later argument - the four %s then
+     * walk garbage pointers and the machine hangs (seen on an A1200/Emu68,
+     * v1.21-v1.23). */
     sprintf(linebuf,
-        "CAPABILITIES|" BRIDGE_VERSION_STR "|%d|%ld|%s|%s|%s|%s",
-        CAPS_PROTOCOL_LEVEL,
+        "CAPABILITIES|" BRIDGE_VERSION_STR "|%ld|%ld|%s|%s|%s|%s",
+        (long)CAPS_PROTOCOL_LEVEL,
         (long)BRIDGE_MAX_LINE,
         commands,
         caps_platform(arch),

@@ -44,11 +44,15 @@ Same structure, for the daemon binary the repository tracks (`amiga-bridge/amiga
 Daemon v1.22: v1.21 plus `INPUTPOS` (absolute pointer position) in the `input`
 profile - 121 verbs on 68k, 86 on PPC. Generated exactly like the v1.21 pair.
 
-## `bridge_v1.23_68k.txt` / `bridge_v1.23_ppc.txt`
+## `bridge_v1.24_68k.txt` / `bridge_v1.24_ppc.txt`
 
-Daemon v1.23: the fork's v1.21/v1.22 rebased onto upstream main (which had its
-own v1.21: STOP signals the registered client's task, `STOP|HARD`). Same verb
-list as v1.22. Generated exactly like the v1.21 pair.
+Daemon v1.24: the fork's v1.21/v1.22 rebased onto upstream main (which had its
+own v1.21: STOP signals the registered client's task, `STOP|HARD`), plus the
+`%d` -> `%ld` fix in the CAPABILITIES `sprintf` - amiga.lib's `%d` reads a
+16-bit WORD, so v1.21-v1.23 hung a real A1200 on the first `CAPABILITIES`
+(the host-built `test_bridge --dump-caps` never saw it: it links the C
+library's sprintf). Same verb list as v1.22. Generated exactly like the v1.21
+pair; v1.23 fixtures were replaced, that daemon never answered on hardware.
 
 ## `mcp_tools_v94a8888.txt`
 
