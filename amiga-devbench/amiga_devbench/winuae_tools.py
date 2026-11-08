@@ -269,13 +269,13 @@ def register_winuae_tools(mcp):
         return await call('capture', ranges=ranges)
 
     @mcp.tool()
-    async def amiga_winuae_postmortem(file: str | None = None, mappings: list[dict] | None = None,
-                                      max_frames: int = 32) -> dict:
+    async def amiga_winuae_postmortem(project: str | None = None, file: str | None = None,
+                                      mappings: list[dict] | None = None, max_frames: int = 32) -> dict:
         """A bounded crash report: fault-time and current registers, disassembly, stack bytes,
         loaded segments and guest output. The fault context is used only when it matches the
-        current exception stop. With a linked ELF file and mappings, includes a DWARF
+        current exception stop. With the program (as for amiga_winuae_source), includes a DWARF
         backtrace. Requires pause."""
-        return await call('postmortem', file=file, mappings=mappings, max_frames=max_frames)
+        return await call('postmortem', project=project, file=file, mappings=mappings, max_frames=max_frames)
 
     @mcp.tool()
     async def amiga_winuae_guest_output(operation: Literal['on', 'off', 'read', 'clear'] = 'read') -> dict:
@@ -395,25 +395,31 @@ def register_winuae_tools(mcp):
                           offset=offset, section=section, process=process, mappings=mappings)
 
     @mcp.tool()
-    async def amiga_winuae_source(file: str, mappings: list[dict], address: str | None = None,
+    async def amiga_winuae_source(project: str | None = None, file: str | None = None,
+                                  mappings: list[dict] | None = None, address: str | None = None,
                                   context: Literal['current', 'fault'] = 'current', process: str | None = None) -> dict:
-        """Source file, line and function for the PC or an address, from a linked m68k ELF file
-        with DWARF and its runtime section mappings. Needs the dwarf extra (pyelftools).
-        Requires pause."""
-        return await call('source', file=file, mappings=mappings, address=address, context=context, process=process)
+        """Source file, line and function for the PC or an address, from DWARF. Name the
+        program as a DevBench project or a file: a Hunk executable built with -g (its hunks map
+        to the loaded segments of process, the current one by default) or a linked m68k ELF
+        file with explicit mappings. Needs the dwarf extra (pyelftools). Requires pause."""
+        return await call('source', project=project, file=file, mappings=mappings, address=address,
+                          context=context, process=process)
 
     @mcp.tool()
-    async def amiga_winuae_variable(file: str, mappings: list[dict], expression: str,
+    async def amiga_winuae_variable(expression: str, project: str | None = None, file: str | None = None,
+                                    mappings: list[dict] | None = None,
                                     context: Literal['current', 'fault'] = 'current', process: str | None = None) -> dict:
         """Read a C variable with .member, ->member and [index] selectors from DWARF type and
-        location information. Unsupported or optimized-out locations are errors. Requires pause."""
-        return await call('variable', file=file, mappings=mappings, expression=expression, context=context,
-                          process=process)
+        location information. The program is named as for amiga_winuae_source. Unsupported or
+        optimized-out locations are errors. Requires pause."""
+        return await call('variable', project=project, file=file, mappings=mappings, expression=expression,
+                          context=context, process=process)
 
     @mcp.tool()
-    async def amiga_winuae_backtrace(file: str, mappings: list[dict], max_frames: int = 32,
+    async def amiga_winuae_backtrace(project: str | None = None, file: str | None = None,
+                                     mappings: list[dict] | None = None, max_frames: int = 32,
                                      context: Literal['current', 'fault'] = 'current', process: str | None = None) -> dict:
         """Unwind up to 64 frames from DWARF call-frame information; stops with a reason
-        instead of guessing. Requires pause."""
-        return await call('backtrace', file=file, mappings=mappings, max_frames=max_frames, context=context,
-                          process=process)
+        instead of guessing. The program is named as for amiga_winuae_source. Requires pause."""
+        return await call('backtrace', project=project, file=file, mappings=mappings, max_frames=max_frames,
+                          context=context, process=process)

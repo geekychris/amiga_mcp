@@ -118,7 +118,8 @@
           <label>Image ${input('diskfile', 'placeholder="/path/disk.adf" style="width:220px"')}</label>`) +
         row(`${button('disk-insert', 'Insert', '')}${button('disk-eject', 'Eject', '')}${button('disk-status', 'Status', '')}`) +
         `<p class="wu-note">WinUAE applies drive changes at launch, so a WinUAE started by DevBench restarts and the debugger reconnects.</p>` + out('disk'))}
-      ${card('Executables and symbols', row(`<label>File ${input('exefile', 'placeholder="/path/program" style="width:260px"')}</label>`) +
+      ${card('Executables and symbols', row(`<label>Project ${input('exeproject', 'placeholder="hello_world" style="width:140px"')}</label>
+          <label>or file ${input('exefile', 'placeholder="/path/program" style="width:260px"')}</label>`) +
         row(`${button('hunk-inspect', 'Inspect Hunk', '')}${button('symbols', 'Symbols', '')}`) +
         row(`<label>Placements ${input('placements', 'placeholder=\'[{"address":"0x40000","capacity":4096,"memory":"chip"}]\' style="width:300px"')}</label>${button('hunk-load', 'Load Hunk', 'data-stopped', 'memory-check')}`) +
         row(`<label>Raw load at ${input('rawaddr', 'placeholder="0x40000"')}</label>${button('raw-load', 'Load raw', 'data-stopped', 'memory-check')}`) + out('files'))}
@@ -313,7 +314,9 @@
     ].join('\n');
   }
   const joy = () => el('joy').value.startsWith('button') ? {event:'button', button:Number(el('joy').value.slice(6))} : {event:'joystick', direction:el('joy').value};
-  const mappings = () => el('mappings').value ? JSON.parse(el('mappings').value) : [];
+  const mappings = () => el('mappings').value ? JSON.parse(el('mappings').value) : null;
+  // A DevBench project, or a file: a Hunk built with -g, or an ELF with mappings.
+  const program = () => el('exeproject').value ? {project:el('exeproject').value} : {file:el('exefile').value};
   const watchSources = () => [...panel.querySelectorAll('.wu-src:checked')].map(c => c.value);
 
   const handlers = {
@@ -388,7 +391,8 @@
     tasks: async () => show('inspection', await request('inspect', {subject:'tasks'})),
     exception: async () => show('inspection', await request('inspect', {subject:'exception'})),
     segments: async () => show('inspection', await request('inspect', {subject:'segments', process:el('process').value})),
-    postmortem: async () => show('inspection', await request('postmortem')),
+    postmortem: async () => show('inspection', await request('postmortem',
+      el('exeproject').value || el('exefile').value ? {...program(), mappings:mappings()} : {})),
     'output-on': () => request('guest_output', {operation:'on'}), 'output-off': () => request('guest_output', {operation:'off'}),
     'output-read': async () => show('output', await request('guest_output')), 'output-clear': async () => show('output', await request('guest_output', {operation:'clear'})),
     'key-tap': async () => show('input', await request('key_tap', {codes:[el('keycode').value], resume:true})),
@@ -414,9 +418,9 @@
     'raw-load': async () => show('files', await request('load', {file:el('exefile').value, address:el('rawaddr').value})),
     'symbol-read': async () => show('dwarf', await request('symbol_read', {file:el('exefile').value, symbol:el('symname').value,
       format:el('symformat').value, mappings:el('mappings').value ? mappings() : null})),
-    source: async () => show('dwarf', await request('source', {file:el('exefile').value, mappings:mappings()})),
-    variable: async () => show('dwarf', await request('variable', {file:el('exefile').value, mappings:mappings(), expression:el('expression').value})),
-    backtrace: async () => show('dwarf', await request('backtrace', {file:el('exefile').value, mappings:mappings()})),
+    source: async () => show('dwarf', await request('source', {...program(), mappings:mappings()})),
+    variable: async () => show('dwarf', await request('variable', {...program(), mappings:mappings(), expression:el('expression').value})),
+    backtrace: async () => show('dwarf', await request('backtrace', {...program(), mappings:mappings()})),
   };
   async function run(action, waitForStop = false, args = {}) {
     state = await request(action, args); render();

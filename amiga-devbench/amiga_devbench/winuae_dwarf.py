@@ -2,7 +2,9 @@
 """DWARF source lines, variables and backtraces for WinUAE guests.
 
 winuae_dwarf_helper.py parses a linked m68k ELF file with pyelftools in an
-isolated subprocess. It never connects to the target or runs guest code;
+isolated subprocess. A Hunk executable from the m68k-amigaos toolchain is
+first converted to such an image (winuae_program), and its hunks map to the
+loaded segments of the same index unless mappings say otherwise. It never connects to the target or runs guest code;
 its memory reads go through this session's connection, within fixed time
 and read budgets.
 """
@@ -23,14 +25,34 @@ HELPER = Path(__file__).with_name('winuae_dwarf_helper.py')
 TIME_LIMIT, READ_LIMIT, BYTE_LIMIT, OUTPUT_LIMIT = 15, 512, 65536, 1024 * 1024
 
 
+async def debug_image(file: Any, project: Any, mappings: Any) -> tuple[bytes, Any]:
+    """The ELF image the helper reads, and the mappings to use with it."""
+    from .winuae_program import load_program, section_name
+    if project is None:
+        data = await read_file_async(file)
+        if data[:4] != b'\0\0\x03\xf3':
+            parsed = parse_symbols(data)
+            if parsed['format'] != 'elf32-m68k' or int.from_bytes(data[16:18], 'big') != 2:
+                raise DebugError('DWARF tools need a linked ELF32 m68k executable or a Hunk executable built with -g')
+            if not isinstance(mappings, list) or not 1 <= len(mappings) <= 256:
+                raise DebugError('An ELF file needs explicit runtime section mappings')
+            return data, mappings
+    program = await load_program(file=file, project=project)
+    names = {h.index: section_name(h) for h in program.hunks}
+    if mappings is None:
+        mappings = [dict(section=name, segment=index) for index, name in names.items()]
+    elif not isinstance(mappings, list) or not 1 <= len(mappings) <= 256:
+        raise DebugError('Supply 1..256 section mappings, or none for the loaded segments')
+    else:
+        # Hunk indices name sections, as for symbol reads.
+        mappings = [{**m, 'section': names.get(m['section'], m['section'])}
+                    if isinstance(m, dict) and type(m.get('section')) is int else m for m in mappings]
+    return program.elf(), mappings
+
+
 async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict) -> dict:
-    data = await read_file_async(args.get('file'))
+    data, mappings = await debug_image(args.get('file'), args.get('project'), args.get('mappings'))
     parsed = parse_symbols(data)
-    if parsed['format'] != 'elf32-m68k' or int.from_bytes(data[16:18], 'big') != 2:
-        raise DebugError('DWARF tools need a linked ELF32 m68k executable')
-    mappings = args.get('mappings')
-    if not isinstance(mappings, list) or not 1 <= len(mappings) <= 256:
-        raise DebugError('Supply explicit runtime section mappings')
     expression = args.get('expression')
     if kind == 'variable' and (not isinstance(expression, str) or len(expression) > 256):
         raise DebugError('Supply a variable expression of at most 256 characters')
