@@ -50,7 +50,7 @@ async def debug_image(file: Any, project: Any, mappings: Any) -> tuple[bytes, An
     return program.elf(), mappings
 
 
-async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict) -> dict:
+async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict, extra: dict | None = None) -> dict:
     data, mappings = await debug_image(args.get('file'), args.get('project'), args.get('mappings'))
     parsed = parse_symbols(data)
     expression = args.get('expression')
@@ -95,6 +95,7 @@ async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict) -> dict:
                    expression=expression, max_frames=max_frames)
     if address is not None:
         request['address'] = address  # Otherwise the helper uses the PC.
+    request.update(extra or {})
     result = await run_helper(d, request)
     return dict(context=context, **result)
 

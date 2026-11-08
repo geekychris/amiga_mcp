@@ -150,6 +150,12 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
   section mappings. The tools need the dwarf extra:
   `pip install amiga-devbench[dwarf]` (pyelftools 0.32), and run in an
   isolated helper process with fixed time and read budgets.
+- **Symbols** of the running program are found the same way. Breakpoints by
+  `symbol`, disassembly with `source_xref` and symbol reads take `project` or
+  `file` and use the addresses where AmigaDOS loaded the hunks, so they also
+  work for code and data outside the first hunk. Static functions have no
+  hunk symbol; a `-g` build finds them in the DWARF. C names match with or
+  without their leading underscore.
 
 ## MCP tools
 

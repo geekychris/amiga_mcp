@@ -207,3 +207,77 @@ async def layout(d: WinuaeDebugger, program: Program, process: Any = None) -> La
         raise DebugError(f'The process has {len(segments)} segments but {Path(program.path).name} '
                          f'has {len(program.hunks)} hunks; pass the process that runs it')
     return Layout(program, bases, proc)
+
+
+def runtime_of_linked(lay: Layout, linked: int) -> int | None:
+    """The runtime address of a DWARF (linked) address."""
+    for hunk, base in zip(lay.program.hunks, dwarf_bases(lay.program.hunks)):
+        if base <= linked < base + max(hunk.size, 1):
+            return lay.bases[hunk.index] + linked - base
+    return None
+
+
+async def find_program(name: str | None, project: Any, file: Any) -> Program:
+    """The program a symbol belongs to. Without project or file, the project
+    whose symbols amiga_load_symbols loaded and that defines the name."""
+    if project is None and file is None:
+        from . import symbols
+        hit = symbols.lookup_function_address(name, None) if name else None
+        if hit is None:
+            raise DebugError('Name the program with project or file')
+        project = hit[0]
+    return await load_program(file=file, project=project)
+
+
+async def function_address(d: WinuaeDebugger, name: str, project: Any = None, file: Any = None,
+                           process: Any = None) -> int:
+    """Runtime address of a function or symbol of the running program: a hunk
+    symbol, or a function from its DWARF (static functions have no hunk
+    symbol)."""
+    program = await find_program(name, project, file)
+    lay = await layout(d, program, process)
+    hit = program.symbol(name)
+    if hit is not None:
+        return lay.address(*hit)
+    try:
+        program.dwarf()
+    except DebugError:
+        raise DebugError(f"No symbol '{name}' in {Path(program.path).name}") from None
+    from .winuae_dwarf import dwarf_tool
+    found = await dwarf_tool(d, 'functions', dict(file=program.path, process=process))
+    linked = {f['linked_address'] for f in found['functions'] if f['name'] == name}
+    if not linked:
+        raise DebugError(f"No symbol or function '{name}' in {Path(program.path).name}")
+    if len(linked) > 1:
+        raise DebugError(f"Function '{name}' is defined more than once")
+    address = runtime_of_linked(lay, linked.pop())
+    if address is None:
+        raise DebugError(f"Function '{name}' lies outside the program's hunks")
+    return address
+
+
+async def annotate(d: WinuaeDebugger, addresses: list[int], project: Any = None, file: Any = None,
+                   process: Any = None) -> dict[int, dict]:
+    """Symbol and source line of each address that lies in the program."""
+    program = await find_program(None, project, file)
+    lay = await layout(d, program, process)
+    notes: dict[int, dict] = {}
+    for address in addresses:
+        where = lay.locate(address)
+        if where is not None:
+            notes[address] = dict(symbol=program.nearest(*where), hunk=where[0], offset=where[1])
+    if notes:
+        try:
+            program.dwarf()
+            from .winuae_dwarf import dwarf_tool
+            found = await dwarf_tool(d, 'sources', dict(file=program.path, process=process),
+                                     dict(addresses=sorted(notes)))
+            for source in found['sources']:
+                note = notes.get(source.get('address'))
+                if note is not None and source.get('locations'):
+                    location = source['locations'][0]
+                    note.update(file=location['file'], line=location['line'], function=(source.get('functions') or [None])[0])
+        except DebugError as exc:
+            for note in notes.values():
+                note['source_error'] = str(exc)
+    return notes

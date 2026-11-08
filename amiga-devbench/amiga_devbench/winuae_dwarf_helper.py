@@ -413,6 +413,29 @@ class Analysis:
         return {'expression': expression, 'address': location if kind == 'address' else None, 'location_kind': kind,
                 'type': self.name(type_die) or self.canonical(type_die).tag, 'size': size, 'hex': data.hex(), 'value': self.decode(type_die, data)}
 
+    def functions(self):
+        """Linked entry addresses of the functions with code, statics included."""
+        found = []
+        for die in self.dies:
+            if die.tag != 'DW_TAG_subprogram' or 'DW_AT_declaration' in die.attributes:
+                continue
+            low = die.attributes.get('DW_AT_low_pc')
+            name = self.name(die)
+            if low is not None and name:
+                found.append({'name': name, 'linked_address': low.value})
+        return {'functions': found}
+
+    def sources(self, addresses):
+        if not isinstance(addresses, list) or len(addresses) > 256:
+            raise ValueError('Supply at most 256 addresses')
+        found = []
+        for address in addresses:
+            try:
+                found.append(self.source(checked(address)))
+            except ValueError as error:
+                found.append({'address': address, 'error': str(error)})
+        return {'sources': found}
+
     def backtrace(self, limit):
         checked(limit, 64)
         pc, regs, frames, seen, reason = self.pc, dict(self.regs), [], set(), 'frame limit'
@@ -466,6 +489,8 @@ def main():
     if request['action'] == 'source': result = analysis.source(request.get('address', analysis.pc))
     elif request['action'] == 'variable': result = analysis.variable(request['expression'])
     elif request['action'] == 'backtrace': result = analysis.backtrace(request.get('max_frames', 32))
+    elif request['action'] == 'functions': result = analysis.functions()
+    elif request['action'] == 'sources': result = analysis.sources(request.get('addresses'))
     else: raise ValueError('Unknown DWARF action')
     emit({'result': result})
 

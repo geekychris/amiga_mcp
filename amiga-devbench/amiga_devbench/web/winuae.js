@@ -229,7 +229,7 @@
   }
   async function disassemble(address = el('disaddr').value) {
     const listing = await request('disassemble', {address, count:Number(el('discount').value), annotate:el('annotate').checked,
-      library:el('library').value || null, source_xref:el('xref').checked, project:el('project').value || null});
+      library:el('library').value || null, source_xref:el('xref').checked, ...running()});
     el('disassembly').innerHTML = listing.lines.map(line => escape(line.text) +
       (line.annotation ? ` <span class="wu-note-call">; ${escape(line.annotation)}</span>` : '') +
       (line.source ? `\n<span class="wu-src-line">↳ ${escape(line.source.symbol || '')} ${escape(line.source.file || '')}${line.source.line ? ':' + line.source.line : ''}</span>` : '')).join('\n');
@@ -317,6 +317,11 @@
   const mappings = () => el('mappings').value ? JSON.parse(el('mappings').value) : null;
   // A DevBench project, or a file: a Hunk built with -g, or an ELF with mappings.
   const program = () => el('exeproject').value ? {project:el('exeproject').value} : {file:el('exefile').value};
+  // The running program for symbols and source lines, if one is named.
+  const running = () => {
+    const project = el('exeproject').value || el('project').value;
+    return project ? {project} : el('exefile').value ? {file:el('exefile').value} : {};
+  };
   const watchSources = () => [...panel.querySelectorAll('.wu-src:checked')].map(c => c.value);
 
   const handlers = {
@@ -330,7 +335,7 @@
     disassemble: () => disassemble(),
     'add-bp': () => request('breakpoint', {operation:'add', address:el('bpaddr').value, skip:Number(el('bpskip').value), oneshot:el('oneshot').checked}),
     'add-bp-symbol': () => request('breakpoint', {operation:'add', symbol:el('bpaddr').value, skip:Number(el('bpskip').value), oneshot:el('oneshot').checked,
-      project:el('project').value || null}),
+      ...running()}),
     'clear-bps': () => request('breakpoint', {operation:'clear'}),
     'add-wp': async () => {
       await request('watch', {operation:'add', address:el('wpaddr').value, size:Number(el('wpsize').value), access:el('wprwi').value,
@@ -416,7 +421,7 @@
     symbols: async () => show('files', await request('symbols', {file:el('exefile').value})),
     'hunk-load': async () => show('files', await request('hunk_load', {file:el('exefile').value, placements:JSON.parse(el('placements').value || '[]')})),
     'raw-load': async () => show('files', await request('load', {file:el('exefile').value, address:el('rawaddr').value})),
-    'symbol-read': async () => show('dwarf', await request('symbol_read', {file:el('exefile').value, symbol:el('symname').value,
+    'symbol-read': async () => show('dwarf', await request('symbol_read', {...program(), symbol:el('symname').value,
       format:el('symformat').value, mappings:el('mappings').value ? mappings() : null})),
     source: async () => show('dwarf', await request('source', {...program(), mappings:mappings()})),
     variable: async () => show('dwarf', await request('variable', {...program(), mappings:mappings(), expression:el('expression').value})),

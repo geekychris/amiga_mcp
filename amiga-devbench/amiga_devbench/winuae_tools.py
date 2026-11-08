@@ -95,13 +95,15 @@ def register_winuae_tools(mcp):
     @mcp.tool()
     async def amiga_winuae_disassemble(address: str = 'pc', count: int = 20, annotate: bool = True,
                                        library: str | None = None, source_xref: bool = False,
-                                       project: str | None = None) -> dict:
+                                       project: str | None = None, file: str | None = None,
+                                       process: str | None = None) -> dict:
         """Use WinUAE's native disassembler for 1..256 instructions while paused.
         annotate names library calls such as JSR -$228(A6) as exec.OpenLibrary(); at the PC the
-        library comes from A6, otherwise pass library. source_xref adds file and line from symbols
-        loaded with amiga_load_symbols (project selects one)."""
+        library comes from A6, otherwise pass library. source_xref adds the symbol, file and
+        line of instructions in the running program, named by project or file and located
+        through the loaded segments of process (default: the current process)."""
         return await call('disassemble', address=address, count=count, annotate=annotate, library=library,
-                          source_xref=source_xref, project=project)
+                          source_xref=source_xref, project=project, file=file, process=process)
 
     # ─── Breakpoints and watches ───
 
@@ -110,16 +112,20 @@ def register_winuae_tools(mcp):
         operation: Literal['list', 'add', 'remove', 'clear'] = 'list', address: str = '0',
         kind: Literal['execute', 'read', 'write', 'access'] = 'execute', size: int = 1,
         skip: int = 0, oneshot: bool = False, symbol: str | None = None, project: str | None = None,
+        file: str | None = None, process: str | None = None,
     ) -> list:
         """Manage this session's native breakpoints/watchpoints while paused.
         Execute breakpoints require an even address; size applies to watchpoints.
         skip ignores the first N hits while resuming; oneshot removes the breakpoint after it
-        stops. symbol sets an execute breakpoint at a function from amiga_load_symbols.
+        stops. symbol sets an execute breakpoint at a function of the running program, named by
+        project (a DevBench project) or file (its Hunk executable), at its loaded address in
+        process (default: the current process); static functions need a -g build.
         Hit counts are listed. Points belong to this connection and are released when it
         disconnects; they survive checkpoint restores and resets.
         """
         return await call('breakpoint', operation=operation, address=address if symbol is None else None,
-                          kind=kind, size=size, skip=skip, oneshot=oneshot, symbol=symbol, project=project)
+                          kind=kind, size=size, skip=skip, oneshot=oneshot, symbol=symbol, project=project,
+                          file=file, process=process)
 
     @mcp.tool()
     async def amiga_winuae_watch(
@@ -384,15 +390,16 @@ def register_winuae_tools(mcp):
         return await call('symbols', file=file, prefix=prefix, limit=limit)
 
     @mcp.tool()
-    async def amiga_winuae_symbol_read(file: str, symbol: str, format: str = 'bytes', length: int | None = None,
+    async def amiga_winuae_symbol_read(symbol: str, project: str | None = None, file: str | None = None,
+                                       format: str = 'bytes', length: int | None = None,
                                        count: int = 1, offset: int = 0, section: int | None = None,
                                        process: str | None = None, mappings: list[dict] | None = None) -> dict:
-        """Read an exact symbol of the running program. Hunk sections map to loaded segments;
+        """Read an exact symbol of the running program, named by project or file. Hunk sections map to loaded segments;
         ELF needs mappings such as {section: ".data", segment: 1} or {section: 1, address,
         size}. format is bytes (with length) or u8/s8/u16/s16/u32/s32 (with count); no C types
         are inferred. Requires pause."""
-        return await call('symbol_read', file=file, symbol=symbol, format=format, length=length, count=count,
-                          offset=offset, section=section, process=process, mappings=mappings)
+        return await call('symbol_read', project=project, file=file, symbol=symbol, format=format, length=length,
+                          count=count, offset=offset, section=section, process=process, mappings=mappings)
 
     @mcp.tool()
     async def amiga_winuae_source(project: str | None = None, file: str | None = None,

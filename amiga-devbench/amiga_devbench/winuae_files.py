@@ -365,15 +365,23 @@ FORMATS = {'u8': 1, 's8': 1, 'u16': 2, 's16': 2, 'u32': 4, 's32': 4}
 @action('symbol_read')
 async def _symbol_read(d: WinuaeDebugger, file: Any = None, symbol: Any = None, section: Any = None,
                        process: Any = None, offset: Any = 0, format: Any = 'bytes', length: Any = None,
-                       count: Any = 1, mappings: Any = None) -> dict:
+                       count: Any = 1, mappings: Any = None, project: Any = None) -> dict:
     """Read an exact symbol from the running program, located through loaded
     segments (Hunk) or explicit section mappings (ELF). The format is the
     caller's choice; no C types are inferred."""
+    if project is not None:
+        if file is not None:
+            raise DebugError('Supply file or project, not both')
+        from .winuae_program import project_binary
+        file = project_binary(str(project))
     parsed = parse_symbols(await read_file_async(file))
     if not isinstance(symbol, str) or not symbol or len(symbol) > 1024:
         raise DebugError('Expected an exact symbol name')
     wanted = None if section is None else integer(section, 'section', 4095)
-    candidates = [s for s in parsed['symbols'] if s['name'] == symbol and (wanted is None or s['section'] == wanted)]
+    def matching(name):
+        return [s for s in parsed['symbols'] if s['name'] == name and (wanted is None or s['section'] == wanted)]
+    # A C name matches its symbol with or without the leading underscore.
+    candidates = matching(symbol) or matching('_' + symbol)
     if len(candidates) != 1:
         raise DebugError('Ambiguous symbol; supply its section index' if candidates else 'Symbol not found')
     sym = candidates[0]

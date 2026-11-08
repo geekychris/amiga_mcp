@@ -413,9 +413,9 @@ its behavior and the FS-UAE equivalents.
 |---|---|---|
 | `amiga_winuae_control` | `action`, `count?`, `hard?`, `resume?`, `timeout?` | Connect, pause, resume, step N, step over, step out, wait, reset |
 | `amiga_winuae_registers` | `register?`, `value?` | Read registers or write one, including USP, ISP and MSP |
-| `amiga_winuae_breakpoint` | `operation`, `address?`, `skip?`, `oneshot?`, `symbol?` | Breakpoints with hit counts; `symbol` uses `amiga_load_symbols` tables |
+| `amiga_winuae_breakpoint` | `operation`, `address?`, `skip?`, `oneshot?`, `symbol?`, `project?`, `file?`, `process?` | Breakpoints with hit counts; `symbol` is a function of the running program at its loaded address |
 | `amiga_winuae_watch` | `operation`, `address?`, `size?`, `access?`, `value?`, `mask?`, `change_only?` | Watches like `amiga_fsuae_watchpoint_*`, plus fetches and an access log |
-| `amiga_winuae_disassemble` | `address?`, `count?`, `annotate?`, `library?`, `source_xref?` | Disassembly with library-call names |
+| `amiga_winuae_disassemble` | `address?`, `count?`, `annotate?`, `library?`, `source_xref?`, `project?`, `file?`, `process?` | Disassembly with library-call names; `source_xref` adds the program's symbols and source lines |
 | `amiga_winuae_custom` / `amiga_winuae_stack` / `amiga_winuae_lookup` / `amiga_winuae_fd` | — | Chipset, stack, address names and library offsets |
 | `amiga_winuae_checkpoint` / `amiga_winuae_snapshots` | `operation`, `path?` / `slot?` | State files and slots |
 

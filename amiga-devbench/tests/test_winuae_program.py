@@ -72,8 +72,12 @@ class Loaded(Machine):
         self.caps['commands'] += ['segments']
 
     def handle(self, cmd, writer):
-        if cmd.startswith('qRcmd,') and bytes.fromhex(cmd[6:]).decode().startswith('segments'):
+        monitor = bytes.fromhex(cmd[6:]).decode() if cmd.startswith('qRcmd,') else ''
+        if monitor.startswith('segments'):
             return json.dumps(dict(segments=self.segments)).encode().hex()
+        if monitor.startswith('disasm '):
+            start, count = (int(v, 16) for v in monitor.split()[1:3])
+            return '\n'.join(f'{start + 2 * i:08X} 4e71  NOP' for i in range(count)).encode().hex()
         return super().handle(cmd, writer)
 
     def stop_at(self, address, return_to=None):
@@ -179,4 +183,62 @@ def test_a_build_without_g_has_no_dwarf(tmp_path):
             stripped.write_bytes(data[:data.index(b'\x00\x00\x03\xf1')])  # drop the debug hunk
             with pytest.raises(Exception, match='no DWARF; build it with -g'):
                 await c.call('source', file=str(stripped))
+    asyncio.run(run())
+
+
+# ── Symbols at their loaded addresses ───────────────────────────────
+
+def static_offset(name):
+    """Linked (code hunk) offset of a static function, from the DWARF."""
+    import io
+    from elftools.elf.elffile import ELFFile
+    from amiga_devbench.winuae_program import program_elf
+    parsed = parse_hunk_file(program_bytes())
+    elf = program_elf(parsed.hunks, split_dwarf(parsed.debug[0]))
+    for cu in ELFFile(io.BytesIO(elf)).get_dwarf_info().iter_CUs():
+        for die in cu.iter_DIEs():
+            if die.tag == 'DW_TAG_subprogram' and 'DW_AT_name' in die.attributes \
+                    and die.attributes['DW_AT_name'].value == name.encode():
+                return die.attributes['DW_AT_low_pc'].value
+    raise AssertionError(name)
+
+
+def test_symbol_breakpoint_lands_at_the_loaded_address():
+    async def check(c, t):
+        await c.call('breakpoint', operation='add', symbol='walk', file=str(FIXTURE))
+        assert f'0,{symbol("_walk"):x},2' in t.points, t.points
+        # A static function has no hunk symbol; the DWARF names it.
+        await c.call('breakpoint', operation='add', symbol='scale', file=str(FIXTURE))
+        assert f'0,{BASES[0] + static_offset("scale"):x},2' in t.points, t.points
+        with pytest.raises(Exception, match="No symbol or function 'nosuch'"):
+            await c.call('breakpoint', operation='add', symbol='nosuch', file=str(FIXTURE))
+    dwarf_test(check)
+
+
+def test_disassembly_names_symbols_and_lines_of_the_program():
+    async def check(c, t):
+        listing = await c.call('disassemble', address=symbol('_walk'), count=3, annotate=False,
+                               source_xref=True, file=str(FIXTURE))
+        first, second = listing['lines'][:2]
+        assert first['source']['symbol'] == 'walk'
+        assert first['source']['file'] == 'winuae_program.c' and first['source']['line'] == 19
+        assert first['source']['function'] == 'walk'
+        assert second['source']['symbol'] == 'walk+0x2'
+        # Outside the program: no annotation.
+        outside = await c.call('disassemble', address=0x100, count=1, annotate=False,
+                               source_xref=True, file=str(FIXTURE))
+        assert 'source' not in outside['lines'][0]
+    dwarf_test(check)
+
+
+def test_symbol_read_takes_a_project(monkeypatch):
+    from amiga_devbench import winuae_program
+
+    async def run():
+        monkeypatch.setattr(winuae_program, 'project_binary', lambda project: str(FIXTURE))
+        async with session(Loaded(), timeout=5) as (c, _):
+            await c.call('connect')
+            await c.call('pause')
+            read = await c.call('symbol_read', project='winuae_program', symbol='origin', format='u32')
+            assert read['values'][0] == 3, read
     asyncio.run(run())
