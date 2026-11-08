@@ -359,18 +359,24 @@ auto_snapshot_ring_size = 5      # rotating slots auto-0.uss .. auto-4.uss
 
 Or toggle at runtime from the **State & Symbols** sub-tab → "AUTO-SNAPSHOT RING" panel, or via `POST /api/fsuae/snapshot/autosnap/set?interval=30&ring_size=5`. Disable with `interval=0`.
 
-#### Symbolic breakpoints from bridge symbols
+#### Symbolic breakpoints
 
-Set a fs-uae CPU breakpoint by **function name** instead of address — uses symbols loaded by the bridge Debugger tab.
+Set a fs-uae CPU breakpoint by **function name** instead of address. The
+program must be running: AmigaOS loads each hunk wherever it finds memory
+when the program starts, so DevBench reads the guest's process list through
+the remote debugger, finds the process running the program and puts the
+breakpoint at the symbol's offset in its hunk plus that hunk's load address.
+Static functions are found through the DWARF of a `-g` build.
 
 ```sh
-# 1. Load symbols (in Debugger tab or via MCP amiga_load_symbols)
-# 2. Set BP by name:
-curl -X POST 'http://localhost:3000/api/fsuae/breakpoints/by-symbol?name=draw_ball'
-# {"ok":true,"slot":0,"addr":"0x00020e08","symbol":"draw_ball","resolved_project":"bouncing_ball",...}
+# 1. Start the program in the guest
+# 2. Set BP by name (project names the program; without it, the project
+#    whose symbols the Debugger tab loaded):
+curl -X POST 'http://localhost:3000/api/fsuae/breakpoints/by-symbol?name=draw_ball&project=examples/bouncing_ball'
+# {"ok":true,"slot":0,"symbol":"draw_ball","address":"0x0c2a14e8","process":"0x0c1f3a40","hunk":0,"offset":"0x1a4",...}
 ```
 
-Or via MCP: `amiga_fsuae_breakpoint_by_symbol("draw_ball")`. Or in the UI: the BP form on the CPU & Breakpoints sub-tab has a new **+ BP @symbol** button alongside the address one. Zero ambient cost — pure translation invoked only on user action.
+Or via MCP: `amiga_fsuae_breakpoint_by_symbol("draw_ball", project="examples/bouncing_ball")`. Or in the UI: the BP form on the CPU & Breakpoints sub-tab has a **+ BP @symbol** button alongside the address one (it uses the symbols the Debugger tab loaded). If several copies of the program run, stop all but one.
 
 ### SSE Event Stream
 

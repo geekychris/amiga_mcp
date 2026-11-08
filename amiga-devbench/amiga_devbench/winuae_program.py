@@ -186,35 +186,34 @@ class Layout:
         return [dict(section=section_name(h), segment=h.index) for h in self.program.hunks]
 
 
-async def layout(d: WinuaeDebugger, program: Program, process: Any = None) -> Layout:
-    """Match the program's hunks to the loaded segments of a DOS process
-    (the current one by default). Each segment must hold its hunk."""
-    proc = None if process is None else integer(process, 'process', minimum=4)
-    if proc is not None and proc % 4:
-        raise DebugError('The process address must be longword aligned')
-    report = await d._monitor('segments' + (f' {proc:x}' if proc else ''), 'segments')
-    segments = report.get('segments', []) if isinstance(report, dict) else []
+def match_segments(program: Program, segments: list, process: int | None = None) -> Layout:
+    """Match the program's hunks to a process's loaded segments, each a dict
+    of index, address (of the hunk's data) and size (of the allocation,
+    including the 8 bytes AmigaDOS keeps in front of the data)."""
+    where = 'the current process' if process is None else hex(process)
     by_index = {s.get('index'): s for s in segments if isinstance(s, dict)}
     bases = []
     for hunk in program.hunks:
         segment = by_index.get(hunk.index)
         if segment is None or integer(segment.get('size'), 'segment size') < hunk.size:
-            raise DebugError(f'The loaded segments of {"the current process" if proc is None else hex(proc)} '
-                             f'do not match {Path(program.path).name} (hunk {hunk.index}); '
-                             'pass the process that runs it')
+            raise DebugError(f'The loaded segments of {where} do not match {Path(program.path).name} '
+                             f'(hunk {hunk.index}); pass the process that runs it')
         bases.append(integer(segment.get('address'), 'segment address'))
     if len(segments) != len(program.hunks):
-        raise DebugError(f'The process has {len(segments)} segments but {Path(program.path).name} '
-                         f'has {len(program.hunks)} hunks; pass the process that runs it')
-    return Layout(program, bases, proc)
+        raise DebugError(f'{where[0].upper() + where[1:]} has {len(segments)} segments but '
+                         f'{Path(program.path).name} has {len(program.hunks)} hunks; pass the process that runs it')
+    return Layout(program, bases, process)
 
 
-def runtime_of_linked(lay: Layout, linked: int) -> int | None:
-    """The runtime address of a DWARF (linked) address."""
-    for hunk, base in zip(lay.program.hunks, dwarf_bases(lay.program.hunks)):
-        if base <= linked < base + max(hunk.size, 1):
-            return lay.bases[hunk.index] + linked - base
-    return None
+async def layout(d: WinuaeDebugger, program: Program, process: Any = None) -> Layout:
+    """Match the program's hunks to the loaded segments of a DOS process
+    (the current one by default), as WinUAE reports them."""
+    proc = None if process is None else integer(process, 'process', minimum=4)
+    if proc is not None and proc % 4:
+        raise DebugError('The process address must be longword aligned')
+    report = await d._monitor('segments' + (f' {proc:x}' if proc else ''), 'segments')
+    segments = report.get('segments', []) if isinstance(report, dict) else []
+    return match_segments(program, segments, proc)
 
 
 async def find_program(name: str | None, project: Any, file: Any) -> Program:
@@ -229,31 +228,45 @@ async def find_program(name: str | None, project: Any, file: Any) -> Program:
     return await load_program(file=file, project=project)
 
 
-async def function_address(d: WinuaeDebugger, name: str, project: Any = None, file: Any = None,
-                           process: Any = None) -> int:
-    """Runtime address of a function or symbol of the running program: a hunk
-    symbol, or a function from its DWARF (static functions have no hunk
-    symbol)."""
-    program = await find_program(name, project, file)
-    lay = await layout(d, program, process)
+async def linked_functions(program: Program) -> list[dict]:
+    """The DWARF functions of a program with their linked addresses; static
+    functions have no hunk symbol."""
+    import base64
+    from .winuae_dwarf import run_helper
+    registers = {f'{kind}{n}': 0 for kind in 'DA' for n in range(8)} | {'PC': 0}
+    found = await run_helper(None, dict(action='functions', elf=base64.b64encode(program.elf()).decode(),
+                                        mappings=[], registers=registers))
+    return found['functions']
+
+
+async def locate_symbol(program: Program, name: str) -> tuple[int, int]:
+    """(hunk, offset) of a function or symbol: a hunk symbol, or a function
+    from the program's DWARF."""
     hit = program.symbol(name)
     if hit is not None:
-        return lay.address(*hit)
+        return hit
     try:
         program.dwarf()
     except DebugError:
         raise DebugError(f"No symbol '{name}' in {Path(program.path).name}") from None
-    from .winuae_dwarf import dwarf_tool
-    found = await dwarf_tool(d, 'functions', dict(file=program.path, process=process))
-    linked = {f['linked_address'] for f in found['functions'] if f['name'] == name}
+    linked = {f['linked_address'] for f in await linked_functions(program) if f['name'] == name}
     if not linked:
         raise DebugError(f"No symbol or function '{name}' in {Path(program.path).name}")
     if len(linked) > 1:
         raise DebugError(f"Function '{name}' is defined more than once")
-    address = runtime_of_linked(lay, linked.pop())
-    if address is None:
-        raise DebugError(f"Function '{name}' lies outside the program's hunks")
-    return address
+    address = linked.pop()
+    for hunk, base in zip(program.hunks, dwarf_bases(program.hunks)):
+        if base <= address < base + max(hunk.size, 1):
+            return hunk.index, address - base
+    raise DebugError(f"Function '{name}' lies outside the program's hunks")
+
+
+async def function_address(d: WinuaeDebugger, name: str, project: Any = None, file: Any = None,
+                           process: Any = None) -> int:
+    """Runtime address of a function or symbol of the program running under WinUAE."""
+    program = await find_program(name, project, file)
+    lay = await layout(d, program, process)
+    return lay.address(*await locate_symbol(program, name))
 
 
 async def annotate(d: WinuaeDebugger, addresses: list[int], project: Any = None, file: Any = None,
