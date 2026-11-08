@@ -80,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable the WinUAE native debugger on this GDB port",
     )
     parser.add_argument(
+        "--no-save-config", action="store_true",
+        help="Never save settings from the web UI (for a DevBench whose settings "
+             "are generated, such as a private MCP session's)",
+    )
+    parser.add_argument(
         "--log-level", type=str, default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",

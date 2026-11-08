@@ -1684,7 +1684,7 @@
             <div class="stat-row"><span class="stat-label">Auto-enable Crash Handler</span><input id="cfgCrashAutoEnable" type="checkbox" checked title="Auto-enable crash handler when bridge daemon starts"></div>
             <div class="stat-row"><span class="stat-label">Deploy Dir</span><input id="cfgDeployDir" style="background:var(--bg-input);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);padding:2px 6px;font-size:12px;width:400px;"></div>
             <div style="margin-top:10px;display:flex;gap:6px;">
-              <button class="btn orange" onclick="cfgSave()">Save Config</button>
+              <button class="btn orange" id="cfgSaveBtn" onclick="cfgSave()">Save Config</button>
               <button class="btn" onclick="cfgLoad()">Reload</button>
             </div>
             <div id="cfgMsg" style="font-size:11px;color:var(--green);margin-top:6px;"></div>
@@ -3289,6 +3289,12 @@ async function cfgLoad() {
     }
     if (d.bridge) {
       document.getElementById('cfgCrashAutoEnable').checked = d.bridge.crash_handler_auto_enable !== false;
+    }
+    {
+      const save = document.getElementById('cfgSaveBtn');
+      save.disabled = !!d.save_disabled;
+      save.title = d.save_disabled || '';
+      if (d.save_disabled) document.getElementById('cfgMsg').textContent = d.save_disabled;
     }
     // Header badge: arch + active profile
     const arch = (d.build && d.build.arch) || 'm68k';

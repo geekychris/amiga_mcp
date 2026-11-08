@@ -68,7 +68,8 @@ The `.uae` must boot DevBench's WinUAE guest: a folder whose
   write to the same disk; your configuration is not changed;
 - starts DevBench on free HTTP, WinUAE GDB and bridge ports; DevBench
   starts the WinUAE. The client's server instructions name the ports, and
-  the web UI of the session is at the HTTP port.
+  the web UI of the session is at the HTTP port. Its settings are generated
+  for the session, so its Settings tab cannot save them (`--no-save-config`).
 
 Both stop, and the session folder is removed, when the client ends the
 session. If the launcher is killed, the next `--private` launch stops what

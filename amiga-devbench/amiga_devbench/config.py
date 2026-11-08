@@ -113,6 +113,10 @@ class DevBenchConfig:
     # Simulator mode
     simulator: bool = False
 
+    # Why the web UI must not save settings (empty: it may), e.g. for the
+    # generated settings of a private MCP session (--no-save-config).
+    save_disabled: str = ""
+
     # LLM proxy — bridges amiterm's `ask` builtin to a remote inference
     # server (Ollama-compatible by default). Opt in per-project.
     llm_enabled: bool = False
@@ -378,6 +382,9 @@ def apply_cli_overrides(cfg: DevBenchConfig, args: Any) -> None:
             raise ValueError("--winuae-debug-port must be in 1..65535")
         cfg.winuae_debug_enabled = True
         cfg.winuae_debug_port = args.winuae_debug_port
+    if getattr(args, "no_save_config", False):
+        cfg.save_disabled = ("This DevBench's settings are generated for one session "
+                             "and are not saved")
     # a --profile applied here may set relative paths (emulator_binary)
     cfg.resolve_paths()
 

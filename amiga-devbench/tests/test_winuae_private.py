@@ -3,11 +3,13 @@
 --private mode with a stand-in WinUAE."""
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 
 from amiga_devbench import winuae_private as wp
@@ -130,6 +132,11 @@ def test_private_launcher_runs_its_own_devbench_and_winuae(tmp_path):
         gdb = next(a for a in args if a.startswith('gdb_port='))
         assert gdb != 'gdb_port=2346' and 'debugging_features=gdbserver' in args
         assert wp.session_processes(session)
+        # Its settings are generated: the web UI must not save them anywhere.
+        web = re.search(r'web UI (http://127\.0\.0\.1:\d+)/', init['instructions'])[1]
+        assert httpx.get(f'{web}/api/config').json()['save_disabled']
+        saved = httpx.post(f'{web}/api/config', json={'paths': {'deploy_dir': '/elsewhere'}}).json()
+        assert 'not saved' in saved['error'] and (tmp_path / 'devbench.toml').read_text() == ''
     finally:
         client.close()
     assert session is not None and not session.exists()

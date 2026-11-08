@@ -188,7 +188,7 @@ class PrivateDevbench(Devbench):
     # Options the private session sets itself.
     OWN = {"--port": 1, "--serial-port": 1, "--serial-host": 1, "--mode": 1, "--deploy-dir": 1,
            "--emulator-config": 1, "--winuae-debug-port": 1, "--no-emulator": 0, "--emulator": 0,
-           "--simulator": 0}
+           "--simulator": 0, "--no-save-config": 0}
 
     def __init__(self, devbench_args: list[str], start_timeout: float):
         from . import winuae_private as wp
@@ -226,7 +226,7 @@ class PrivateDevbench(Devbench):
         own = ["--port", str(self.http), "--mode", "tcp", "--serial-host", "127.0.0.1",
                "--serial-port", str(self.bridge), "--deploy-dir", str(guest.folder),
                "--emulator", "--emulator-binary", binary, "--emulator-config", str(guest.config),
-               "--winuae-debug-port", str(self.gdb)]
+               "--winuae-debug-port", str(self.gdb), "--no-save-config"]
         self.port = self.http
         self.url = f"http://127.0.0.1:{self.port}/mcp"
         self.args = kept + own
