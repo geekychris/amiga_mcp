@@ -798,7 +798,8 @@ async def api_run_cycle(request: Request) -> JSONResponse:
 
     command = body.get("command")
     binary_name = project.rstrip("/").split("/")[-1]
-    launch_command = command or f"Dropbox:Dev/{binary_name}"
+    from .guest_paths import launch_command as guest_command
+    launch_command = command or guest_command(_config, binary_name, "Dropbox:Dev")
 
     result: dict[str, Any] = {"project": project, "binary": binary_name}
 
@@ -1189,7 +1190,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
     # Initialize MCP tools with shared state
     init_tools(
         _conn, _state, _builder, _deployer, _event_bus,
-        fsuae_rpc=_fsuae_rpc, emulator=_emulator,
+        fsuae_rpc=_fsuae_rpc, emulator=_emulator, config=_config,
     )
 
     # Add an INFO Logs-tab line for EVERY tool call (Claude's via /mcp and the
