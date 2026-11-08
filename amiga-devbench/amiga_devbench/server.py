@@ -5407,18 +5407,8 @@ _PID_FILE = _LEGACY_PID_FILE
 
 def _private_pid_dir() -> str:
     """A per-user directory only its owner can use, for PID files."""
-    import getpass
-    import stat
-    import tempfile
-
-    d = os.path.join(tempfile.gettempdir(), f"amiga-devbench-{getpass.getuser()}")
-    os.makedirs(d, mode=0o700, exist_ok=True)
-    st = os.lstat(d)
-    if not stat.S_ISDIR(st.st_mode) or (hasattr(os, "getuid") and st.st_uid != os.getuid()):
-        raise RuntimeError(f"{d} is not a directory of ours; refusing to keep PID files there")
-    if os.name != "nt":
-        os.chmod(d, 0o700)
-    return d
+    from .rundir import private_dir
+    return private_dir()
 
 
 def _set_pid_file(port: int) -> None:
