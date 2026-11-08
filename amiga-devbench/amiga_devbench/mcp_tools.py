@@ -950,11 +950,13 @@ async def amiga_winuae_debug_run(project: str, stop_at: str = "main", command: s
     program's name, launch it in the guest and stop at its first instruction
     (stop_at="entry") or at a function of it (default main). Returns the PC and
     its source line; the CPU stays paused for the other amiga_winuae_* tools.
-    launch="bridge" runs command (default DH2:Dev/<program>) through the guest
-    bridge; launch="none" waits for you to start it, for example with
+    launch="bridge" runs command (default: the program in the guest's deploy
+    folder, see amiga_deploy_dir) through the guest bridge; launch="none" waits for you to start it, for example with
     amiga_winuae_input or from Workbench. Source lines need a -g build."""
-    from .winuae_run import debug_run
+    from .guest_paths import launch_command
+    from .winuae_run import debug_run, program_name
     from .winuae_tools import call
+    command = command or launch_command(_config, program_name(project), "DH2:Dev")
     return await debug_run(call, project, builder=_builder, deployer=_deployer, conn=_conn, bus=_event_bus,
                            command=command, stop_at=stop_at, launch=launch, build=build, timeout=timeout)
 

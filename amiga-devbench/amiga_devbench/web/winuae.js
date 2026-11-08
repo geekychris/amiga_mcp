@@ -93,7 +93,7 @@
       ${card('Debug a project from its start', row(`<label>Project ${input('runproject', 'placeholder="examples/hello_world" style="width:180px"')}</label>
           <label>Stop at ${input('runstop', 'value="main" title="entry, or a function name"')}</label>`) +
         row(`<label>Launch <select id="wu-runlaunch"><option value="bridge">through the bridge</option><option value="none">myself, in the guest</option></select></label>
-          <label>Command ${input('runcommand', 'placeholder="DH2:Dev/<program>" style="width:180px"')}</label>
+          <label>Command ${input('runcommand', 'placeholder="the deploy folder's" style="width:180px"')}</label>
           <label><input type="checkbox" id="wu-runbuild" checked> Build and deploy</label>`) +
         row(button('debug-run', 'Build, launch &amp; stop', 'data-enabled')) +
         `<p class="wu-note">Arms the entry stop for the program's name, launches it, stops at its first instruction and then at the function.

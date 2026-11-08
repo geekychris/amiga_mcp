@@ -788,10 +788,12 @@ async def api_write_memory(request: Request) -> JSONResponse:
 
 async def _winuae_debug_run(project: str = "", **args) -> dict:
     """The web panel's amiga_winuae_debug_run."""
-    from .winuae_run import debug_run
+    from .guest_paths import launch_command
+    from .winuae_run import debug_run, program_name
     if not project:
         from .winuae_debug import DebugError
         raise DebugError("Name the project to debug")
+    args["command"] = args.get("command") or launch_command(_config, program_name(project), "DH2:Dev")
     return await debug_run(winuae_debug.call, project, builder=_builder, deployer=_deployer,
                            conn=_conn, bus=_event_bus, **args)
 

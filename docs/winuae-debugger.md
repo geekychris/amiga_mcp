@@ -152,8 +152,12 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
   isolated helper process with fixed time and read budgets.
 - **Debugging from the start:** `amiga_winuae_debug_run(project)` builds and
   deploys the project, stops a running instance, arms the process break for
-  the program's name and launches `DH2:Dev/<program>` (or `command`) through
-  the guest bridge. It stops at the program's first instruction, sets a
+  the program's name and launches it (or `command`) through the guest
+  bridge from the guest's deploy folder. That folder is `[paths]
+  amiga_deploy_dir` (also a profile key), or else the device the WinUAE
+  `.uae` (`emulator_config`) mounts `deploy_dir` as: `DH0:` for DevBench's
+  WinUAE guest, which boots from that folder. Without either, it is AmiKit's
+  `DH2:Dev`. It stops at the program's first instruction, sets a
   one-shot breakpoint at `stop_at` (default `main`) and returns the PC and
   source line with the CPU paused. With `launch="none"` it waits for the
   program to be started in the guest by other means.
