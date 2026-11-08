@@ -72,6 +72,12 @@ DevBench's only if it uses the same configuration file, so Stop never ends
 an unrelated WinUAE. Recognizing such an instance uses `pgrep`, so it works
 on macOS and Linux; on Windows, DevBench manages only a WinUAE it started.
 
+The command line can name them too, for example for a one-off instance:
+`--emulator-binary /Applications/WinUAE.app --emulator-config ~/Amiga/DevBench.uae
+--winuae-debug-port 2400 --emulator`. `--winuae-debug-port` enables the
+debugger on that port, and `--emulator` starts the emulator with DevBench
+even when auto-start is off.
+
 ### Or launch WinUAE yourself
 
 In a separate `.uae` configuration, enable:

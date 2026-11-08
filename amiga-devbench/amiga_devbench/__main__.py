@@ -64,6 +64,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Don't auto-start the emulator even if configured",
     )
     parser.add_argument(
+        "--emulator", action="store_true",
+        help="Start the emulator with devbench even if auto-start is off",
+    )
+    parser.add_argument(
+        "--emulator-binary", type=str, default=None,
+        help="Emulator to manage: FS-UAE, WinUAE (or WinUAE.app) or a launcher script",
+    )
+    parser.add_argument(
+        "--emulator-config", type=str, default=None,
+        help="The emulator's configuration file (.fs-uae or .uae)",
+    )
+    parser.add_argument(
+        "--winuae-debug-port", type=int, default=None,
+        help="Enable the WinUAE native debugger on this GDB port",
+    )
+    parser.add_argument(
         "--log-level", type=str, default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",
@@ -86,6 +102,8 @@ def main():
 
     if args.no_emulator:
         cfg.emulator_auto_start = False
+    elif args.emulator:
+        cfg.emulator_auto_start = True
 
     from .server import run
     run(args, cfg)
