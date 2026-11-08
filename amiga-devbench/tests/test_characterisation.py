@@ -104,7 +104,7 @@ def test_mcp_tool_registration_golden():
         "amiga_winuae_autosnap", "amiga_winuae_backtrace", "amiga_winuae_bitmap",
         "amiga_winuae_breakpoint", "amiga_winuae_capture", "amiga_winuae_checkpoint",
         "amiga_winuae_condition", "amiga_winuae_control", "amiga_winuae_copper",
-        "amiga_winuae_custom", "amiga_winuae_disassemble", "amiga_winuae_disk",
+        "amiga_winuae_custom", "amiga_winuae_debug_run", "amiga_winuae_disassemble", "amiga_winuae_disk",
         "amiga_winuae_dma_watch", "amiga_winuae_exception_stops", "amiga_winuae_fd",
         "amiga_winuae_guest_output", "amiga_winuae_history", "amiga_winuae_hunk",
         "amiga_winuae_input", "amiga_winuae_input_sequence", "amiga_winuae_inspect",

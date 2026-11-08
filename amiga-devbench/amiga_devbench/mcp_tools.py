@@ -940,6 +940,23 @@ async def amiga_build_deploy_run(project: str, command: str | None = None) -> st
 
 
 @mcp.tool()
+async def amiga_winuae_debug_run(project: str, stop_at: str = "main", command: str | None = None,
+                                 launch: str = "bridge", build: bool = True, timeout: float = 30) -> dict:
+    """Debug a project under WinUAE from its start: build and deploy it (unless
+    build=false), stop a running instance, arm WinUAE's process break for the
+    program's name, launch it in the guest and stop at its first instruction
+    (stop_at="entry") or at a function of it (default main). Returns the PC and
+    its source line; the CPU stays paused for the other amiga_winuae_* tools.
+    launch="bridge" runs command (default DH2:Dev/<program>) through the guest
+    bridge; launch="none" waits for you to start it, for example with
+    amiga_winuae_input or from Workbench. Source lines need a -g build."""
+    from .winuae_run import debug_run
+    from .winuae_tools import call
+    return await debug_run(call, project, builder=_builder, deployer=_deployer, conn=_conn, bus=_event_bus,
+                           command=command, stop_at=stop_at, launch=launch, build=build, timeout=timeout)
+
+
+@mcp.tool()
 async def amiga_run(project: str, command: str | None = None) -> str:
     """Build, deploy, stop previous instance, and launch an Amiga program. One-shot development cycle."""
     assert _builder is not None and _deployer is not None

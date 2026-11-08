@@ -150,6 +150,13 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
   section mappings. The tools need the dwarf extra:
   `pip install amiga-devbench[dwarf]` (pyelftools 0.32), and run in an
   isolated helper process with fixed time and read budgets.
+- **Debugging from the start:** `amiga_winuae_debug_run(project)` builds and
+  deploys the project, stops a running instance, arms the process break for
+  the program's name and launches `DH2:Dev/<program>` (or `command`) through
+  the guest bridge. It stops at the program's first instruction, sets a
+  one-shot breakpoint at `stop_at` (default `main`) and returns the PC and
+  source line with the CPU paused. With `launch="none"` it waits for the
+  program to be started in the guest by other means.
 - **Symbols** of the running program are found the same way. Breakpoints by
   `symbol`, disassembly with `source_xref` and symbol reads take `project` or
   `file` and use the addresses where AmigaDOS loaded the hunks, so they also
@@ -161,6 +168,7 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
 
 | Tool | Purpose |
 |---|---|
+| `amiga_winuae_debug_run` | Build, deploy and launch a project, stopping at its entry or at `main` with its source line |
 | `amiga_winuae_control` | Status, connect, disconnect, pause, resume, step (count), step over, step out, wait for stop, soft or hard reset |
 | `amiga_winuae_range_step` | Step while the PC stays in a range |
 | `amiga_winuae_registers` | Read registers or write one, including USP, ISP and MSP |
