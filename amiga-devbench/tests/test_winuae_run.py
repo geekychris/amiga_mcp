@@ -112,3 +112,32 @@ def test_debug_run_stops_after_a_failed_build():
         assert not result['ok'] and 'error' in result['errors']
         assert not any(x.startswith('qRcmd,') for x in t.commands)
     run(check)
+
+
+def test_the_web_endpoint_runs_host_actions():
+    import httpx
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from amiga_devbench.winuae_api import make_winuae_endpoint
+    from amiga_devbench.winuae_debug import DebugError, WinuaeDebugger
+
+    seen = []
+
+    async def debug_run(**args):
+        seen.append(args)
+        if not args.get('project'):
+            raise DebugError('Name the project to debug')
+        return dict(ok=True)
+
+    async def body():
+        endpoint = make_winuae_endpoint(WinuaeDebugger(), {'debug_run': debug_run})
+        app = Starlette(routes=[Route('/api/winuae/{action}', endpoint, methods=['GET', 'POST'])])
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://localhost:3000') as c:
+            r = await c.post('/api/winuae/debug_run', json={'project': 'hello', 'stop_at': 'entry'})
+            assert r.json() == {'ok': True, 'result': {'ok': True}}
+            r = await c.post('/api/winuae/debug_run', json={})
+            assert r.status_code == 400 and 'project' in r.json()['error']
+            denied = await c.post('/api/winuae/debug_run', json={'project': 'x'}, headers={'Origin': 'http://evil.example'})
+            assert denied.status_code == 403
+    asyncio.run(body())
+    assert seen[0] == {'project': 'hello', 'stop_at': 'entry'} and len(seen) == 2

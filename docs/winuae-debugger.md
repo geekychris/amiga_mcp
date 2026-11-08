@@ -98,12 +98,12 @@ be using the shared session.
 
 | Sub-tab | Contents |
 |---|---|
-| CPU &amp; breakpoints | Disassembly with library-call names and source lines, editable registers including USP, ISP and MSP, breakpoints with skip counts, one-shot and symbol breakpoints and hit counts, watchpoints with the last hit and access log |
+| CPU &amp; breakpoints | Disassembly with library-call names and source lines, editable registers including USP, ISP and MSP, breakpoints with skip counts, one-shot and symbol breakpoints and hit counts, watchpoints with the last hit and access log, range stepping |
 | Memory | Byte, word, longword and ASCII views with pointer following, RAM writes, the memory map, the stack with return-address tagging, and memory search |
 | Chipset | Decoded custom registers and beam position, Copper lists, screenshots and bitplane decoding |
 | State &amp; symbols | Snapshot slots with labels, state files at any path, the automatic snapshot ring, snapshot comparison, address lookup and library offset tables |
-| Watches &amp; stops | DMA watches, register conditions, PC history, program-entry and exception stops, task, exception and segment inspection, crash reports and guest debug output |
-| Input | Keyboard, text, mouse and joystick input |
+| Watches &amp; stops | Debugging a project from its start (build, launch, stop at `main`), DMA watches, register conditions, PC history, program-entry and exception stops, task, exception and segment inspection, crash reports, register and memory captures and guest debug output |
+| Input | Keyboard, text, mouse and joystick input, frame-timed input sequences |
 | Files &amp; disks | Floppy images, Hunk inspection and loading, raw loading, symbol reads and DWARF source, variables and backtraces |
 
 Inspection and edits require a stopped CPU. They never silently interrupt

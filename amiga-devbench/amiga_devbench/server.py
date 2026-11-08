@@ -786,6 +786,16 @@ async def api_write_memory(request: Request) -> JSONResponse:
     return JSONResponse({"status": "timeout"})
 
 
+async def _winuae_debug_run(project: str = "", **args) -> dict:
+    """The web panel's amiga_winuae_debug_run."""
+    from .winuae_run import debug_run
+    if not project:
+        from .winuae_debug import DebugError
+        raise DebugError("Name the project to debug")
+    return await debug_run(winuae_debug.call, project, builder=_builder, deployer=_deployer,
+                           conn=_conn, bus=_event_bus, **args)
+
+
 async def api_run_cycle(request: Request) -> JSONResponse:
     """Build, deploy, stop old instance, launch, and wait for client connect."""
     assert _builder is not None and _deployer is not None
@@ -5313,7 +5323,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         # Rescue-channel keystroke injector (macOS + QEMU cocoa + cliclick)
         Route("/api/hostkey", api_hostkey, methods=["POST"]),
         # Native WinUAE debugger, shared with MCP tools.
-        Route("/api/winuae/{action}", make_winuae_endpoint(winuae_debug), methods=["GET", "POST"]),
+        Route("/api/winuae/{action}", make_winuae_endpoint(winuae_debug, {"debug_run": _winuae_debug_run}),
+              methods=["GET", "POST"]),
         # FS-UAE remote-debug RPC (patched fs-uae only; degrades gracefully)
         Route("/api/fsuae/status", api_fsuae_status, methods=["GET"]),
         Route("/api/fsuae/probe", api_fsuae_probe, methods=["POST"]),
