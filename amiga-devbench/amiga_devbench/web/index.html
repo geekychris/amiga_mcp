@@ -3336,7 +3336,8 @@ async function cfgSave() {
   try {
     const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     const d = await r.json();
-    document.getElementById('cfgMsg').textContent = d.status === 'saved' ? 'Config saved to ' + d.path : (d.error || 'Unknown error');
+    document.getElementById('cfgMsg').textContent = d.status !== 'saved' ? (d.error || 'Unknown error')
+      : (d.changed && !d.changed.length) ? 'Nothing changed' : 'Saved to ' + d.path;
     setTimeout(() => document.getElementById('cfgMsg').textContent = '', 5000);
   } catch(e) { document.getElementById('cfgMsg').textContent = 'Error: ' + e.message; }
 }

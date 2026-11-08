@@ -3604,49 +3604,49 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         })
 
     async def api_devbench_config_save(request: Request) -> JSONResponse:
+        """Save the settings the form changed into the file the configuration
+        came from. Settings it did not change, including those given on the
+        command line, are not written."""
         if not _config:
             return JSONResponse({"error": "No config loaded"})
+        from .config import ConfigSaveError, save_changes
         body = await request.json()
-        # Update config fields
-        serial = body.get("serial", {})
-        if "host" in serial:
-            _config.serial_host = serial["host"]
-        if "port" in serial:
-            _config.serial_port = int(serial["port"])
-        if "mode" in serial:
-            _config.serial_mode = serial["mode"]
-        emu = body.get("emulator", {})
-        if "binary" in emu:
-            _config.emulator_binary = emu["binary"]
-        if "config" in emu:
-            _config.emulator_config = emu["config"]
-        if "auto_start" in emu:
-            _config.emulator_auto_start = bool(emu["auto_start"])
-        paths = body.get("paths", {})
-        if "deploy_dir" in paths:
-            _config.deploy_dir = paths["deploy_dir"]
-        bridge = body.get("bridge", {})
-        if "crash_handler_auto_enable" in bridge:
-            _config.crash_handler_auto_enable = bool(bridge["crash_handler_auto_enable"])
-        rpc = body.get("fsuae_rpc", {})
-        if "enabled" in rpc:
-            val = rpc["enabled"]
-            if isinstance(val, bool):
-                _config.fsuae_rpc_enabled = "on" if val else "off"
-            else:
-                _config.fsuae_rpc_enabled = str(val).lower()
-        if "port" in rpc:
-            _config.fsuae_rpc_port = int(rpc["port"])
-        if "pause_at_boot" in rpc:
-            _config.fsuae_rpc_pause_at_boot = bool(rpc["pause_at_boot"])
-        if "gdb_port" in rpc:
-            _config.fsuae_gdb_port = int(rpc["gdb_port"])
-        if "auto_pause_on_crash" in rpc:
-            _config.fsuae_auto_pause_on_crash = bool(rpc["auto_pause_on_crash"])
-        # Save to file
-        from .config import save_config
-        path = save_config(_config)
-        return JSONResponse({"status": "saved", "path": path})
+
+        def rpc_enabled(val: Any) -> str:
+            return ("on" if val else "off") if isinstance(val, bool) else str(val).lower()
+
+        form = {
+            ("serial", "host"): ("serial_host", str), ("serial", "port"): ("serial_port", int),
+            ("serial", "mode"): ("serial_mode", str),
+            ("emulator", "binary"): ("emulator_binary", str), ("emulator", "config"): ("emulator_config", str),
+            ("emulator", "auto_start"): ("emulator_auto_start", bool),
+            ("paths", "deploy_dir"): ("deploy_dir", str),
+            ("bridge", "crash_handler_auto_enable"): ("crash_handler_auto_enable", bool),
+            ("fsuae_rpc", "enabled"): ("fsuae_rpc_enabled", rpc_enabled),
+            ("fsuae_rpc", "port"): ("fsuae_rpc_port", int),
+            ("fsuae_rpc", "pause_at_boot"): ("fsuae_rpc_pause_at_boot", bool),
+            ("fsuae_rpc", "gdb_port"): ("fsuae_gdb_port", int),
+            ("fsuae_rpc", "auto_pause_on_crash"): ("fsuae_auto_pause_on_crash", bool),
+        }
+        changes: dict[str, Any] = {}
+        try:
+            for (section, key), (name, convert) in form.items():
+                values = body.get(section)
+                if isinstance(values, dict) and key in values:
+                    value = convert(values[key])
+                    if getattr(_config, name) != value:
+                        changes[name] = value
+        except (TypeError, ValueError) as exc:
+            return JSONResponse({"error": f"Invalid setting: {exc}"})
+        if not changes:
+            return JSONResponse({"status": "saved", "path": _config.config_path, "changed": []})
+        try:
+            path = save_changes(_config, changes)
+        except ConfigSaveError as exc:
+            return JSONResponse({"error": str(exc)})
+        for name, value in changes.items():
+            setattr(_config, name, value)
+        return JSONResponse({"status": "saved", "path": path, "changed": sorted(changes)})
 
     # ---- Helper: run SCRIPT command and get output ----
     async def _run_script(script: str, timeout: float = 10.0) -> tuple[str | None, str | None]:

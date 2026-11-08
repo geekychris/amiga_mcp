@@ -181,7 +181,7 @@ Serial, emulator, server configuration, and MCP/REST traffic logging.
 
 ![Settings](../doc_images/settings.png)
 
-- **Config sub-tab** — Serial mode (TCP/PTY), host, port, emulator binary/config path, auto-start, deploy directory. All editable and saved to `devbench.toml`.
+- **Config sub-tab** — Serial mode (TCP/PTY), host, port, emulator binary/config path, auto-start, deploy directory. Save writes only the settings you changed, into the file DevBench read its configuration from (`--config`, or the project's `devbench.toml`). Comments and everything else in the file stay as they are, and settings given on the command line are never written. While a profile is active, a setting the profile can hold goes into its `[profiles.NAME]` table.
 - **Traffic sub-tab** — Request logging with filters (MCP/REST), search, timing analysis for debugging MCP tool performance.
 
 ### About Dialog
