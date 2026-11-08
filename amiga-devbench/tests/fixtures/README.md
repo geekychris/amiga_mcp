@@ -40,3 +40,14 @@ print("\n".join(sorted(t.name for t in asyncio.run(mcp.list_tools()))))
 
 The `amiforge_*` tool names (`amiga_devbench/amiforge_tools.py`), sorted, generated the
 same way (filtered on the `amiforge_` prefix).
+
+## `winuae_program` / `winuae_program.c`
+
+A real m68k-amigaos executable for `tests/test_winuae_program.py`: code,
+data, BSS and a chip data hunk, with the DWARF debug hunk the toolchain
+writes for `-g`. Built with `amigadev/crosstools:m68k-amigaos`
+(`m68k-amigaos-gcc (AmigaDev) 6.5.0b 20260819091705`):
+
+    m68k-amigaos-gcc -noixemul -O0 -g -m68020 -o winuae_program winuae_program.c
+
+Rebuilding with another toolchain version changes offsets the tests check.
