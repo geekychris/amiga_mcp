@@ -40,6 +40,11 @@ static struct MsgPort *g_replyPort = NULL;
 /* Pending ARexx command state */
 static struct RexxMsg *g_pendingMsg = NULL;
 static ULONG g_pendingTimeout = 0;  /* ticks remaining */
+/* The pending message timed out after the target had taken it off its port
+ * (GetMsg): the target still owns it and will ReplyMsg it some time, so it
+ * must not be freed or Remove()d until that reply arrives. */
+static BOOL g_pendingAbandoned = FALSE;
+static char g_pendingPort[64];
 
 /*
  * Initialize ARexx bridge.
@@ -122,18 +127,56 @@ void arexx_poll(void)
         if (g_pendingTimeout > 0) {
             g_pendingTimeout--;
         }
-        if (g_pendingTimeout == 0) {
+        if (g_pendingTimeout == 0 && !g_pendingAbandoned) {
+            struct MsgPort *port;
+            struct Node *node;
+            BOOL queued = FALSE;
+
             printf("ARexx: command timed out\n");
-            /* Message is still at target port - we can't safely free it.
-             * Try to remove it from the target's port if still queued. */
+            /* Take the message back only if it is still queued at the target
+             * port. Once the target has GetMsg'd it, Remove() would unlink a
+             * node that is on no list (corrupting whatever its stale links
+             * point at) and freeing it leaves the target's ReplyMsg writing
+             * into freed memory. */
             Forbid();
-            Remove((struct Node *)g_pendingMsg);
+            port = FindPort((CONST_STRPTR)g_pendingPort);
+            if (port) {
+                for (node = port->mp_MsgList.lh_Head; node->ln_Succ;
+                     node = node->ln_Succ) {
+                    if (node == (struct Node *)g_pendingMsg) {
+                        Remove(node);
+                        queued = TRUE;
+                        break;
+                    }
+                }
+            }
             Permit();
-            ClearRexxMsg(g_pendingMsg, 1);
-            DeleteRexxMsg(g_pendingMsg);
-            g_pendingMsg = NULL;
-            protocol_send_raw("ERR|AREXX|Command timed out");
+
+            if (queued) {
+                ClearRexxMsg(g_pendingMsg, 1);
+                DeleteRexxMsg(g_pendingMsg);
+                g_pendingMsg = NULL;
+                protocol_send_raw("ERR|AREXX|Command timed out");
+            } else {
+                /* The target is working on it: keep it until it replies. */
+                g_pendingAbandoned = TRUE;
+                protocol_send_raw("ERR|AREXX|Command timed out (still running in the target)");
+            }
         }
+        return;
+    }
+
+    if (g_pendingAbandoned) {
+        /* The late reply to a command that already timed out: free it
+         * without reporting a result nobody is waiting for. */
+        rmsg = g_pendingMsg;
+        g_pendingMsg = NULL;
+        g_pendingAbandoned = FALSE;
+        printf("ARexx: late reply rc=%ld discarded\n", (long)rmsg->rm_Result1);
+        if (rmsg->rm_Result1 == 0 && rmsg->rm_Result2)
+            DeleteArgstring((STRPTR)rmsg->rm_Result2);
+        ClearRexxMsg(rmsg, 1);
+        DeleteRexxMsg(rmsg);
         return;
     }
 
@@ -252,7 +295,9 @@ void arexx_handle_send(const char *args)
     }
 
     if (g_pendingMsg) {
-        protocol_send_raw("ERR|AREXX|Another command is pending");
+        protocol_send_raw(g_pendingAbandoned
+            ? "ERR|AREXX|A timed-out command is still running in its target"
+            : "ERR|AREXX|Another command is pending");
         return;
     }
 
@@ -322,6 +367,8 @@ void arexx_handle_send(const char *args)
 
     /* Store as pending - reply will be picked up by arexx_poll() */
     g_pendingMsg = rmsg;
+    g_pendingAbandoned = FALSE;
+    strcpy(g_pendingPort, portname);
     g_pendingTimeout = 50;  /* 50 * 200ms timer ticks = 10 seconds */
 
     printf("ARexx: message sent, waiting for reply...\n");
