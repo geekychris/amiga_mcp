@@ -41,10 +41,18 @@ CONNECT_TOOL = "amiga_devbench_connect"
 LATEST_PROTOCOL = "2025-06-18"
 PROTOCOLS = ("2024-11-05", "2025-03-26", "2025-06-18")
 _OWN_ID = "amiga-devbench-launcher"
+HANDSHAKE_TIMEOUT = 30.0    # for initialize once /health answers
+STARTING_STALE = 600.0      # an older record of a starting devbench is ignored
 
 
 class Unreachable(Exception):
-    """Devbench isn't answering; the message says why and what to do."""
+    """Devbench isn't answering; the message says why and what to do.
+    ``sent`` is True when the request may have reached devbench, so it
+    must not be sent again."""
+
+    def __init__(self, message: str, sent: bool = False):
+        super().__init__(message)
+        self.sent = sent
 
 
 def log(msg: str) -> None:
@@ -62,6 +70,26 @@ def _port_state(port: int) -> str:
         return "refused"
     except OSError:
         return "unknown"
+
+
+def _alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 @contextlib.contextmanager
@@ -113,8 +141,32 @@ class Devbench:
         self.command = [sys.executable, "-m", "amiga_devbench", *devbench_args]
 
     def start_hint(self) -> str:
-        cmd = " ".join(_quote(a) for a in self.command)
-        return f"Start it with:  cd {_quote(os.getcwd())} && {cmd}"
+        return f"Start it with:  {_shell_command(os.getcwd(), self.command)}"
+
+    # A devbench that a launcher started and that doesn't answer yet. The
+    # record outlives the start lock, so that no other launcher starts a
+    # second one meanwhile (a devbench stops any other on its port).
+
+    def _starting_path(self) -> str:
+        return os.path.join(private_dir(), f"launcher-{self.port}.starting")
+
+    def _starting(self) -> int | None:
+        path = self._starting_path()
+        try:
+            if time.time() - os.path.getmtime(path) > STARTING_STALE:
+                return None
+            pid = int(Path(path).read_text().strip())
+        except (OSError, ValueError):
+            return None
+        return pid if _alive(pid) else None
+
+    def _record_starting(self, pid: int | None) -> None:
+        path = self._starting_path()
+        if pid is None:
+            with contextlib.suppress(OSError):
+                os.remove(path)
+        else:
+            Path(path).write_text(str(pid))
 
     def _healthy(self) -> bool:
         try:
@@ -123,12 +175,13 @@ class Devbench:
         except httpx.HTTPError:
             return False
 
-    def _wait_healthy(self, timeout: float, proc: subprocess.Popen | None = None) -> bool:
+    def _wait_healthy(self, timeout: float, running=None) -> bool:
+        """Wait for /health; give up early once ``running()`` is False."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self._healthy():
                 return True
-            if proc is not None and proc.poll() is not None:
+            if running is not None and not running():
                 return False
             time.sleep(0.25)
         return False
@@ -150,39 +203,70 @@ class Devbench:
         raises Unreachable with the reason and the fix otherwise."""
         if may_start is None:
             may_start = self.may_start
-        with _start_lock(self.port):
-            state = _port_state(self.port)
-            if state == "open":
-                if self._wait_healthy(self.start_timeout):
-                    return f"DevBench is running at {self.url}."
-                raise Unreachable(
-                    f"Port {self.port} is in use, but no DevBench answers at "
-                    f"http://127.0.0.1:{self.port}/health. Stop whatever holds "
-                    f"the port, or start DevBench on another port with --port.")
-            if state == "unknown":
-                raise Unreachable(
-                    f"Can't tell whether anything listens on 127.0.0.1:{self.port}.")
-            if not may_start:
-                raise Unreachable(
-                    f"DevBench is not running at {self.url}. {self.start_hint()}")
-            log(f"starting devbench: {' '.join(self.command)} (log: {self.log_path})")
-            proc = self._spawn()
-            if self._wait_healthy(self.start_timeout, proc):
-                return (f"Started DevBench (pid {proc.pid}) at {self.url}; "
-                        f"its log is {self.log_path}.")
-            if proc.poll() is None:
-                raise Unreachable(
-                    f"Started DevBench (pid {proc.pid}), but it didn't answer within "
-                    f"{self.start_timeout:.0f} s. See {self.log_path}.")
+        try:
+            with _start_lock(self.port):
+                return self._ensure(may_start)
+        except OSError as e:
+            raise Unreachable(f"Can't start DevBench: {e}. {self.start_hint()}") from e
+
+    def _ensure(self, may_start: bool) -> str:
+        state = _port_state(self.port)
+        if state == "refused":
+            starting = self._starting()
+            if starting is not None:
+                if self._wait_healthy(self.start_timeout, lambda: _alive(starting)):
+                    self._record_starting(None)
+                    return f"DevBench (pid {starting}) finished starting at {self.url}."
+                if _alive(starting):
+                    raise Unreachable(
+                        f"DevBench (pid {starting}) is still starting and doesn't answer "
+                        f"yet. See {self.log_path}.")
+                state = _port_state(self.port)
+        if state == "open":
+            if self._wait_healthy(self.start_timeout):
+                self._record_starting(None)
+                return f"DevBench is running at {self.url}."
             raise Unreachable(
-                f"DevBench exited during startup (status {proc.returncode}):\n"
-                f"{_tail(self.log_path)}\nFull log: {self.log_path}")
+                f"Port {self.port} is in use, but no DevBench answers at "
+                f"http://127.0.0.1:{self.port}/health. Stop whatever holds "
+                f"the port, or start DevBench on another port with --port.")
+        if state == "unknown":
+            raise Unreachable(
+                f"Can't tell whether anything listens on 127.0.0.1:{self.port}.")
+        if not may_start:
+            raise Unreachable(
+                f"DevBench is not running at {self.url}. {self.start_hint()}")
+        log(f"starting devbench: {' '.join(self.command)} (log: {self.log_path})")
+        proc = self._spawn()
+        self._record_starting(proc.pid)
+        # Reap it whenever it exits, so that it doesn't look alive.
+        threading.Thread(target=proc.wait, daemon=True).start()
+        if self._wait_healthy(self.start_timeout, lambda: proc.poll() is None):
+            self._record_starting(None)
+            return (f"Started DevBench (pid {proc.pid}) at {self.url}; "
+                    f"its log is {self.log_path}.")
+        if proc.poll() is None:
+            raise Unreachable(
+                f"Started DevBench (pid {proc.pid}), but it didn't answer within "
+                f"{self.start_timeout:.0f} s. See {self.log_path}.")
+        self._record_starting(None)
+        raise Unreachable(
+            f"DevBench exited during startup (status {proc.returncode}):\n"
+            f"{_tail(self.log_path)}\nFull log: {self.log_path}")
 
 
 def _quote(s: str) -> str:
     if s and all(c.isalnum() or c in "-_./:=@" for c in s):
         return s
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _shell_command(cwd: str, command: list[str]) -> str:
+    """A command line that runs ``command`` in ``cwd``: for cmd.exe on
+    Windows, for a POSIX shell elsewhere."""
+    if os.name == "nt":
+        return f'cd /d "{cwd}" && {subprocess.list2cmdline(command)}'
+    return f"cd {_quote(cwd)} && " + " ".join(_quote(a) for a in command)
 
 
 def _tail(path: Path, lines: int = 15) -> str:
@@ -217,7 +301,8 @@ class Backend:
     async def post(self, message: dict) -> list[dict]:
         """Send one message. Server messages that arrive before the reply are
         delivered at once; the returned list holds the reply (if any).
-        Raises Unreachable when the session or the server has gone."""
+        Raises Unreachable when the session or the server has gone, with
+        ``sent`` set unless devbench certainly didn't act on the message."""
         replies: list[dict] = []
         want = message.get("id") if "method" in message else None
         try:
@@ -241,13 +326,20 @@ class Backend:
                             replies.append(msg)
                             break
                         await self.deliver(msg)
+                    if want is not None and not replies:
+                        raise Unreachable("DevBench ended its answer stream without a reply.",
+                                          sent=True)
                 else:
                     data = json.loads(await r.aread() or b"null")
                     for msg in data if isinstance(data, list) else [data]:
                         if isinstance(msg, dict):
                             replies.append(msg)
         except httpx.TransportError as e:
-            raise Unreachable(f"Lost the connection to DevBench at {self.url} ({e}).") from e
+            # Only a connection that was never made certainly didn't deliver it.
+            sent = not isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout,
+                                      httpx.PoolTimeout))
+            raise Unreachable(f"Lost the connection to DevBench at {self.url} ({e}).",
+                              sent=sent) from e
         return replies
 
     def open_listener(self) -> None:
@@ -301,9 +393,8 @@ class Launcher:
 
     async def send(self, msg: dict) -> None:
         line = json.dumps(msg, separators=(",", ":")) + "\n"
-        async with self._out_lock:
-            sys.stdout.write(line)
-            sys.stdout.flush()
+        async with self._out_lock:      # in order, and off the event loop:
+            await asyncio.to_thread(_write_stdout, line)    # the client may read slowly
 
     async def reply(self, msg: dict, result: dict) -> None:
         await self.send({"jsonrpc": "2.0", "id": msg["id"], "result": result})
@@ -325,11 +416,18 @@ class Launcher:
         self._own_ids += 1
         init = {**self.client_init, "id": f"{_OWN_ID}-{self._own_ids}"}
         try:
-            replies = await backend.post(init)
-            if not replies or "result" not in replies[0]:
-                raise Unreachable(f"DevBench refused the session: {replies[:1]}")
-            backend.protocol = replies[0]["result"].get("protocolVersion")
-            await backend.post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            try:
+                replies = await asyncio.wait_for(backend.post(init), HANDSHAKE_TIMEOUT)
+                if not replies or "result" not in replies[0]:
+                    raise Unreachable(f"DevBench refused the session: {replies[:1]}")
+                backend.protocol = replies[0]["result"].get("protocolVersion")
+                await asyncio.wait_for(backend.post(
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"}), HANDSHAKE_TIMEOUT)
+            except asyncio.TimeoutError:
+                raise Unreachable(
+                    f"DevBench answers at http://127.0.0.1:{self.devbench.port}/health but "
+                    f"didn't open an MCP session at {self.devbench.url} within "
+                    f"{HANDSHAKE_TIMEOUT:.0f} s.") from None
         except BaseException:
             await backend.close()
             raise
@@ -347,8 +445,8 @@ class Launcher:
 
     async def _forward(self, msg: dict) -> None:
         """Pass a client message to devbench. If the session has gone, open
-        a new one once and retry (devbench never saw the message); if
-        devbench is gone, go offline and say so."""
+        a new one and, when devbench certainly never saw the message, send
+        it once more; if devbench is gone, go offline and say so."""
         for attempt in (1, 2):
             backend = self.backend
             if backend is None:
@@ -359,20 +457,30 @@ class Launcher:
                 return
             except Unreachable as e:
                 async with self._link_lock:
-                    if self.backend is not backend:
-                        continue        # another task already relinked
-                    await backend.close()
-                    self.backend = None
-                    if attempt == 1:
-                        try:
-                            await self._link(may_start=False)
-                            log("reconnected to DevBench")
-                            continue
-                        except Unreachable:
-                            pass
-                    await self._go_offline(f"{e} {self.devbench.start_hint()}")
+                    if self.backend is backend:     # else another task relinked
+                        await backend.close()
+                        self.backend = None
+                        if attempt == 1:
+                            with contextlib.suppress(Unreachable):
+                                await self._link(may_start=False)
+                                log("reconnected to DevBench")
+                        if self.backend is None:
+                            await self._go_offline(f"{e} {self.devbench.start_hint()}")
+                if e.sent:
+                    # It may have run (a build, a write): don't run it twice.
+                    return await self._interrupted(msg, e)
         if "method" in msg and "id" in msg:
             await self.error(msg, -32603, self.offline_reason)
+
+    async def _interrupted(self, msg: dict, e: Unreachable) -> None:
+        if "method" not in msg or "id" not in msg:
+            return
+        text = (f"{e} DevBench may or may not have carried out this "
+                f"{msg['method']} request; it was not sent again."
+                + (f" {self.devbench.start_hint()}" if self.backend is None else ""))
+        if msg["method"] == "tools/call":
+            return await self.reply(msg, _text(text, error=True))
+        await self.error(msg, -32603, text)
 
     # The client's messages
 
@@ -457,6 +565,11 @@ class Launcher:
     async def close(self) -> None:
         if self.backend:
             await self.backend.close()
+
+
+def _write_stdout(line: str) -> None:
+    sys.stdout.write(line)
+    sys.stdout.flush()
 
 
 def _text(text: str, error: bool = False) -> dict:

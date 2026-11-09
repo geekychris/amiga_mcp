@@ -23,7 +23,9 @@ handshake and says why, for example "DevBench is not running at …" followed
 by the command that starts it. In place of the Amiga tools it offers one tool,
 `amiga_devbench_connect`, which checks again and connects. The Amiga tools
 then appear without restarting the client. If DevBench stops or restarts
-during a session, the launcher reconnects or reports it the same way.
+during a session, the launcher reconnects or reports it the same way. It
+sends a request to the new session only when the old one certainly never got
+it; a tool call cut off while DevBench ran it is reported, not run twice.
 
 ## The launcher
 

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """The stdio launcher against a real MCP HTTP server that the tests stop and
 restart, and against a devbench it starts itself."""
+import contextlib
 import json
 import os
 import queue
@@ -20,7 +21,9 @@ from amiga_devbench.mcp_stdio import CONNECT_TOOL
 from amiga_devbench.rundir import private_dir
 
 FAKE_SERVER = textwrap.dedent("""
+    import os
     import sys
+    import time
     import uvicorn
     from mcp.server.fastmcp import FastMCP
     from starlette.responses import JSONResponse
@@ -31,8 +34,15 @@ FAKE_SERVER = textwrap.dedent("""
     def echo(text: str) -> str:
         return "echo: " + text
 
+    @mcp.tool()
+    def crash(marker: str) -> str:
+        with open(marker, "a") as f:
+            f.write("ran\\n")
+        os._exit(1)             # gone while the client waits for the answer
+
     app = mcp.streamable_http_app()
     app.add_route("/health", lambda request: JSONResponse({"status": "ok"}))
+    time.sleep(float(sys.argv[2]) if len(sys.argv) > 2 else 0)   # a slow start
     uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[1]), log_level="warning")
 """)
 
@@ -105,9 +115,10 @@ class Client:
                 return m
             self.notes.append(m)
 
-    def initialize(self) -> dict:
+    def initialize(self, timeout: float = 30) -> dict:
         r = self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                        "clientInfo": {"name": "test", "version": "0"}})
+                                        "clientInfo": {"name": "test", "version": "0"}},
+                         timeout=timeout)
         self.notify("notifications/initialized")
         return r["result"]
 
@@ -124,8 +135,13 @@ class Client:
         return any(n.get("method") == "notifications/tools/list_changed" for n in self.notes)
 
     def close(self) -> None:
-        self.proc.stdin.close()
-        self.proc.wait(10)
+        if self.proc.poll() is None:
+            self.proc.stdin.close()
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(10)
 
 
 @pytest.fixture
@@ -172,7 +188,7 @@ def test_proxies_to_devbench(workdir, fake):
         init = c.initialize()
         assert init["serverInfo"]["name"] == "fake-devbench"
         assert init["capabilities"]["tools"]["listChanged"] is True
-        assert c.tools() == ["echo"]
+        assert c.tools() == ["echo", "crash"]
         assert "echo: hi" in c.text(c.call("echo", text="hi"))
     finally:
         c.close()
@@ -196,10 +212,49 @@ def test_goes_offline_and_comes_back(workdir, fake):
         r = c.call(CONNECT_TOOL)
         assert not r["result"]["isError"], c.text(r)
         assert c.saw_tools_changed()
-        assert c.tools() == ["echo"]
+        assert c.tools() == ["echo", "crash"]
         assert "echo: back" in c.text(c.call("echo", text="back"))
     finally:
         c.close()
+
+
+def test_an_interrupted_call_is_not_sent_again(workdir, fake, tmp_path):
+    fake.start()
+    marker = tmp_path / "ran"
+    c = launcher(workdir, fake.port, "--no-start")
+    try:
+        c.initialize()
+        r = c.call("crash", marker=str(marker))
+        assert r["result"]["isError"]
+        assert "may or may not have carried out" in c.text(r), c.text(r)
+        assert marker.read_text() == "ran\n"       # once, not replayed
+    finally:
+        c.close()
+
+
+def test_a_second_launcher_waits_for_a_starting_devbench(workdir):
+    from amiga_devbench.mcp_stdio import Devbench, Unreachable
+    port = free_port()
+    script = workdir / "slow_devbench.py"
+    script.write_text(FAKE_SERVER)
+    first = Devbench(["--config", str(workdir / "devbench.toml"), "--port", str(port)], True, 1.0)
+    first.command = [sys.executable, str(script), str(port), "4"]
+    second = Devbench(["--config", str(workdir / "devbench.toml"), "--port", str(port)], True, 30.0)
+    spawned = []
+    second._spawn = lambda: spawned.append(1)      # must not be needed
+    pid = None
+    try:
+        with pytest.raises(Unreachable, match="didn't answer within"):
+            first.ensure()
+        pid = int(Path(first._starting_path()).read_text())
+        note = second.ensure()          # waits for the first one's devbench
+        assert f"pid {pid}" in note and "finished starting" in note, note
+        assert not spawned
+        assert not os.path.exists(first._starting_path())
+    finally:
+        if pid:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)
 
 
 def test_new_session_after_devbench_restart(workdir, fake):
@@ -232,9 +287,11 @@ def test_starts_devbench_and_leaves_it_running(workdir):
     port, serial = free_port(), free_port()
     args = ("--simulator", "--serial-port", str(serial), "--no-emulator")
     pid_file = Path(private_dir()) / f"devbench-{port}.pid"
-    first = launcher(workdir, port, "--start-timeout", "60", *args)
+    starting = Path(private_dir()) / f"launcher-{port}.starting"
+    clients = [launcher(workdir, port, "--start-timeout", "60", *args)]
     try:
-        init = first.initialize()
+        first = clients[0]
+        init = first.initialize(timeout=90)       # the 60 s start and the handshake
         assert init["serverInfo"]["name"] == "amiga-dev", init
         assert "amiga_ping" in first.tools()
         first.close()
@@ -242,12 +299,15 @@ def test_starts_devbench_and_leaves_it_running(workdir):
         assert httpx.get(f"http://127.0.0.1:{port}/health").status_code == 200
         pid = int(pid_file.read_text())
         # ... and the next client uses it rather than starting another
-        second = launcher(workdir, port, *args)
-        try:
-            second.initialize()
-            assert int(pid_file.read_text()) == pid
-        finally:
-            second.close()
+        clients.append(launcher(workdir, port, *args))
+        clients[1].initialize()
+        assert int(pid_file.read_text()) == pid
     finally:
-        if pid_file.exists():
-            os.kill(int(pid_file.read_text()), signal.SIGTERM)
+        # The launchers first, so that none starts a devbench after this.
+        for c in clients:
+            c.proc.kill()
+            c.proc.wait(10)
+        pids = {int(f.read_text()) for f in (pid_file, starting) if f.exists()}
+        for pid in pids:
+            with contextlib.suppress(OSError):
+                os.kill(pid, signal.SIGTERM)
