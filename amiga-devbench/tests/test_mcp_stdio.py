@@ -35,6 +35,13 @@ FAKE_SERVER = textwrap.dedent("""
         return "echo: " + text
 
     @mcp.tool()
+    async def wait_for(path: str) -> str:
+        import asyncio
+        while not os.path.exists(path):
+            await asyncio.sleep(0.05)
+        return "released"
+
+    @mcp.tool()
     def crash(marker: str) -> str:
         with open(marker, "a") as f:
             f.write("ran\\n")
@@ -101,19 +108,25 @@ class Client:
         self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
         self.proc.stdin.flush()
 
-    def request(self, method: str, params: dict | None = None, timeout: float = 30) -> dict:
+    def send(self, method: str, params: dict | None = None) -> int:
         self._next += 1
         msg = {"jsonrpc": "2.0", "id": self._next, "method": method}
         if params is not None:
             msg["params"] = params
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
+        return self._next
+
+    def wait(self, wanted: int, timeout: float = 30) -> dict:
         deadline = time.monotonic() + timeout
         while True:
             m = self.inbox.get(timeout=max(0.1, deadline - time.monotonic()))
-            if m.get("id") == self._next and "method" not in m:
+            if m.get("id") == wanted and "method" not in m:
                 return m
             self.notes.append(m)
+
+    def request(self, method: str, params: dict | None = None, timeout: float = 30) -> dict:
+        return self.wait(self.send(method, params), timeout)
 
     def initialize(self, timeout: float = 30) -> dict:
         r = self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
@@ -188,7 +201,7 @@ def test_proxies_to_devbench(workdir, fake):
         init = c.initialize()
         assert init["serverInfo"]["name"] == "fake-devbench"
         assert init["capabilities"]["tools"]["listChanged"] is True
-        assert c.tools() == ["echo", "crash"]
+        assert c.tools() == ["echo", "wait_for", "crash"]
         assert "echo: hi" in c.text(c.call("echo", text="hi"))
     finally:
         c.close()
@@ -212,8 +225,34 @@ def test_goes_offline_and_comes_back(workdir, fake):
         r = c.call(CONNECT_TOOL)
         assert not r["result"]["isError"], c.text(r)
         assert c.saw_tools_changed()
-        assert c.tools() == ["echo", "crash"]
+        assert c.tools() == ["echo", "wait_for", "crash"]
         assert "echo: back" in c.text(c.call("echo", text="back"))
+    finally:
+        c.close()
+
+
+def test_a_ping_is_answered_while_a_call_runs(workdir, fake, tmp_path):
+    fake.start()
+    release = tmp_path / "release"
+    c = launcher(workdir, fake.port, "--no-start")
+    try:
+        c.initialize()
+        call = c.send("tools/call", {"name": "wait_for", "arguments": {"path": str(release)}})
+        assert c.request("ping", timeout=10)["result"] == {}
+        assert not any(n.get("id") == call for n in c.notes)     # still running
+        release.touch()
+        assert "released" in c.text(c.wait(call))
+    finally:
+        release.touch()
+        c.close()
+
+
+def test_a_tool_call_without_params_offline(workdir):
+    c = launcher(workdir, free_port(), "--no-start")
+    try:
+        c.initialize()
+        assert c.request("tools/call")["error"]["code"] == -32602
+        assert c.request("ping")["result"] == {}
     finally:
         c.close()
 

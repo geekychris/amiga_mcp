@@ -35,6 +35,7 @@ from typing import Any
 
 import httpx
 
+from .rundir import pid_alive as _alive
 from .rundir import private_dir
 
 CONNECT_TOOL = "amiga_devbench_connect"
@@ -70,26 +71,6 @@ def _port_state(port: int) -> str:
         return "refused"
     except OSError:
         return "unknown"
-
-
-def _alive(pid: int) -> bool:
-    if os.name == "nt":
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
-        if not handle:
-            return False
-        try:
-            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT
-        finally:
-            kernel32.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 @contextlib.contextmanager
@@ -539,7 +520,10 @@ class Launcher:
                 "inputSchema": {"type": "object", "properties": {}},
             }]})
         if method == "tools/call":
-            name = (msg.get("params") or {}).get("name")
+            params = msg.get("params")
+            if not isinstance(params, dict):
+                return await self.error(msg, -32602, "tools/call needs params with a tool name")
+            name = params.get("name")
             if name == CONNECT_TOOL:
                 return await self._connect_tool(msg)
             return await self.reply(msg, _text(self.offline_reason, error=True))
