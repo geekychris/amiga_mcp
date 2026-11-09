@@ -13,7 +13,7 @@ from typing import Any
 
 from .amiga_processes import GuestError, running
 from .winuae_debug import DebugError
-from .winuae_program import find_program, locate_symbol, match_segments
+from .winuae_program import check_image, find_program, locate_symbol, match_segments
 
 
 def reader(rpc: Any):
@@ -28,16 +28,14 @@ def reader(rpc: Any):
 async def symbol_address(rpc: Any, name: str, project: str | None = None) -> dict:
     """Where a function or symbol of a running program is, or why not."""
     if project is None:
-        from . import symbols
-        hit = symbols.lookup_function_address(name, None)
-        if hit is None:
-            raise DebugError(f"No symbol '{name}' in the loaded projects; pass project, "
-                             'or load its symbols in the Debugger tab first')
-        project = hit[0]
-    program = await find_program(name, project, None)
+        from .winuae_program import project_defining
+        project, program = await project_defining(name)
+    else:
+        program = await find_program(name, project, None)
     hunk, offset = await locate_symbol(program, name)
     binary = Path(program.path).name
-    processes = await running(reader(rpc), binary)
+    read = reader(rpc)
+    processes = await running(read, binary)
     if not processes:
         raise DebugError(f'{binary} is not running in the guest. Start it first: AmigaOS decides where '
                          'a program is loaded when it starts, and the breakpoint goes there')
@@ -45,7 +43,9 @@ async def symbol_address(rpc: Any, name: str, project: str | None = None) -> dic
         raise DebugError(f'{len(processes)} copies of {binary} are running (processes '
                          + ', '.join(f'0x{p.address:08x}' for p in processes) + '); stop all but one')
     process = processes[0]
-    address = match_segments(program, process.segments, process.address).address(hunk, offset)
+    lay = match_segments(program, process.segments, process.address)
+    await check_image(read, lay, hunk, offset)
+    address = lay.address(hunk, offset)
     return dict(address=address, project=project, process=process.address, hunk=hunk, offset=offset)
 
 

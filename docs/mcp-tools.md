@@ -356,7 +356,7 @@ Always call `amiga_fsuae_status` first to confirm the patched build is detected 
 | `amiga_fsuae_breakpoint_add` | `addr`, `skip?`, `oneshot?` | Add BP (up to 20). Works on Kickstart ROM. |
 | `amiga_fsuae_breakpoint_list` | — | List with hit counts |
 | `amiga_fsuae_breakpoint_clear` | — | Remove all |
-| `amiga_fsuae_breakpoint_by_symbol` | `name`, `project?`, `skip?`, `oneshot?` | Install a CPU BP at a function or symbol of the running program: its hunk offset plus where AmigaOS loaded that hunk, read from the guest's process list. Without `project`, uses the symbols `amiga_load_symbols` loaded. |
+| `amiga_fsuae_breakpoint_by_symbol` | `name`, `project?`, `skip?`, `oneshot?` | Install a CPU BP at a function or symbol of the running program: its hunk offset plus where AmigaOS loaded that hunk, read from the guest's process list. Without `project`, the one project `amiga_load_symbols` loaded that defines `name`. Refuses a running copy whose code differs from the build. |
 | **Watchpoints (memory)** | | |
 | `amiga_fsuae_watchpoint_add` | `addr`, `size?`, `rwi?`, `mustchange?`, `val?`, `valmask?` | Hardware-style watchpoint (up to 20) |
 | `amiga_fsuae_watchpoint_list` | — | List active |

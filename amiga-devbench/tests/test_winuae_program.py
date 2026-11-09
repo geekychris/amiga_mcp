@@ -67,7 +67,7 @@ class Loaded(Machine):
                                      for i, (a, h) in enumerate(zip(BASES, hunks))])
         for base, image in zip(BASES, images):
             self.memory[base:base + len(image)] = image
-        self.segments = process_segments or [dict(index=i, address=a, size=h.size + 8)
+        self.segments = process_segments or [dict(index=i, address=a, size=h.size)
                                              for i, (a, h) in enumerate(zip(BASES, hunks))]
         self.caps['commands'] += ['segments']
 
@@ -168,7 +168,7 @@ def test_segments_of_another_program_are_reported():
         async with session(target, timeout=5) as (c, t):
             await c.call('connect')
             await c.call('pause')
-            with pytest.raises(Exception, match='does not fit'):
+            with pytest.raises(Exception, match='do not match winuae_program'):
                 await c.call('source', file=str(FIXTURE))
     asyncio.run(run())
 

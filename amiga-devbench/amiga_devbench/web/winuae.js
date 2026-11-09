@@ -232,7 +232,8 @@
       library:el('library').value || null, source_xref:el('xref').checked, ...running()});
     el('disassembly').innerHTML = listing.lines.map(line => escape(line.text) +
       (line.annotation ? ` <span class="wu-note-call">; ${escape(line.annotation)}</span>` : '') +
-      (line.source ? `\n<span class="wu-src-line">↳ ${escape(line.source.symbol || '')} ${escape(line.source.file || '')}${line.source.line ? ':' + line.source.line : ''}</span>` : '')).join('\n');
+      (line.source ? `\n<span class="wu-src-line">↳ ${escape(line.source.symbol || '')} ${escape(line.source.file || '')}${line.source.line ? ':' + line.source.line
+        : line.source.source_error ? `(no source line: ${escape(line.source.source_error)})` : ''}</span>` : '')).join('\n');
   }
   async function cpu() {
     if (state.execution !== 'stopped' || !state.connected) return;
@@ -316,10 +317,15 @@
   const joy = () => el('joy').value.startsWith('button') ? {event:'button', button:Number(el('joy').value.slice(6))} : {event:'joystick', direction:el('joy').value};
   const mappings = () => el('mappings').value ? JSON.parse(el('mappings').value) : null;
   // A DevBench project, or a file: a Hunk built with -g, or an ELF with mappings.
-  const program = () => el('exeproject').value ? {project:el('exeproject').value} : {file:el('exefile').value};
-  // The running program for symbols and source lines, if one is named.
+  const program = () => {
+    if (el('exeproject').value) return {project:el('exeproject').value};
+    if (el('exefile').value) return {file:el('exefile').value};
+    throw new Error('Enter a project or a file under Executables and symbols');
+  };
+  // The running program for symbols and source lines: the project beside
+  // the disassembly, else the one under Executables and symbols, else none.
   const running = () => {
-    const project = el('exeproject').value || el('project').value;
+    const project = el('project').value || el('exeproject').value;
     return project ? {project} : el('exefile').value ? {file:el('exefile').value} : {};
   };
   const watchSources = () => [...panel.querySelectorAll('.wu-src:checked')].map(c => c.value);
