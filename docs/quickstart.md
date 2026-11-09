@@ -105,6 +105,13 @@ codex mcp add amiga-dev -- "$PWD/.venv/bin/python" -m amiga_devbench.mcp_stdio \
     --project-root "$PWD" --config "$PWD/devbench.local.toml" --no-emulator
 ```
 
+In PowerShell on Windows:
+
+```powershell
+codex mcp add amiga-dev -- "$PWD\.venv\Scripts\python.exe" -m amiga_devbench.mcp_stdio `
+    --project-root "$PWD" --config "$PWD\devbench.local.toml" --no-emulator
+```
+
 This launcher starts DevBench when it isn't running. To connect by URL
 instead, keep DevBench running and use
 `codex mcp add amiga-dev --url http://localhost:3000/mcp`.

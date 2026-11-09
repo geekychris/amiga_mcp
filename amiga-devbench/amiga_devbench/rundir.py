@@ -19,3 +19,27 @@ def private_dir() -> str:
     if os.name != "nt":
         os.chmod(d, 0o700)
     return d
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether a process runs, without signalling it (on Windows,
+    os.kill(pid, 0) would end it)."""
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
