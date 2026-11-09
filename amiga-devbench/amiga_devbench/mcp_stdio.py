@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import contextlib
 import json
 import os
+import queue
 import socket
 import subprocess
 import sys
@@ -35,8 +37,8 @@ from typing import Any
 
 import httpx
 
+from .rundir import NotOurDirectory, private_dir
 from .rundir import pid_alive as _alive
-from .rundir import private_dir
 
 CONNECT_TOOL = "amiga_devbench_connect"
 LATEST_PROTOCOL = "2025-06-18"
@@ -187,7 +189,7 @@ class Devbench:
         try:
             with _start_lock(self.port):
                 return self._ensure(may_start)
-        except OSError as e:
+        except (OSError, NotOurDirectory) as e:
             raise Unreachable(f"Can't start DevBench: {e}. {self.start_hint()}") from e
 
     def _ensure(self, may_start: bool) -> str:
@@ -219,7 +221,13 @@ class Devbench:
                 f"DevBench is not running at {self.url}. {self.start_hint()}")
         log(f"starting devbench: {' '.join(self.command)} (log: {self.log_path})")
         proc = self._spawn()
-        self._record_starting(proc.pid)
+        try:
+            self._record_starting(proc.pid)
+        except OSError:
+            # Unrecorded, it would race the next launcher's DevBench: stop it.
+            proc.kill()
+            proc.wait()
+            raise
         # Reap it whenever it exits, so that it doesn't look alive.
         threading.Thread(target=proc.wait, daemon=True).start()
         if self._wait_healthy(self.start_timeout, lambda: proc.poll() is None):
@@ -246,7 +254,10 @@ def _shell_command(cwd: str, command: list[str]) -> str:
     """A command line that runs ``command`` in ``cwd``: for cmd.exe on
     Windows, for a POSIX shell elsewhere."""
     if os.name == "nt":
-        return f'cd /d "{cwd}" && {subprocess.list2cmdline(command)}'
+        # Every argument in double quotes, so that cmd.exe's & | < > ^ ( )
+        # in a path don't split the command.
+        quoted = " ".join('"' + a.replace('"', '""') + '"' for a in command)
+        return f'cd /d "{cwd}" && {quoted}'
     return f"cd {_quote(cwd)} && " + " ".join(_quote(a) for a in command)
 
 
@@ -286,6 +297,8 @@ class Backend:
         ``sent`` set unless devbench certainly didn't act on the message."""
         replies: list[dict] = []
         want = message.get("id") if "method" in message else None
+        if self.http.is_closed:     # another request's failure closed this session
+            raise Unreachable("The session with DevBench was closed.")
         try:
             async with self.http.stream("POST", self.url, json=message,
                                         headers=self._headers()) as r:
@@ -307,14 +320,17 @@ class Backend:
                             replies.append(msg)
                             break
                         await self.deliver(msg)
-                    if want is not None and not replies:
-                        raise Unreachable("DevBench ended its answer stream without a reply.",
-                                          sent=True)
                 else:
                     data = json.loads(await r.aread() or b"null")
                     for msg in data if isinstance(data, list) else [data]:
                         if isinstance(msg, dict):
                             replies.append(msg)
+                if want is not None and not replies:
+                    raise Unreachable("DevBench ended its answer without a reply.", sent=True)
+        except RuntimeError as e:
+            if not self.http.is_closed:
+                raise
+            raise Unreachable("The session with DevBench was closed.") from e
         except httpx.TransportError as e:
             # Only a connection that was never made certainly didn't deliver it.
             sent = not isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout,
@@ -366,7 +382,10 @@ class Launcher:
         self.backend: Backend | None = None
         self.client_init: dict | None = None
         self.offline_reason = ""
-        self._out_lock = asyncio.Lock()
+        # Replies go out in order through one writer thread, a daemon so
+        # that a client that stops reading can't hold up the launcher's exit.
+        self._out: queue.Queue = queue.Queue()
+        threading.Thread(target=_stdout_writer, args=(self._out,), daemon=True).start()
         self._link_lock = asyncio.Lock()
         self._own_ids = 0
 
@@ -374,8 +393,9 @@ class Launcher:
 
     async def send(self, msg: dict) -> None:
         line = json.dumps(msg, separators=(",", ":")) + "\n"
-        async with self._out_lock:      # in order, and off the event loop:
-            await asyncio.to_thread(_write_stdout, line)    # the client may read slowly
+        written: concurrent.futures.Future = concurrent.futures.Future()
+        self._out.put((line, written))
+        await asyncio.wrap_future(written)
 
     async def reply(self, msg: dict, result: dict) -> None:
         await self.send({"jsonrpc": "2.0", "id": msg["id"], "result": result})
@@ -445,6 +465,7 @@ class Launcher:
                             with contextlib.suppress(Unreachable):
                                 await self._link(may_start=False)
                                 log("reconnected to DevBench")
+                                await self.tools_changed()  # it may have restarted
                         if self.backend is None:
                             await self._go_offline(f"{e} {self.devbench.start_hint()}")
                 if e.sent:
@@ -551,9 +572,18 @@ class Launcher:
             await self.backend.close()
 
 
-def _write_stdout(line: str) -> None:
-    sys.stdout.write(line)
-    sys.stdout.flush()
+def _stdout_writer(lines: queue.Queue) -> None:
+    while True:
+        line, written = lines.get()
+        if not written.set_running_or_notify_cancel():
+            continue                    # its sender was cancelled (shutting down)
+        try:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        except BaseException as e:      # the client is gone
+            written.set_exception(e)
+        else:
+            written.set_result(None)
 
 
 def _text(text: str, error: bool = False) -> dict:

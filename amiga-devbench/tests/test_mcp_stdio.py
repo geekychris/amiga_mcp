@@ -350,3 +350,31 @@ def test_starts_devbench_and_leaves_it_running(workdir):
         for pid in pids:
             with contextlib.suppress(OSError):
                 os.kill(pid, signal.SIGTERM)
+
+
+def test_a_closed_session_is_not_sent_to():
+    import asyncio
+    from amiga_devbench.mcp_stdio import Backend, Unreachable
+
+    async def run():
+        async def deliver(msg):
+            pass
+        backend = Backend(f"http://127.0.0.1:{free_port()}/mcp", deliver)
+        await backend.http.aclose()     # as another request's failure does
+        with pytest.raises(Unreachable) as failure:
+            await backend.post({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+        assert not failure.value.sent   # so it may go to a new session
+    asyncio.run(run())
+
+
+def test_a_foreign_runtime_directory_is_reported(workdir, monkeypatch):
+    from amiga_devbench import mcp_stdio
+    from amiga_devbench.rundir import NotOurDirectory
+
+    def refuse():
+        raise NotOurDirectory("/tmp/x is not a directory of ours")
+    monkeypatch.setattr(mcp_stdio, "private_dir", refuse)
+    devbench = mcp_stdio.Devbench(["--config", str(workdir / "devbench.toml"),
+                                   "--port", str(free_port())], True, 1.0)
+    with pytest.raises(mcp_stdio.Unreachable, match="not a directory of ours"):
+        devbench.ensure()
