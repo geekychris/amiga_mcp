@@ -175,7 +175,7 @@ int proc_launch(ULONG cmdId, const char *command, char *resultBuf, int bufSize)
                     SYS_Output, (ULONG)outFh,
                     SYS_Input, (ULONG)nilFh,
                     SYS_Asynch, FALSE,
-                    NP_StackSize, 8192,
+                    NP_StackSize, BRIDGE_CHILD_STACK,
                     TAG_DONE);
 
     if (nilFh) Close(nilFh);
@@ -279,7 +279,7 @@ int proc_run_async(ULONG cmdId, const char *command, char *resultBuf, int bufSiz
                     SYS_Output, (ULONG)nilOut,
                     SYS_Input, (ULONG)nilIn,
                     SYS_Asynch, TRUE,
-                    NP_StackSize, 8192,
+                    NP_StackSize, BRIDGE_CHILD_STACK,
                     TAG_DONE);
 
     /* Restore requester */

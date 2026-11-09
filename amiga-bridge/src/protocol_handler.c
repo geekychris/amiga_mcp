@@ -1750,7 +1750,7 @@ static void handle_script(const char *args)
                         SYS_Output, (ULONG)outFh,
                         SYS_Input,  (ULONG)nilFh,
                         SYS_Asynch, TRUE,
-                        NP_StackSize, 16384,
+                        NP_StackSize, BRIDGE_CHILD_STACK,
                         TAG_DONE);
     }
     pr->pr_WindowPtr = oldWin;

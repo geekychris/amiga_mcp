@@ -334,4 +334,16 @@ extern BOOL g_host_connected;
 void ui_add_log(const char *msg);
 void ui_set_last_cmd(const char *cmd);
 
+
+/* Stack for the processes the bridge starts (commands, launches, scripts).
+ * OS4 programs built with big frames (or ReAction) overflow a small stack and
+ * corrupt memory silently, and commands run through the bridge ignore their
+ * $STACK cookie, so PPC gets 1 MB (the guest has plenty); classic 68k keeps it
+ * modest. */
+#ifdef __PPC__
+#define BRIDGE_CHILD_STACK 1048576
+#else
+#define BRIDGE_CHILD_STACK 32768
+#endif
+
 #endif /* BRIDGE_INTERNAL_H */
