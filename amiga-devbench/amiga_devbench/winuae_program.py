@@ -16,6 +16,7 @@ linked ELF; loaded segment N then maps section N.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import struct
 from dataclasses import dataclass
@@ -159,7 +160,7 @@ async def load_program(file: Any = None, project: Any = None) -> Program:
         raise DebugError('Supply the program as file or project')
     if file is not None and project is not None:
         raise DebugError('Supply file or project, not both')
-    path = str(file) if file is not None else project_binary(str(project))
+    path = str(file) if file is not None else await asyncio.to_thread(project_binary, str(project))
     data = await read_file_async(path)
     if len(data) < 4 or int.from_bytes(data[:4], 'big') != 0x3f3:
         raise DebugError(f'{path} is not a Hunk executable')
@@ -185,11 +186,38 @@ class Layout:
     def mappings(self) -> list[dict]:
         return [dict(section=section_name(h), segment=h.index) for h in self.program.hunks]
 
+    def image(self, index: int) -> bytes:
+        """Hunk N as AmigaDOS loaded it here: its data, relocated."""
+        hunk = self.program.hunks[index]
+        image = bytearray(hunk.size)
+        image[:len(hunk.data)] = hunk.data[:hunk.size]
+        for offset, target in hunk.relocations:
+            if offset + 4 <= len(image) and target < len(self.bases):
+                value = (int.from_bytes(image[offset:offset + 4], 'big') + self.bases[target]) & 0xFFFFFFFF
+                image[offset:offset + 4] = value.to_bytes(4, 'big')
+        return bytes(image)
+
+
+async def check_image(read: Any, lay: Layout, hunk: int, offset: int, length: int = 32) -> None:
+    """Refuse a running program whose code isn't the build's: the program's
+    name and segment sizes match a stale copy too. Compares the code at the
+    symbol, or the start of the first code hunk for a data symbol."""
+    code = [h.index for h in lay.program.hunks if h.kind == 'code']
+    if not code:
+        return
+    if hunk not in code:
+        hunk, offset = code[0], 0
+    expected = lay.image(hunk)[offset:offset + length]
+    if expected and await read(lay.bases[hunk] + offset, len(expected)) != expected:
+        name = Path(lay.program.path).name
+        raise DebugError(f'The running {name} is not the build in {lay.program.path}: its code differs '
+                         f'at hunk {hunk} + 0x{offset:x}. Restart {name} from that build')
+
 
 def match_segments(program: Program, segments: list, process: int | None = None) -> Layout:
     """Match the program's hunks to a process's loaded segments, each a dict
-    of index, address (of the hunk's data) and size (of the allocation,
-    including the 8 bytes AmigaDOS keeps in front of the data)."""
+    of index, address and size of the hunk's data (the allocation less the
+    8 bytes AmigaDOS keeps in front of it)."""
     where = 'the current process' if process is None else hex(process)
     by_index = {s.get('index'): s for s in segments if isinstance(s, dict)}
     bases = []
@@ -220,12 +248,30 @@ async def find_program(name: str | None, project: Any, file: Any) -> Program:
     """The program a symbol belongs to. Without project or file, the project
     whose symbols amiga_load_symbols loaded and that defines the name."""
     if project is None and file is None:
-        from . import symbols
-        hit = symbols.lookup_function_address(name, None) if name else None
-        if hit is None:
+        if not name:
             raise DebugError('Name the program with project or file')
-        project = hit[0]
+        return (await project_defining(name))[1]
     return await load_program(file=file, project=project)
+
+
+async def project_defining(name: str) -> tuple[str, Program]:
+    """The one project, of those amiga_load_symbols loaded, whose program
+    defines a function or symbol (a hunk symbol, or a function in its DWARF)."""
+    from . import symbols
+    found = []
+    for project in list(symbols.get_all_tables()):
+        try:
+            program = await load_program(project=project)
+            await locate_symbol(program, name)
+        except DebugError:
+            continue
+        found.append((project, program))
+    if not found:
+        raise DebugError(f"No symbol '{name}' in the loaded projects; pass project, "
+                         'or load its symbols in the Debugger tab first')
+    if len(found) > 1:
+        raise DebugError(f"'{name}' is defined in " + ', '.join(p for p, _ in found) + '; pass project')
+    return found[0]
 
 
 async def linked_functions(program: Program) -> list[dict]:
@@ -290,6 +336,8 @@ async def annotate(d: WinuaeDebugger, addresses: list[int], project: Any = None,
                 if note is not None and source.get('locations'):
                     location = source['locations'][0]
                     note.update(file=location['file'], line=location['line'], function=(source.get('functions') or [None])[0])
+                elif note is not None and source.get('error'):
+                    note['source_error'] = source['error']
         except DebugError as exc:
             for note in notes.values():
                 note['source_error'] = str(exc)

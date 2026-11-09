@@ -373,7 +373,7 @@ async def _symbol_read(d: WinuaeDebugger, file: Any = None, symbol: Any = None, 
         if file is not None:
             raise DebugError('Supply file or project, not both')
         from .winuae_program import project_binary
-        file = project_binary(str(project))
+        file = await asyncio.to_thread(project_binary, str(project))
     parsed = parse_symbols(await read_file_async(file))
     if not isinstance(symbol, str) or not symbol or len(symbol) > 1024:
         raise DebugError('Expected an exact symbol name')

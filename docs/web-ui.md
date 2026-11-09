@@ -366,12 +366,13 @@ program must be running: AmigaOS loads each hunk wherever it finds memory
 when the program starts, so DevBench reads the guest's process list through
 the remote debugger, finds the process running the program and puts the
 breakpoint at the symbol's offset in its hunk plus that hunk's load address.
-Static functions are found through the DWARF of a `-g` build.
+Static functions are found through the DWARF of a `-g` build. The running
+code must be the build's: a copy started from an older build is refused.
 
 ```sh
 # 1. Start the program in the guest
-# 2. Set BP by name (project names the program; without it, the project
-#    whose symbols the Debugger tab loaded):
+# 2. Set BP by name (project names the program; without it, the one
+#    project of those the Debugger tab loaded that defines the name):
 curl -X POST 'http://localhost:3000/api/fsuae/breakpoints/by-symbol?name=draw_ball&project=examples/bouncing_ball'
 # {"ok":true,"slot":0,"symbol":"draw_ball","address":"0x0c2a14e8","process":"0x0c1f3a40","hunk":0,"offset":"0x1a4",...}
 ```

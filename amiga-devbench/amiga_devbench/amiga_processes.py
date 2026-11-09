@@ -93,15 +93,18 @@ class Guest:
         return [t for t in dict.fromkeys(found) if _pointer(t)]
 
     async def seglist(self, bptr: int) -> list[dict]:
-        """The segments of a seglist: the address of each one's data and the
-        size of its allocation, which includes the 8 bytes in front of it."""
+        """The segments of a seglist: the address and size of each one's
+        data. As in WinUAE's report, the size leaves out the 8 bytes in front
+        of the data (the allocation's size and the next segment's BPTR)."""
         segments = []
         while bptr and len(segments) < MAX_SEGMENTS:
             segment = bptr << 2
             if not _pointer(segment):
                 break
             size = await self.long(segment - 4)
-            segments.append(dict(index=len(segments), address=segment + 4, size=size))
+            if size < 8:
+                raise GuestError(f'The segment at 0x{segment:08x} has a short header')
+            segments.append(dict(index=len(segments), address=segment + 4, size=size - 8))
             bptr = await self.long(segment)
         return segments
 
