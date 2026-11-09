@@ -14,6 +14,7 @@
  */
 #include <exec/types.h>
 #include <exec/ports.h>
+#include <exec/execbase.h>
 #include <devices/timer.h>
 #include <dos/dos.h>
 #include <intuition/intuition.h>
@@ -37,12 +38,37 @@ struct GfxBase *GfxBase;
 
 static const char ver[] = "$VER: claude_busy 1.0 (01.11.2026)";
 
+#ifdef __PPC__
+#define SYSB ((struct ExecBase *)SysBase)
+#else
+#define SYSB SysBase
+#endif
+
+/* Is t a task exec still runs? A banner that crashed and was killed from its
+ * Grim Reaper never removed its port, so the port's mp_SigTask can point at
+ * freed memory: signalling that crashes in the kernel. */
+static int task_alive(struct Task *t)
+{
+    struct Node *n;
+    if (!t) return 0;
+    for (n = SYSB->TaskReady.lh_Head; n->ln_Succ; n = n->ln_Succ)
+        if ((struct Task *)n == t) return 1;
+    for (n = SYSB->TaskWait.lh_Head; n->ln_Succ; n = n->ln_Succ)
+        if ((struct Task *)n == t) return 1;
+    return 0;
+}
+
+/* Ask every other banner to go (there can be several ports of that name when
+ * an old one died without removing its port); skip ports whose task is gone. */
 static void stop_other(void)
 {
-    struct MsgPort *p;
+    struct Node *n;
     Forbid();
-    if ((p = FindPort(PORTNAME)) != NULL)
-        Signal(p->mp_SigTask, SIGBREAKF_CTRL_C);
+    for (n = SYSB->PortList.lh_Head; n->ln_Succ; n = n->ln_Succ) {
+        struct MsgPort *p = (struct MsgPort *)n;
+        if (n->ln_Name && strcmp(n->ln_Name, PORTNAME) == 0 && task_alive(p->mp_SigTask))
+            Signal(p->mp_SigTask, SIGBREAKF_CTRL_C);
+    }
     Permit();
 }
 
