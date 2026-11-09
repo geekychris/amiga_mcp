@@ -80,6 +80,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable the WinUAE native debugger on this GDB port",
     )
     parser.add_argument(
+        "--winuae-debug-host", type=str, default=None,
+        help="Host of the WinUAE native debugger (default: from the config)",
+    )
+    parser.add_argument(
+        "--gdb-port", type=int, default=None,
+        help="Port of the bridge's GDB server (default: from the config, 2159)",
+    )
+    parser.add_argument(
+        "--fsuae-rpc", choices=["auto", "on", "off"], default=None,
+        help="Use FS-UAE's remote debugger: auto, on or off (default: from the config)",
+    )
+    parser.add_argument(
         "--no-save-config", action="store_true",
         help="Never save settings from the web UI (for a DevBench whose settings "
              "are generated, such as a private MCP session's)",

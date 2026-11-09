@@ -25,7 +25,6 @@ import asyncio
 import contextlib
 import json
 import os
-import shutil
 import signal
 import socket
 import subprocess
@@ -242,9 +241,10 @@ class PrivateDevbench(Devbench):
     """A DevBench and WinUAE of this session's own, on free ports, stopped
     when the session ends. See winuae_private."""
 
-    # Options the private session sets itself.
+    # Options the private session sets itself, with the number of values each takes.
     OWN = {"--port": 1, "--serial-port": 1, "--serial-host": 1, "--mode": 1, "--deploy-dir": 1,
-           "--emulator-config": 1, "--winuae-debug-port": 1, "--no-emulator": 0, "--emulator": 0,
+           "--emulator-binary": 1, "--emulator-config": 1, "--winuae-debug-port": 1, "--winuae-debug-host": 1,
+           "--gdb-port": 1, "--fsuae-rpc": 1, "--no-emulator": 0, "--emulator": 0,
            "--simulator": 0, "--no-save-config": 0}
 
     def __init__(self, devbench_args: list[str], start_timeout: float):
@@ -253,7 +253,8 @@ class PrivateDevbench(Devbench):
         from .config import apply_cli_overrides, load_config
         from .emulator import is_winuae
 
-        args = build_parser().parse_args(devbench_args)
+        parser = build_parser()
+        args = parser.parse_args(devbench_args)
         cfg = load_config(config_path=args.config, project_root=args.project_root)
         apply_cli_overrides(cfg, args)
         binary, config = cfg.emulator_binary, cfg.emulator_config
@@ -261,40 +262,51 @@ class PrivateDevbench(Devbench):
             raise wp.PrivateError(
                 "--private needs WinUAE: pass --emulator-binary (WinUAE or WinUAE.app) and "
                 "--emulator-config (the .uae of DevBench's WinUAE guest), or set them in [emulator]")
+        if cfg.emulator_ssh:
+            raise wp.PrivateError(
+                f"the configuration drives a remote emulator over SSH ({cfg.emulator_ssh}); a "
+                "private session runs WinUAE on this machine. Choose a profile without emulator_ssh")
         for name in wp.sweep():
             log(f"removed the private session {name} of a launcher that is gone")
         self.session = wp.new_session()
         try:
-            self.http, self.gdb, self.bridge = wp.free_port(), wp.free_port(), wp.free_port()
+            self.gdb, self.bridge, self.bridge_gdb = wp.free_port(), wp.free_port(), wp.free_port()
             guest = wp.prepare_guest(config, self.session, self.bridge)
         except BaseException:
-            shutil.rmtree(self.session, ignore_errors=True)
+            wp.release_session(self.session)
             raise
-        kept, skip = [], 0
+        self.kept, skip = [], 0
         for arg in devbench_args:
             if skip:
                 skip -= 1
                 continue
-            name = arg.split("=", 1)[0]
+            name = _full_option(parser, arg.split("=", 1)[0])
             if name in self.OWN:
                 skip = self.OWN[name] if "=" not in arg else 0
                 continue
-            kept.append(arg)
-        own = ["--port", str(self.http), "--mode", "tcp", "--serial-host", "127.0.0.1",
-               "--serial-port", str(self.bridge), "--deploy-dir", str(guest.folder),
-               "--emulator", "--emulator-binary", binary, "--emulator-config", str(guest.config),
-               "--winuae-debug-port", str(self.gdb), "--no-save-config"]
-        self.port = self.http
-        self.url = f"http://127.0.0.1:{self.port}/mcp"
-        self.args = kept + own
+            self.kept.append(arg)
+        self.binary = binary
         self.may_start = True
         self.start_timeout = start_timeout
         self.log_path = self.session / "devbench.log"
-        self.command = [sys.executable, "-m", "amiga_devbench", *self.args]
         self.proc: subprocess.Popen | None = None
         self.guest = guest
+        self._use_port(wp.free_port())
         log(f"private session {self.session.name}: DevBench {self.url}, "
             f"WinUAE GDB port {self.gdb}, guest bridge port {self.bridge}")
+
+    def _use_port(self, http: int) -> None:
+        """Run the session's DevBench on this HTTP port."""
+        own = ["--port", str(http), "--mode", "tcp", "--serial-host", "127.0.0.1",
+               "--serial-port", str(self.bridge), "--deploy-dir", str(self.guest.folder),
+               "--emulator", "--emulator-binary", self.binary,
+               "--emulator-config", str(self.guest.config),
+               "--winuae-debug-host", "127.0.0.1", "--winuae-debug-port", str(self.gdb),
+               "--gdb-port", str(self.bridge_gdb), "--fsuae-rpc", "off", "--no-save-config"]
+        self.http = self.port = http
+        self.url = f"http://127.0.0.1:{http}/mcp"
+        self.args = self.kept + own
+        self.command = [sys.executable, "-m", "amiga_devbench", *self.args]
 
     def start_hint(self) -> str:
         return (f"This session's private DevBench is not running; call {CONNECT_TOOL} to start "
@@ -302,7 +314,8 @@ class PrivateDevbench(Devbench):
 
     def describe(self) -> str:
         return (f"This session has a private WinUAE (DevBench web UI http://127.0.0.1:{self.http}/, "
-                f"WinUAE GDB port {self.gdb}, guest bridge port {self.bridge}). It boots a copy of "
+                f"WinUAE GDB port {self.gdb}, guest bridge port {self.bridge}, bridge GDB port "
+                f"{self.bridge_gdb}). It boots a copy of "
                 f"{self.guest.source}; the user's other mounts are read-only in it. Deployed programs "
                 f"land in {self.guest.folder}. DevBench and WinUAE stop when this session ends.")
 
@@ -312,13 +325,19 @@ class PrivateDevbench(Devbench):
         return self.proc
 
     def ensure(self, may_start: bool | None = None) -> str:
-        if self.proc is not None and self.proc.poll() is None and self._healthy():
-            return f"Private DevBench is running at {self.url}."
-        return super().ensure(True)
+        from . import winuae_private as wp
+        if self.proc is not None and self.proc.poll() is None:
+            if self._healthy():
+                return f"Private DevBench is running at {self.url}."
+        elif _port_state(self.port) != "refused":
+            # Not this session's DevBench: something else took the port.
+            self._use_port(wp.free_port())
+            log(f"private session {self.session.name}: DevBench moves to {self.url}")
+        return super().ensure(may_start)
 
     def close(self) -> None:
         """Stop the session's DevBench, which stops its WinUAE, and remove
-        the session folder."""
+        the session folder once nothing of the session runs."""
         from . import winuae_private as wp
         if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
@@ -326,9 +345,12 @@ class PrivateDevbench(Devbench):
                 self.proc.wait(20)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        wp.stop_session(self.session)       # anything DevBench left behind
-        shutil.rmtree(self.session, ignore_errors=True)
-        log(f"private session {self.session.name} stopped")
+        if wp.stop_session(self.session):       # anything DevBench left behind
+            wp.release_session(self.session)
+            log(f"private session {self.session.name} stopped")
+        else:
+            log(f"private session {self.session.name}: processes still run; "
+                "the next --private launch removes it")
 
 
 class Unavailable(Devbench):
@@ -342,6 +364,15 @@ class Unavailable(Devbench):
 
     def ensure(self, may_start: bool | None = None) -> str:
         raise Unreachable(self.reason)
+
+
+def _full_option(parser: argparse.ArgumentParser, name: str) -> str:
+    """The option an abbreviation such as --no-emu stands for, as argparse
+    reads it; anything else unchanged."""
+    if not name.startswith("--") or name in parser._option_string_actions:
+        return name
+    matches = [o for o in parser._option_string_actions if o.startswith(name)]
+    return matches[0] if len(matches) == 1 else name
 
 
 def _quote(s: str) -> str:
@@ -728,7 +759,7 @@ def main(argv: list[str] | None = None) -> None:
             from .winuae_private import PrivateError
             try:
                 devbench = PrivateDevbench(devbench_args, max(own.start_timeout, 30.0))
-            except PrivateError as e:
+            except (PrivateError, OSError) as e:
                 devbench = Unavailable(f"Cannot set up a private WinUAE session: {e}")
         else:
             devbench = Devbench(devbench_args, not own.no_start, own.start_timeout)

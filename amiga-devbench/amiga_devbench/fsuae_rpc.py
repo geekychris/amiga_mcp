@@ -130,6 +130,8 @@ class FsuaeRpcClient:
 
     async def probe(self) -> bool:
         """One-shot /v1/ping probe. Updates status and publishes events on change."""
+        if self._enabled == "off":      # never contact it, nor turn it on
+            return False
         prev = self._status
         prev_service = self._service
         self._last_probe = time.time()

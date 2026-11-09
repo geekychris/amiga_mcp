@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -39,6 +40,8 @@ def uae_config(root: Path, guest: Path) -> Path:
         'hardfile2=rw,DH2:/disks/system.hdf,32,1,2,512,0,,uae',
         'hardfile2=ro,DH3:/disks/cd.hdf,32,1,2,512,0,,uae',
         'unix.serial_port=TCP://0.0.0.0:1234',
+        'floppy0=/disks/game.adf',
+        'floppy1=',
         'gdb_port=2346',
     ]) + '\n')
     return config
@@ -66,7 +69,23 @@ def test_the_session_boots_a_copy_with_its_own_bridge_port(tmp_path):
     assert 'hardfile2=ro,DH2:/disks/system.hdf,32,1,2,512,0,,uae' in lines
     assert 'hardfile2=ro,DH3:/disks/cd.hdf,32,1,2,512,0,,uae' in lines
     assert not any(line.startswith('unix.serial_port') for line in lines)
+    assert not any(line.startswith('floppy0=') for line in lines) and 'floppy1=' in lines
     assert 'kickstart_rom_file=/roms/kick.rom' in lines
+
+
+def test_a_symlinked_startup_sequence_is_not_written_through(tmp_path):
+    guest = guest_folder(tmp_path)
+    real_s = tmp_path / 'real-S'
+    (guest / 'S').rename(real_s)
+    (guest / 'S').symlink_to(real_s)
+    config = uae_config(tmp_path, guest)
+    session = tmp_path / 'session'
+    session.mkdir()
+    prepared = wp.prepare_guest(config, session, 40123)
+    copy = prepared.folder / 'S'
+    assert not copy.is_symlink() and not (copy / 'Startup-Sequence').is_symlink()
+    assert 'amiga-bridge TCP 40123' in (copy / 'Startup-Sequence').read_text()
+    assert 'amiga-bridge TCP 1234' in (real_s / 'Startup-Sequence').read_text()
 
 
 def test_a_configuration_without_the_bridge_guest_is_refused(tmp_path):
@@ -85,6 +104,8 @@ def test_sweep_stops_and_removes_sessions_of_dead_launchers(tmp_path, monkeypatc
     (dead / 'owner.json').write_text(json.dumps({'launcher': gone.pid}))
     # A process left behind, named by the session folder like WinUAE's -f.
     orphan = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', '-f', str(dead / 'x.uae')])
+    # Reaped as soon as it ends, as init reaps a real orphan
+    threading.Thread(target=orphan.wait, daemon=True).start()
     live = tmp_path / f'{os.getpid()}-bbbbbb'
     live.mkdir()
     (live / 'owner.json').write_text(json.dumps({'launcher': os.getpid()}))
@@ -97,6 +118,48 @@ def test_sweep_stops_and_removes_sessions_of_dead_launchers(tmp_path, monkeypatc
             orphan.kill()
 
 
+HOLD_LOCK = '''
+import fcntl, sys, time
+f = open(sys.argv[1], 'a+b')
+fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+print('locked', flush=True)
+time.sleep(60)
+'''
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='the stand-in launcher uses flock')
+def test_sweep_goes_by_the_launchers_lock_not_its_pid(tmp_path, monkeypatch):
+    monkeypatch.setattr(wp, 'sessions_dir', lambda: tmp_path)
+    held = tmp_path / '1-aaaaaa'
+    held.mkdir()
+    (held / 'owner.lock').touch()
+    launcher = subprocess.Popen([sys.executable, '-c', HOLD_LOCK, str(held / 'owner.lock')],
+                                stdout=subprocess.PIPE, text=True)
+    # The recorded launcher PID runs (it was reused), but nothing holds the lock.
+    free = tmp_path / f'{os.getpid()}-bbbbbb'
+    free.mkdir()
+    (free / 'owner.lock').touch()
+    (free / 'owner.json').write_text(json.dumps({'launcher': os.getpid()}))
+    try:
+        assert launcher.stdout.readline().strip() == 'locked'
+        assert wp.sweep() == [free.name]
+        assert held.exists() and not free.exists()
+    finally:
+        launcher.kill()
+        launcher.wait()
+
+
+def test_own_options_are_found_when_abbreviated():
+    from amiga_devbench.__main__ import build_parser
+    from amiga_devbench.mcp_stdio import _full_option
+    parser = build_parser()
+    assert _full_option(parser, '--no-emu') == '--no-emulator'
+    assert _full_option(parser, '--sim') == '--simulator'
+    assert _full_option(parser, '--emulator') == '--emulator'     # exact, though a prefix of others
+    assert _full_option(parser, '--profile') == '--profile'
+    assert _full_option(parser, '--e') == '--e'                    # ambiguous: left to argparse
+
+
 FAKE_WINUAE = '''#!{python}
 import sys, time
 open({record!r}, 'w').write(' '.join(sys.argv[1:]))
@@ -104,6 +167,7 @@ time.sleep(600)
 '''
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='the WinUAE stand-in is a script run through its #! line')
 def test_private_launcher_runs_its_own_devbench_and_winuae(tmp_path):
     guest = guest_folder(tmp_path)
     config = uae_config(tmp_path, guest)
@@ -134,7 +198,11 @@ def test_private_launcher_runs_its_own_devbench_and_winuae(tmp_path):
         assert wp.session_processes(session)
         # Its settings are generated: the web UI must not save them anywhere.
         web = re.search(r'web UI (http://127\.0\.0\.1:\d+)/', init['instructions'])[1]
-        assert httpx.get(f'{web}/api/config').json()['save_disabled']
+        settings = httpx.get(f'{web}/api/config').json()
+        assert settings['save_disabled']
+        # It never reaches the user's FS-UAE, and its bridge GDB port is its own.
+        assert settings['fsuae_rpc']['enabled'] == 'off'
+        assert 'bridge GDB port' in init['instructions'] and 'bridge GDB port 2159' not in init['instructions']
         saved = httpx.post(f'{web}/api/config', json={'paths': {'deploy_dir': '/elsewhere'}}).json()
         assert 'not saved' in saved['error'] and (tmp_path / 'devbench.toml').read_text() == ''
     finally:
