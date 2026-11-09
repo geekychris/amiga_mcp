@@ -221,3 +221,16 @@ def test_private_without_winuae_says_what_is_missing(tmp_path):
         assert '--emulator-binary' in init['instructions']
     finally:
         client.close()
+
+
+def test_a_profile_with_a_remote_emulator_is_refused(tmp_path, monkeypatch):
+    from amiga_devbench.mcp_stdio import PrivateDevbench
+    monkeypatch.setattr(wp, 'sessions_dir', lambda: tmp_path / 'sessions')
+    guest = guest_folder(tmp_path)
+    config = uae_config(tmp_path, guest)
+    toml = tmp_path / 'devbench.toml'
+    toml.write_text('[profiles.remote]\nemulator_ssh = "me@amiga.local"\n')
+    with pytest.raises(wp.PrivateError, match='remote emulator over SSH'):
+        PrivateDevbench(['--config', str(toml), '--profile', 'remote', '--emulator-binary',
+                         str(tmp_path / 'WinUAE.app'), '--emulator-config', str(config)], 30.0)
+    assert not (tmp_path / 'sessions').exists()      # refused before any session exists
