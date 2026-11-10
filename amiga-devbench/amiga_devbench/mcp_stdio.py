@@ -728,7 +728,9 @@ def _stdout_writer(lines: queue.Queue) -> None:
             continue                    # its sender was cancelled (shutting down)
         try:
             _write_out(line.encode())
-        except BaseException as e:      # the client is gone
+        except BaseException as e:      # noqa: BLE001
+            # Whatever failed (usually: the client is gone), the sender
+            # waits on this future and must get the error.
             written.set_exception(e)
         else:
             written.set_result(None)
