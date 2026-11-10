@@ -120,6 +120,11 @@ int main(int argc, char **argv)
 
     /* one banner at a time: a new one replaces the old */
     stop_other();
+
+    /* Run below everything a test starts, so even a busy banner can't starve
+     * the bridge's programs (-10) or dos_signal_server (-5), which reaps
+     * exited processes. A busy banner at 0 once did, for whole sessions. */
+    SetTaskPri(FindTask(NULL), -20);
     if (!(port = CreateMsgPort())) goto out;
     port->mp_Node.ln_Name = (char *)PORTNAME;
     port->mp_Node.ln_Pri = 0;
@@ -189,6 +194,11 @@ int main(int argc, char **argv)
         sigs = Wait(SIGBREAKF_CTRL_C | (1UL << win->UserPort->mp_SigBit) | (1UL << tport->mp_SigBit));
         if (!CheckIO((struct IORequest *)tr)) AbortIO((struct IORequest *)tr);
         WaitIO((struct IORequest *)tr);
+        /* WaitIO takes an already-replied request without Wait(), so its
+         * signal stays set. On OS4 AbortIO replies at once, so after any
+         * window message the next Wait() returned at once, the loop aborted
+         * the new request again, and the banner spun ~2000 times a second. */
+        SetSignal(0, 1UL << tport->mp_SigBit);
 
         while ((im = (struct IntuiMessage *)GetMsg(win->UserPort)) != NULL) {
             if (im->Class == IDCMP_CLOSEWINDOW) done = 1;
