@@ -189,6 +189,12 @@ int main(int argc, char **argv)
         sigs = Wait(SIGBREAKF_CTRL_C | (1UL << win->UserPort->mp_SigBit) | (1UL << tport->mp_SigBit));
         if (!CheckIO((struct IORequest *)tr)) AbortIO((struct IORequest *)tr);
         WaitIO((struct IORequest *)tr);
+        /* An aborted request is often back before WaitIO looks (OS4's timer replies inside
+         * AbortIO), so WaitIO removes it without a Wait() and the reply's signal stays set.
+         * Left set, the next Wait() returns at once, the new request gets aborted, and the
+         * loop spins (~2000 times a second on the QEMU guest, starving priority -10 tasks
+         * such as the bridge's commands). */
+        SetSignal(0, 1UL << tport->mp_SigBit);
 
         while ((im = (struct IntuiMessage *)GetMsg(win->UserPort)) != NULL) {
             if (im->Class == IDCMP_CLOSEWINDOW) done = 1;
