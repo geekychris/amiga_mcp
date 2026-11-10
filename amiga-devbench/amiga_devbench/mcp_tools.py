@@ -98,11 +98,17 @@ async def _read_amiga_file_text(conn, bus, path: str, max_bytes: int = 65536,
     'file not ready / unreachable' from 'empty file'). Decodes latin-1 so raw
     bytes never raise.
     """
+    # The daemon caps a chunk so its hex fits one BRIDGE_MAX_LINE (8192):
+    # (8192 - len(path) - 40) / 2, about 4070 bytes, so it never returns 4096
+    # and a request for 4096 always looked like EOF after the first chunk:
+    # SCRIPT output over ~4 KB lost its sentinel and read as "[RUNNING]".
+    # Ask for a size every chunk can hold, so only a real EOF reads short.
+    chunk_size = 2048
     collected = bytearray()
     offset = 0
     while offset < max_bytes:
         async with bus.subscribe("file", "err") as queue:
-            conn.send({"type": "READFILE", "path": path, "offset": offset, "size": 4096})
+            conn.send({"type": "READFILE", "path": path, "offset": offset, "size": chunk_size})
             got = None
             deadline = asyncio.get_event_loop().time() + per_chunk_timeout
             while True:
@@ -126,7 +132,7 @@ async def _read_amiga_file_text(conn, bus, path: str, max_bytes: int = 65536,
         chunk = bytes.fromhex(hexd)
         collected.extend(chunk)
         offset += len(chunk)
-        if len(chunk) < 4096:
+        if len(chunk) < chunk_size:
             break  # short read => EOF
     return collected.decode("latin-1", errors="replace")
 
