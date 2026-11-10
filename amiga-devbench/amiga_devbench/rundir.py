@@ -13,9 +13,18 @@ class NotOurDirectory(RuntimeError):
     """The runtime directory exists but isn't a directory of this user's."""
 
 
+def _user() -> str:
+    try:
+        return getpass.getuser()
+    except (KeyError, ImportError, OSError):
+        # No login name in the environment and none in the password
+        # database (e.g. a container's arbitrary uid).
+        return f"uid{os.getuid()}" if hasattr(os, "getuid") else "user"
+
+
 def private_dir() -> str:
     """A per-user directory only its owner can use, for PID and lock files."""
-    d = os.path.join(tempfile.gettempdir(), f"amiga-devbench-{getpass.getuser()}")
+    d = os.path.join(tempfile.gettempdir(), f"amiga-devbench-{_user()}")
     os.makedirs(d, mode=0o700, exist_ok=True)
     st = os.lstat(d)
     if not stat.S_ISDIR(st.st_mode) or (hasattr(os, "getuid") and st.st_uid != os.getuid()):

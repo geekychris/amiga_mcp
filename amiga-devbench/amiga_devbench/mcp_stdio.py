@@ -27,6 +27,7 @@ import contextlib
 import json
 import os
 import queue
+import select
 import signal
 import socket
 import subprocess
@@ -484,7 +485,7 @@ class Backend:
             self._get_task = asyncio.create_task(self._listen())
 
     async def _listen(self) -> None:
-        with contextlib.suppress(httpx.HTTPError, asyncio.CancelledError):
+        with contextlib.suppress(Exception, asyncio.CancelledError):
             async with self.http.stream("GET", self.url, headers={
                     **self._headers(), "Accept": "text/event-stream"}) as r:
                 if r.status_code != 200:
@@ -496,7 +497,10 @@ class Backend:
         if self._get_task:
             self._get_task.cancel()
         if self.session_id:
-            with contextlib.suppress(httpx.HTTPError):
+            # Only a courtesy: any failure (asyncio can even raise
+            # RuntimeError for a reused socket) must not lose the reply
+            # that the caller still owes the client.
+            with contextlib.suppress(Exception):
                 await self.http.delete(self.url, headers=self._headers(), timeout=2.0)
         await self.http.aclose()
 
@@ -544,7 +548,10 @@ class Launcher:
                          "error": {"code": code, "message": text}})
 
     async def tools_changed(self) -> None:
-        await self.send({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+        # Queued without waiting for the write: it's sent while holding the
+        # link lock, which a client that doesn't read must not keep held.
+        line = json.dumps({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+        self._out.put((line + "\n", concurrent.futures.Future()))
 
     # Linking to devbench
 
@@ -720,12 +727,26 @@ def _stdout_writer(lines: queue.Queue) -> None:
         if not written.set_running_or_notify_cancel():
             continue                    # its sender was cancelled (shutting down)
         try:
-            sys.stdout.write(line)
-            sys.stdout.flush()
+            _write_out(line.encode())
         except BaseException as e:      # the client is gone
             written.set_exception(e)
         else:
             written.set_result(None)
+
+
+def _write_out(data: bytes) -> None:
+    """Write all of data to stdout, waiting while the pipe is full even if
+    the client made it non-blocking."""
+    fd = sys.stdout.fileno()
+    view = memoryview(data)
+    while view:
+        try:
+            view = view[os.write(fd, view):]
+        except BlockingIOError:
+            if os.name == "nt":
+                time.sleep(0.05)
+            else:
+                select.select([], [fd], [])
 
 
 def _text(text: str, error: bool = False) -> dict:
