@@ -191,6 +191,37 @@ async def _send_await_surfaces_err_during_ok_wait():
     assert data["message"] == "object exists", data
 
 
+# ── READFILE chunking: the daemon's line cap must not read as EOF ──
+
+_REAL_READ = mcp_tools._read_amiga_file_text
+
+
+class _FileConn:
+    """Answers READFILE like the daemon: a chunk is capped so its hex fits one
+    8192-byte line, (8192 - len(path) - 40) / 2 bytes, whatever size is asked."""
+    connected = True
+
+    def __init__(self, bus, data):
+        self.bus, self.data = bus, data
+
+    def send(self, msg):
+        if msg.get("type") != "READFILE":
+            return
+        path, off = msg["path"], msg["offset"]
+        size = min(msg["size"], 4096, (8192 - len(path) - 40) // 2)
+        chunk = self.data[off:off + size]
+        self.bus.q.put_nowait(("file", {"path": path, "hexData": chunk.hex()}))
+
+
+async def _readfile_reads_past_capped_chunks():
+    # SCRIPT output of ~9 KB: the sentinel is near the end, past the first chunk
+    data = (b"x" * 63 + b"\n") * 140 + mcp_tools.SCRIPT_SENTINEL.encode() + b"\n"
+    bus = _PageBus()
+    text = await _REAL_READ(_FileConn(bus, data), bus, "T:ab_sout_123")
+    assert text is not None and len(text) == len(data), (len(text or ""), len(data))
+    assert mcp_tools.SCRIPT_SENTINEL in text
+
+
 def test_all():
     orig = mcp_tools._read_amiga_file_text
     try:
@@ -203,6 +234,7 @@ def test_all():
         asyncio.run(_paging_stops_on_empty_page())
         asyncio.run(_listdir_notfound_returns_str())
         asyncio.run(_send_await_surfaces_err_during_ok_wait())
+        asyncio.run(_readfile_reads_past_capped_chunks())
     finally:
         mcp_tools._read_amiga_file_text = orig
 
