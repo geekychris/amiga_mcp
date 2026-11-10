@@ -120,6 +120,12 @@ int main(int argc, char **argv)
 
     /* one banner at a time: a new one replaces the old */
     stop_other();
+
+    /* Run below everything a test starts. At priority 0 the banner kept the
+     * bridge's programs (-10) and dos_signal_server (-5) from running on the
+     * QEMU OS4 guests: exited processes were never reaped and piled up as
+     * ready tasks, and pushes slowed to ~80 KB/s, for as long as it was up. */
+    SetTaskPri(FindTask(NULL), -20);
     if (!(port = CreateMsgPort())) goto out;
     port->mp_Node.ln_Name = (char *)PORTNAME;
     port->mp_Node.ln_Pri = 0;
