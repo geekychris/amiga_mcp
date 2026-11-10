@@ -18,8 +18,11 @@ context manager; on/off just show and take down the banner):
     scripts/claude_busy.py off [--url URL]
     scripts/claude_busy.py run [--url URL] [--message M] -- <command...>
 
-The banner is tools/claude_busy (build: scripts/build-claude-busy.sh). It is
-pushed to RAM: when the Amiga doesn't have it yet. Its window is never made
+The banner is tools/claude_busy (build: scripts/build-claude-busy.sh). On an
+AmigaOS 4 guest that has it installed as DH1:bbtools/claude_busy, that copy is
+run; otherwise it is pushed to RAM: when the Amiga doesn't have it yet. (A
+devbench on another machine reads amiga_push_file's local path on ITS machine,
+so remote guests need the DH1: copy to show the banner after a reboot.) Its window is never made
 active, so keys a test injects still reach the game. URL ports: 3010/3000
 is the AmigaOS 4 guest (claude_busy_os4), 3001 classic 68k (claude_busy).
 """
@@ -36,6 +39,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tools", "claude_busy")
 LOCK = "/tmp/amiga-emu.lock"
 ON_AMIGA = "RAM:claude_busy"
+ON_DISK = "DH1:bbtools/claude_busy"     # installed on an OS4 guest's dev disk (remote guests)
+_PROG = {}                               # url -> the copy banner_on ran
 
 
 class _MCP:
@@ -73,12 +78,32 @@ def _quote(s):
     return '"' + s.replace('"', "'") + '"'
 
 
+def _missing(listing):
+    listing = listing.lower()
+    return "not found" in listing or "no information" in listing or not listing.strip()
+
+
+def _on_disk(m, url):
+    """Is the banner installed on the guest's disk? Only asked of an OS4 guest, where DH1:
+    always exists (a 68k Amiga may have no DH1:, and naming a missing volume opens a
+    requester)."""
+    if ":3001" in url:
+        return False
+    out = m.tool("amiga_dos_command", command=f"List {ON_DISK}", timeout=15)
+    return "claude_busy" in out and not _missing(out)
+
+
 def banner_on(url, message=""):
-    """Show the banner (pushing the program to RAM: first if needed). Never raises."""
+    """Show the banner (the guest's DH1: copy, or pushed to RAM: first if needed). Never raises."""
     try:
         m = _MCP(url)
-        listing = m.tool("amiga_dos_command", command=f"List {ON_AMIGA}", timeout=15).lower()
-        if "not found" in listing or "no information" in listing:
+        if _on_disk(m, url):
+            _PROG[url] = ON_DISK
+            m.tool("amiga_launch", command=f"{ON_DISK} {_quote(message)}" if message else ON_DISK)
+            return True
+        _PROG[url] = ON_AMIGA
+        listing = m.tool("amiga_dos_command", command=f"List {ON_AMIGA}", timeout=15)
+        if _missing(listing):
             local = _binary(url)
             if not os.path.exists(local):
                 subprocess.run([os.path.join(ROOT, "scripts", "build-claude-busy.sh")],
@@ -94,7 +119,9 @@ def banner_on(url, message=""):
 
 def banner_off(url):
     try:
-        _MCP(url).tool("amiga_dos_command", command=f"{ON_AMIGA} OFF", timeout=15)
+        m = _MCP(url)
+        prog = _PROG.get(url) or (ON_DISK if _on_disk(m, url) else ON_AMIGA)
+        m.tool("amiga_dos_command", command=f"{prog} OFF", timeout=15)   # any copy finds the banner's port
     except Exception as e:
         print(f"claude_busy: banner not taken down: {e}", file=sys.stderr)
 
