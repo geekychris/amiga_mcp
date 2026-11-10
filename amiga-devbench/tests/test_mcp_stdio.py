@@ -378,3 +378,45 @@ def test_a_foreign_runtime_directory_is_reported(workdir, monkeypatch):
                                    "--port", str(free_port())], True, 1.0)
     with pytest.raises(mcp_stdio.Unreachable, match="not a directory of ours"):
         devbench.ensure()
+
+
+def test_a_user_without_a_login_name_gets_a_runtime_directory(monkeypatch, tmp_path):
+    import getpass
+    import tempfile
+
+    from amiga_devbench import rundir
+
+    def nameless():
+        raise KeyError("getpwuid(): uid not found")
+    monkeypatch.setattr(getpass, "getuser", nameless)
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    assert os.path.isdir(rundir.private_dir())
+
+
+@pytest.mark.skipif(os.name == "nt", reason="non-blocking pipes are POSIX")
+def test_replies_wait_for_a_full_non_blocking_stdout(monkeypatch):
+    from amiga_devbench import mcp_stdio
+
+    r, w = os.pipe()
+    os.set_blocking(w, False)
+
+    class Out:
+        def fileno(self):
+            return w
+    monkeypatch.setattr(sys, "stdout", Out())
+    data = b"x" * (1 << 20)          # far more than a pipe holds
+    received = bytearray()
+
+    def read_slowly():
+        time.sleep(0.2)              # let the pipe fill first
+        while len(received) < len(data):
+            received.extend(os.read(r, 65536))
+    reader = threading.Thread(target=read_slowly)
+    reader.start()
+    try:
+        mcp_stdio._write_out(data)
+    finally:
+        reader.join(10)
+        os.close(r)
+        os.close(w)
+    assert bytes(received) == data
