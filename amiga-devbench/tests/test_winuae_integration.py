@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -74,3 +75,23 @@ def test_mcp_and_http_use_same_backend():
         finally:
             init_winuae_tools(WinuaeDebugger())
     asyncio.run(run())
+
+
+def test_command_line_names_the_emulator_and_the_winuae_port(tmp_path):
+    from amiga_devbench.__main__ import build_parser
+    from amiga_devbench.config import apply_cli_overrides
+    path = tmp_path / 'devbench.toml'
+    path.write_text('[emulator]\nauto_start = false\n')
+    binary = str(tmp_path / 'WinUAE.app')
+    args = build_parser().parse_args(['--config', str(path), '--emulator-binary', binary,
+                                      '--emulator-config', '~/x.uae', '--winuae-debug-port', '2400',
+                                      '--winuae-debug-host', '127.0.0.1', '--gdb-port', '2401',
+                                      '--fsuae-rpc', 'off'])
+    cfg = load_config(str(path))
+    apply_cli_overrides(cfg, args)
+    assert cfg.emulator_binary == binary
+    assert Path(cfg.emulator_config) == Path.home() / 'x.uae'
+    assert cfg.winuae_debug_enabled and cfg.winuae_debug_port == 2400
+    assert cfg.winuae_debug_host == '127.0.0.1' and cfg.gdb_port == 2401 and cfg.fsuae_rpc_enabled == 'off'
+    with pytest.raises(ValueError):
+        apply_cli_overrides(cfg, build_parser().parse_args(['--winuae-debug-port', '0']))

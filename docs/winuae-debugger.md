@@ -72,6 +72,15 @@ DevBench's only if it uses the same configuration file, so Stop never ends
 an unrelated WinUAE. Recognizing such an instance uses `pgrep`, so it works
 on macOS and Linux; on Windows, DevBench manages only a WinUAE it started.
 
+The command line can name them too, for example for a one-off instance:
+`--emulator-binary /Applications/WinUAE.app --emulator-config ~/Amiga/DevBench.uae
+--winuae-debug-port 2400 --emulator`. `--winuae-debug-port` enables the
+debugger on that port (`--winuae-debug-host` names its host), and
+`--emulator` starts the emulator with DevBench even when auto-start is off.
+`--gdb-port` moves the bridge's own GDB server from 2159, and
+`--fsuae-rpc off` keeps DevBench away from FS-UAE's remote debugger, so a
+second DevBench doesn't share either with the first.
+
 ### Or launch WinUAE yourself
 
 In a separate `.uae` configuration, enable:

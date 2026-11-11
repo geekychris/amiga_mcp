@@ -125,6 +125,10 @@ class DevBenchConfig:
     # Simulator mode
     simulator: bool = False
 
+    # Why the web UI must not save settings (empty: it may), e.g. for the
+    # generated settings of a private MCP session (--no-save-config).
+    save_disabled: str = ""
+
     # LLM proxy — bridges amiterm's `ask` builtin to a remote inference
     # server (Ollama-compatible by default). Opt in per-project.
     llm_enabled: bool = False
@@ -386,6 +390,26 @@ def apply_cli_overrides(cfg: DevBenchConfig, args: Any) -> None:
         cfg.log_level = args.log_level
     if getattr(args, "simulator", False):
         cfg.simulator = True
+    if getattr(args, "emulator_binary", None):
+        cfg.emulator_binary = args.emulator_binary
+    if getattr(args, "emulator_config", None):
+        cfg.emulator_config = args.emulator_config
+    if getattr(args, "winuae_debug_port", None) is not None:
+        if not 1 <= args.winuae_debug_port <= 65535:
+            raise ValueError("--winuae-debug-port must be in 1..65535")
+        cfg.winuae_debug_enabled = True
+        cfg.winuae_debug_port = args.winuae_debug_port
+    if getattr(args, "winuae_debug_host", None):
+        cfg.winuae_debug_host = args.winuae_debug_host
+    if getattr(args, "gdb_port", None) is not None:
+        if not 1 <= args.gdb_port <= 65535:
+            raise ValueError("--gdb-port must be in 1..65535")
+        cfg.gdb_port = args.gdb_port
+    if getattr(args, "fsuae_rpc", None):
+        cfg.fsuae_rpc_enabled = args.fsuae_rpc
+    if getattr(args, "no_save_config", False):
+        cfg.save_disabled = ("This DevBench's settings are generated for one session "
+                             "and are not saved")
     # a --profile applied here may set relative paths (emulator_binary)
     cfg.resolve_paths()
 

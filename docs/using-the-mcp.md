@@ -12,8 +12,10 @@ ways to connect a client:
 - **The launcher (recommended).** The client runs
   `python -m amiga_devbench.mcp_stdio`, which talks MCP over stdio and passes
   it on to DevBench. If nothing listens on DevBench's port, the launcher starts
-  DevBench in the background first. It never stops DevBench: the web UI and
-  other clients may be using it, and it holds the only connection to the Amiga.
+  DevBench in the background first. It never stops that DevBench: the web UI
+  and other clients may be using it, and it holds the only connection to the
+  Amiga. (With `--private`, below, the session's own DevBench stops when the
+  session ends.)
 - **The URL.** The client connects to `http://localhost:3000/mcp` itself.
   DevBench must already be running, and if it isn't, the client reports a
   transport error.
@@ -37,6 +39,7 @@ passed on unchanged when it starts DevBench. Two options are its own:
 |---|---|
 | `--no-start` | Only connect; never start DevBench |
 | `--start-timeout S` | Seconds to wait for DevBench to answer (default 20) |
+| `--private` | Give the session its own DevBench and WinUAE (below) |
 
 A DevBench it starts writes to `logs/devbench-<port>.log` in the project
 root. Use absolute paths and `--project-root`: clients start the launcher
@@ -45,6 +48,55 @@ in a directory of their choosing, and DevBench finds its files from there.
 The launcher starts DevBench only when the port refuses connections. If the
 port is in use but `/health` doesn't answer, it reports that instead: a new
 DevBench stops any DevBench already on its port.
+
+## A private WinUAE per session
+
+With `--private`, each MCP session gets a DevBench and a WinUAE of its own,
+so several agents, or an agent and you, can debug at the same time without
+taking each other's WinUAE GDB port or guest bridge:
+
+```sh
+R=$HOME/git/amiga_mcp       # your checkout
+"$R/.venv/bin/python" -m amiga_devbench.mcp_stdio --private \
+  --config "$R/devbench.local.toml" --project-root "$R" \
+  --emulator-binary ~/git/WinUAE_mac/WinUAE/bin/winuae \
+  --emulator-config ~/.amiga-devbench/DevBench.uae
+```
+
+That is the command a client runs; register it like the plain launcher
+(see [Codex CLI](#codex-cli) and [Claude Code](#claude-code)), under a name
+of its own:
+
+```sh
+codex mcp add amiga-winuae -- "$R/.venv/bin/python" -m amiga_devbench.mcp_stdio --private \
+  --config "$R/devbench.local.toml" --project-root "$R" \
+  --emulator-binary ~/git/WinUAE_mac/WinUAE/bin/winuae \
+  --emulator-config ~/.amiga-devbench/DevBench.uae
+claude mcp add amiga-winuae -- "$R/.venv/bin/python" -m amiga_devbench.mcp_stdio --private \
+  --config "$R/devbench.local.toml" --project-root "$R" \
+  --emulator-binary ~/git/WinUAE_mac/WinUAE/bin/winuae \
+  --emulator-config ~/.amiga-devbench/DevBench.uae
+```
+
+The `.uae` must boot DevBench's WinUAE guest: a folder whose
+`S/Startup-Sequence` starts `amiga-bridge TCP <port>`. The session
+
+- copies that folder (at most 256 MiB) and starts the bridge in the copy on
+  a free port; programs are deployed into the copy;
+- writes a `.uae` that boots the copy, mounts every other writable folder
+  or hardfile read-only, leaves out inserted floppy images and drops serial
+  ports, so the two emulators never write to the same disk; your
+  configuration is not changed;
+- starts DevBench on free HTTP, WinUAE GDB, bridge and bridge GDB ports,
+  with FS-UAE's remote debugger off; DevBench starts the WinUAE. The
+  client's server instructions name the ports, and
+  the web UI of the session is at the HTTP port. Its settings are generated
+  for the session, so its Settings tab cannot save them (`--no-save-config`).
+
+Both stop, and the session folder is removed, when the client ends the
+session. If the launcher is killed, the next `--private` launch stops what
+it left running. The binary and configuration can also come from
+`[emulator] binary` and `config`.
 
 ## Start the server yourself
 

@@ -3572,6 +3572,11 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             "hint": "install fsuae_remote_patch in ~/.amiga-devbench/ or ~/code/ for a structural diff",
         })
 
+    async def api_devbench_config_save_unless_disabled(request: Request) -> JSONResponse:
+        if _config and _config.save_disabled:
+            return JSONResponse({"error": _config.save_disabled})
+        return await api_devbench_config_save(request)
+
     async def api_devbench_config_get(request: Request) -> JSONResponse:
         if not _config:
             return JSONResponse({"error": "No config loaded"})
@@ -3606,6 +3611,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
                 "active": _config.active_profile,
                 "available": sorted(_config.profiles.keys()),
             },
+            "save_disabled": _config.save_disabled,
             "fsuae_rpc": {
                 "enabled": _config.fsuae_rpc_enabled,
                 "port": _config.fsuae_rpc_port,
@@ -5374,7 +5380,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         Route("/api/fsuae/fd/load", api_fsuae_fd_load, methods=["POST"]),
         # DevBench config
         Route("/api/config", api_devbench_config_get, methods=["GET"]),
-        Route("/api/config", api_devbench_config_save, methods=["POST"]),
+        Route("/api/config", api_devbench_config_save_unless_disabled, methods=["POST"]),
         # Traffic log
         Route("/api/traffic", api_traffic_list, methods=["GET"]),
         Route("/api/traffic/detail", api_traffic_detail, methods=["GET"]),
