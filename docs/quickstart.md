@@ -98,15 +98,27 @@ development network; do not expose port 3000 to the Internet.
 
 ## 5. Connect your MCP client
 
-With DevBench running, follow [MCP client setup](using-the-mcp.md). For Codex:
+Follow [MCP client setup](using-the-mcp.md). For Codex, from your checkout:
 
 ```sh
-codex mcp add amiga-dev --url http://localhost:3000/mcp
+codex mcp add amiga-dev -- "$PWD/.venv/bin/python" -m amiga_devbench.mcp_stdio \
+    --project-root "$PWD" --config "$PWD/devbench.local.toml" --no-emulator
 ```
+
+In PowerShell on Windows:
+
+```powershell
+codex mcp add amiga-dev -- "$PWD\.venv\Scripts\python.exe" -m amiga_devbench.mcp_stdio `
+    --project-root "$PWD" --config "$PWD\devbench.local.toml" --no-emulator
+```
+
+This launcher starts DevBench when it isn't running. To connect by URL
+instead, keep DevBench running and use
+`codex mcp add amiga-dev --url http://localhost:3000/mcp`.
 
 Tool discovery confirms the MCP server is reachable. In simulator mode,
 use `amiga_log` and check recent heartbeats in `/health`. On a real target,
-`amiga_ping` confirms the bridge is responding. The HTTP client registration does
+`amiga_ping` confirms the bridge is responding. A URL registration does
 not start DevBench for you.
 
 ## 6. Connect a real target

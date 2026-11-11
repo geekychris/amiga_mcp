@@ -7,7 +7,8 @@ import argparse
 import sys
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """The devbench command line, shared with the MCP stdio launcher."""
     parser = argparse.ArgumentParser(
         prog="amiga-devbench",
         description="Amiga DevBench - Host-side developer tool for Amiga cross-development",
@@ -67,8 +68,11 @@ def main():
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)",
     )
+    return parser
 
-    args = parser.parse_args()
+
+def main():
+    args = build_parser().parse_args()
 
     # Load config and apply CLI overrides
     from .config import load_config, apply_cli_overrides

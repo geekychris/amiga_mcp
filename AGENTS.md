@@ -97,11 +97,14 @@ python3 -m amiga_devbench --simulator   # Starts with fake Amiga on TCP 1234
 ```
 
 ## Codex MCP Config
-Start the Python host server first, then register its HTTP endpoint:
+Register the stdio launcher, which starts DevBench when it isn't running:
 
 ```bash
-codex mcp add amiga-dev --url http://localhost:3000/mcp
+codex mcp add amiga-dev -- "$PWD/.venv/bin/python" -m amiga_devbench.mcp_stdio \
+    --project-root "$PWD" --config "$PWD/devbench.local.toml" --no-emulator
 ```
+
+Or, with DevBench already running, `codex mcp add amiga-dev --url http://localhost:3000/mcp`.
 
 Codex reads `config.toml`; the repository's `.mcp.json` is for Claude Code.
 See [MCP client setup](docs/using-the-mcp.md) for both clients and
