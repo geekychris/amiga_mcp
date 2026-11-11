@@ -227,9 +227,23 @@ starts the AmigaOS 4 one on port 3000 and the classic one on port 3001.
 
 ## Get started
 
-You need Python 3.10+, Git and Docker, plus an emulator with your own
-Kickstart ROM and AmigaOS. The ROMs and AmigaOS are commercial and aren't
-included. A built-in simulator lets you try DevBench with no Amiga at all.
+**New here? [Install and verify DevBench](docs/quickstart.md).** The guide
+works from an existing checkout and starts with the simulator, so you can
+check the host side before you set up an Amiga.
+
+### What you need
+
+- **The host server:** Python 3.10+ and Git, on macOS, Linux or Windows.
+- **A real target:** an emulator with your own Kickstart ROM and AmigaOS, or
+  a real Amiga, running the `amiga-bridge` guest program. The simulator needs
+  neither.
+- **Compiling Amiga programs:** Docker and the cross-compiler images
+  (`scripts/install-toolchains.sh` pulls them). You don't need Docker just to
+  install the server or to inspect a target that already runs the bridge.
+
+Installing the Python server doesn't install an emulator, a ROM or AmigaOS.
+
+### Setup in three commands
 
 ```sh
 git clone --recurse-submodules https://github.com/geekychris/amiga_mcp
@@ -239,17 +253,32 @@ scripts/doctor.sh    # check every prerequisite; each problem comes with its fix
 scripts/start.sh     # start the emulators and DevBenches, wait until the Amigas answer
 ```
 
-Then open `http://localhost:3000/` (AmigaOS 4) or `http://localhost:3001/`
-(classic). To try it without an Amiga, run `python3 -m amiga_devbench --simulator`.
+The Kickstart ROM and the AmigaOS 3.x / 4.1 installs are commercial, so
+`doctor.sh` keeps reporting them until they're in place, and says where each
+one goes. The scripts are bash: on Windows, use WSL or `scripts/install.ps1`.
+[SETUP.md](SETUP.md) is the one-page guide.
 
-To give an AI agent the tools, register the launcher. It starts DevBench if it
-isn't running yet:
+To pick a machine from a full-screen menu instead (classic Amiga, AmigaOS 4,
+Atari ST and 3DO), run `make retro`. It runs the Retro Launcher from
+`../retro-launcher`.
 
-```sh
-claude mcp add amiga-dev -- python3 -m amiga_devbench.mcp_stdio --project-root "$PWD"
-```
+### Open it
 
-The scripts are bash. On Windows, use WSL or `scripts/install.ps1`.
+- **Web UI:** `http://localhost:3000/` for AmigaOS 4 and
+  `http://localhost:3001/` for classic 68k (`scripts/start.sh` runs one
+  DevBench per target).
+- **Without an Amiga:** `python3 -m amiga_devbench --simulator` starts a
+  DevBench with a simulated Amiga.
+- **An AI agent:** register the launcher. It starts DevBench if it isn't
+  running yet:
+
+  ```sh
+  claude mcp add amiga-dev -- python3 -m amiga_devbench.mcp_stdio --project-root "$PWD"
+  ```
+
+  Clients can also connect straight to `http://localhost:3000/mcp`, but then
+  DevBench must already be running. [MCP client setup](docs/using-the-mcp.md)
+  covers Codex and Claude Code.
 
 ## Documentation
 
@@ -264,6 +293,7 @@ The scripts are bash. On Windows, use WSL or `scripts/install.ps1`.
 | Connect an emulator or a real Amiga | [Target setup](docs/targets.md) |
 | Use WinUAE or FS-UAE | [Dual-emulator setup](docs/winuae-and-fsuae.md) |
 | Set up AmigaOS 4.1 on QEMU | [AmigaOS 4 setup](docs/amigaos4-setup.md) |
+| Automate the install | [Scripted installer](docs/installer.md) |
 | Choose a debugger | [Debugger guide](docs/debuggers.md) · [WinUAE debugger](docs/winuae-debugger.md) |
 | Understand the design | [Architecture](docs/architecture.md) · [Bridge protocol](docs/bridge-reference.md) |
 | Find anything else | [Documentation index](docs/README.md) |
