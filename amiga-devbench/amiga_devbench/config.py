@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,6 +72,9 @@ class DevBenchConfig:
     # Paths
     project_root: str = ""
     deploy_dir: str = ""
+    # The TOML file the configuration was read from (or would be): where the
+    # web UI saves its changes.
+    config_path: str = ""
 
     # Bridge options
     crash_handler_auto_enable: bool = True
@@ -173,6 +177,7 @@ def load_config(
 
     # Load config file
     toml_path = Path(config_path) if config_path else root / "devbench.toml"
+    cfg.config_path = str(toml_path.expanduser().absolute())
     if toml_path.exists():
         with open(toml_path, "rb") as f:
             data = tomllib.load(f)
@@ -395,7 +400,7 @@ def save_config(cfg: DevBenchConfig, path: str | None = None) -> str:
     the arch setting.
     """
     if path is None:
-        path = os.path.join(cfg.project_root, "devbench.toml")
+        path = cfg.config_path or os.path.join(cfg.project_root, "devbench.toml")
 
     lines = [
         '# Amiga DevBench Configuration',
@@ -470,3 +475,136 @@ def save_config(cfg: DevBenchConfig, path: str | None = None) -> str:
         f.write("\n".join(lines))
 
     return path
+
+
+# ── Saving changes back to the configuration file ────────────────────
+
+# Settings the web UI edits: config field -> (table, key, profile key). A
+# setting with a profile key goes into the active profile's table, where
+# it takes effect; the others go into their table.
+SAVED_FIELDS: dict[str, tuple[str, str, str | None]] = {
+    "serial_mode": ("serial", "mode", "mode"),
+    "serial_host": ("serial", "host", "host"),
+    "serial_port": ("serial", "port", "port"),
+    "emulator_binary": ("emulator", "binary", "emulator_binary"),
+    "emulator_config": ("emulator", "config", "emulator_config"),
+    "emulator_auto_start": ("emulator", "auto_start", "auto_start_emulator"),
+    "deploy_dir": ("paths", "deploy_dir", "deploy_dir"),
+    "crash_handler_auto_enable": ("bridge", "crash_handler_auto_enable", None),
+    "fsuae_rpc_enabled": ("fsuae_rpc", "enabled", None),
+    "fsuae_rpc_port": ("fsuae_rpc", "port", None),
+    "fsuae_rpc_pause_at_boot": ("fsuae_rpc", "pause_at_boot", None),
+    "fsuae_gdb_port": ("fsuae_rpc", "gdb_port", None),
+    "fsuae_auto_pause_on_crash": ("fsuae_rpc", "auto_pause_on_crash", None),
+}
+
+_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+class ConfigSaveError(Exception):
+    """The configuration file cannot be updated; the message says why."""
+
+
+def _table_header(table: tuple[str, ...]) -> str:
+    return ".".join(p if _BARE_KEY.match(p) else f'"{_toml_escape(p)}"' for p in table)
+
+
+def _header_names(line: str) -> tuple[str, ...] | None:
+    """The table a [header] line opens, or None."""
+    m = re.match(r'^\s*\[([^\[\]]+)\]\s*(#.*)?$', line)
+    if not m:
+        return None
+    try:
+        data = tomllib.loads(f"[{m.group(1)}]\n")
+    except tomllib.TOMLDecodeError:
+        return None
+    parts = []
+    while isinstance(data, dict) and len(data) == 1:
+        key = next(iter(data))
+        parts.append(key)
+        data = data[key]
+    return tuple(parts)
+
+
+def _comment(line: str) -> str:
+    """The trailing comment of a `key = value` line, with its spacing."""
+    for i, ch in enumerate(line):
+        if ch == "#":
+            try:
+                tomllib.loads(line[:i] + "\n")
+            except tomllib.TOMLDecodeError:
+                continue
+            return line[len(line[:i].rstrip()):]
+    return ""
+
+
+def patch_toml(text: str, table: tuple[str, ...], values: dict[str, Any]) -> str:
+    """Set keys of one table in TOML text, keeping everything else as it is."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if _header_names(line) == table), None)
+    if start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"[{_table_header(table)}]")
+        lines += [f"{k} = {_dump_toml_value(v)}" for k, v in values.items()]
+        return "\n".join(lines) + "\n"
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+    for key, value in values.items():
+        pattern = re.compile(rf'^\s*("{re.escape(key)}"|{re.escape(key)})\s*=')
+        at = next((i for i in range(start + 1, end) if pattern.match(lines[i])), None)
+        line = f"{key} = {_dump_toml_value(value)}"
+        if at is not None:
+            lines[at] = line + _comment(lines[at])
+        else:
+            last = max((i for i in range(start, end) if lines[i].strip()), default=start)
+            lines.insert(last + 1, line)
+            end += 1
+    return "\n".join(lines) + "\n"
+
+
+def save_changes(cfg: DevBenchConfig, changes: dict[str, Any], path: str | None = None) -> str:
+    """Write changed settings into the configuration file they belong to.
+
+    Only the changed keys are touched: comments, other tables and settings
+    given on the command line stay as they are. A setting a profile can hold
+    goes into the active profile's table. Returns the path written.
+    """
+    path = path or cfg.config_path or os.path.join(cfg.project_root, "devbench.toml")
+    target = Path(path)
+    try:
+        text = target.read_text() if target.exists() else ""
+    except OSError as exc:
+        raise ConfigSaveError(f"Cannot read {path}: {exc}") from None
+    tables: dict[tuple[str, ...], dict[str, Any]] = {}
+    for name, value in changes.items():
+        if name not in SAVED_FIELDS:
+            raise ConfigSaveError(f"{name} is not a setting the web UI saves")
+        table, key, profile_key = SAVED_FIELDS[name]
+        if profile_key and cfg.active_profile and cfg.active_profile in cfg.profiles:
+            where, key = ("profiles", cfg.active_profile), profile_key
+        else:
+            where = (table,)
+        tables.setdefault(where, {})[key] = value
+    for table, values in tables.items():
+        text = patch_toml(text, table, values)
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigSaveError(f"Cannot update {path} automatically ({exc}); edit it by hand") from None
+    for table, values in tables.items():
+        node: Any = data
+        for part in table:
+            node = node.get(part, {}) if isinstance(node, dict) else {}
+        if any(node.get(k) != v for k, v in values.items()):
+            raise ConfigSaveError(f"Cannot update [{_table_header(table)}] in {path} automatically; "
+                                  "edit it by hand")
+    tmp = target.with_name(target.name + ".tmp")
+    try:
+        tmp.write_text(text)
+        os.replace(tmp, target)
+    except OSError as exc:
+        raise ConfigSaveError(f"Cannot write {path}: {exc}") from None
+    for table, values in tables.items():
+        if table[0] == "profiles":
+            cfg.profiles.setdefault(table[1], {}).update(values)
+    return str(target)
