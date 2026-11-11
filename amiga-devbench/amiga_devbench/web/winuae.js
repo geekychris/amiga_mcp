@@ -22,7 +22,9 @@
         row(`<label><input type="checkbox" id="wu-annotate" checked> Name library calls</label>
           <label>Library ${input('library', 'placeholder="from A6"')}</label>
           <label><input type="checkbox" id="wu-xref"> Source lines</label>
-          <label>Project ${input('project', 'placeholder="any loaded"')}</label>`) + out('disassembly', 'Pause to disassemble.'))}
+          <label>Project ${input('project', 'placeholder="any loaded"')}</label>`) + out('disassembly', 'Pause to disassemble.') +
+        row(`<label>Step while PC in ${input('rangestart', 'placeholder="start"')}</label><label>to ${input('rangeend', 'placeholder="end (exclusive)"')}</label>
+          ${button('range-step', 'Range step')}`))}
       ${card('CPU registers', `<p class="wu-note">Click a value to edit it. USP, ISP and MSP are read by switching SR briefly.</p>
         ${out('registers', 'Pause to inspect registers.')}` + row(`<label>Register <select id="wu-reg"></select></label>
           <label>Value ${input('value', 'placeholder="0x00000000"')}</label>${button('write-register', 'Write register')}`))}
@@ -88,6 +90,14 @@
           <label>ID ${input('condid', 'type="number" min="0" style="width:60px"')}</label>${button('cond-remove', 'Remove', 'data-stopped', 'condition')}`) + out('conditions'))}
       ${card('PC history', row(`${button('history-on', 'Record', 'data-stopped', 'history')}${button('history-off', 'Stop', 'data-stopped', 'history')}
           <label>Entries ${input('histcount', 'type="number" value="32" min="1" max="128"')}</label>${button('history', 'Read', 'data-stopped', 'history')}`) + out('history'))}
+      ${card('Debug a project from its start', row(`<label>Project ${input('runproject', 'placeholder="examples/hello_world" style="width:180px"')}</label>
+          <label>Stop at ${input('runstop', 'value="main" title="entry, or a function name"')}</label>`) +
+        row(`<label>Launch <select id="wu-runlaunch"><option value="bridge">through the bridge</option><option value="none">myself, in the guest</option></select></label>
+          <label>Command ${input('runcommand', 'placeholder="the deploy folder's" style="width:180px"')}</label>
+          <label><input type="checkbox" id="wu-runbuild" checked> Build and deploy</label>`) +
+        row(button('debug-run', 'Build, launch &amp; stop', 'data-enabled')) +
+        `<p class="wu-note">Arms the entry stop for the program's name, launches it, stops at its first instruction and then at the function.
+          Source lines need a <code>-g</code> build.</p>` + out('debugrun'))}
       ${card('Program entry and exception stops', row(`<label>Program name ${input('program', 'placeholder="myprogram"')}</label>
           ${button('arm-process', 'Arm entry stop', 'data-stopped', 'process-break')}${button('clear-process', 'Clear entry stop', 'data-stopped', 'process-break')}`) +
         `<p class="wu-note">Arm while paused, then resume and launch the program in the guest.</p>` +
@@ -95,7 +105,9 @@
           ${button('clear-exceptions', 'Disable stops', 'data-stopped', 'exception-mask')}`) + out('stop-settings'))}
       ${card('Crash and process inspection', row(`${button('tasks', 'Tasks', 'data-stopped', 'tasks')}${button('exception', 'Last exception', 'data-stopped', 'exception')}
           <label>Process ${input('process', 'value="0" title="0 means current process"')}</label>${button('segments', 'Loaded segments', 'data-stopped', 'segments')}
-          ${button('postmortem', 'Crash report')}`) + out('inspection', 'These inspections do not require the guest bridge.'))}
+          ${button('postmortem', 'Crash report')}`) +
+        row(`<label>Capture ranges ${input('capranges', 'placeholder="0x400:64, 0xdff000:32" style="width:220px"')}</label>${button('capture', 'Capture')}`) +
+        out('inspection', 'These inspections do not require the guest bridge.'))}
       ${card('Guest debug output', row(`${button('output-on', 'Capture', 'data-stopped', 'guest-output')}${button('output-off', 'Stop', 'data-stopped', 'guest-output')}
           ${button('output-read', 'Read', 'data-stopped', 'guest-output')}${button('output-clear', 'Clear', 'data-stopped', 'guest-output')}`) +
         `<p class="wu-note">Messages sent through uaelib function 86, not console or serial output.</p>` + out('output'))}
@@ -110,6 +122,11 @@
           ${button('mouse', 'Move', 'data-connected', 'input')}`) +
         row(`<select id="wu-joy"><option>up</option><option>down</option><option>left</option><option>right</option><option value="button0">fire / left button</option><option value="button1">second / right button</option></select>
           ${button('joy-down', 'Press', 'data-connected', 'input')}${button('joy-up', 'Release', 'data-connected', 'input')}`))}
+      ${card('Input sequence', `<p class="wu-note">Up to 256 events timed in emulated frames: <code>after_frames</code> plus the fields of a single input
+          (<code>action</code> key, mouse, button, joystick or wait).</p>
+        <textarea id="wu-sequence" rows="6" style="width:100%;font:12px monospace;color:var(--text-primary);background:var(--bg-input);border:1px solid var(--border);border-radius:4px"
+          placeholder='[{"action":"key","code":64,"pressed":true},{"after_frames":5,"action":"key","code":64,"pressed":false}]'></textarea>` +
+        row(`${button('sequence', 'Run sequence', 'data-connected', 'input-sequence')}<label><input type="checkbox" id="wu-seqresume" checked> Resume</label>`))}
       ${card('Remote input', row(`${button('input-status', 'Status', 'data-connected', 'input')}${button('input-release', 'Release all', 'data-connected', 'input')}`) +
         `<p class="wu-note">Input reaches the guest through WinUAE's input handlers, also when a game has taken over the machine. A stopped guest sees it after resuming.</p>` + out('input'))}
     </div>`],
@@ -127,7 +144,7 @@
           ${button('symbol-read', 'Read symbol')}`) +
         row(`<label>Mappings ${input('mappings', 'placeholder=\'[{"section":".text","segment":0}]\' style="width:300px"')}</label>`) +
         row(`${button('source', 'Source line')}<label>Expression ${input('expression', 'placeholder="state->count"')}</label>${button('variable', 'Variable')}${button('backtrace', 'Backtrace')}`) +
-        `<p class="wu-note">DWARF needs a linked ELF32 m68k file and DevBench's dwarf extra (pyelftools).</p>` + out('dwarf'))}
+        `<p class="wu-note">DWARF needs a <code>-g</code> build (or a linked ELF32 m68k file with mappings) and DevBench's dwarf extra (pyelftools).</p>` + out('dwarf'))}
     </div>`],
   };
   panel.innerHTML = `
@@ -195,6 +212,7 @@
     for (const b of panel.querySelectorAll('button[data-wu]')) {
       const capability = b.dataset.cap;
       b.disabled = busy ||
+        (b.hasAttribute('data-enabled') && !state.enabled) ||
         (b.hasAttribute('data-connected') && !state.connected) ||
         (b.hasAttribute('data-stopped') && (!state.connected || state.execution !== 'stopped')) ||
         (capability && !(state.capabilities.commands || []).includes(capability));
@@ -339,6 +357,20 @@
     refresh: () => cpu(),
     'write-register': async () => { await request('registers', {register:el('reg').value, value:el('value').value}); await cpu(); },
     disassemble: () => disassemble(),
+    'range-step': () => run('range_step', true, {start:el('rangestart').value, end:el('rangeend').value}),
+    'debug-run': async () => {
+      const r = await request('debug_run', {project:el('runproject').value, stop_at:el('runstop').value || 'main',
+        launch:el('runlaunch').value, command:el('runcommand').value || null, build:el('runbuild').checked, timeout:30});
+      show('debugrun', r);
+      if (!r.ok) el('error').textContent = r.error || 'Debug run failed';
+      state = await request('status'); render();
+      if (state.execution === 'stopped') await cpu();
+    },
+    capture: async () => show('inspection', await request('capture', {ranges:list('capranges').map(range => {
+      const [address, length] = range.split(':').map(s => s.trim());
+      return {address, length:Number(length || 64)};
+    })})),
+    sequence: async () => show('input', await request('input_sequence', {steps:JSON.parse(el('sequence').value || '[]'), resume:el('seqresume').checked})),
     'add-bp': () => request('breakpoint', {operation:'add', address:el('bpaddr').value, skip:Number(el('bpskip').value), oneshot:el('oneshot').checked}),
     'add-bp-symbol': () => request('breakpoint', {operation:'add', symbol:el('bpaddr').value, skip:Number(el('bpskip').value), oneshot:el('oneshot').checked,
       ...running()}),

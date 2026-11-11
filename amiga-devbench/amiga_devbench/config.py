@@ -80,6 +80,10 @@ class DevBenchConfig:
     # work it out from a WinUAE .uae's mounts, else AmiKit's DH2:Dev.
     amiga_deploy_dir: str = ""
 
+    # The guest's path of deploy_dir, for launching deployed programs. Empty:
+    # work it out from a WinUAE .uae's mounts, else AmiKit's DH2:Dev.
+    amiga_deploy_dir: str = ""
+
     # Bridge options
     crash_handler_auto_enable: bool = True
 

@@ -98,12 +98,12 @@ be using the shared session.
 
 | Sub-tab | Contents |
 |---|---|
-| CPU &amp; breakpoints | Disassembly with library-call names and source lines, editable registers including USP, ISP and MSP, breakpoints with skip counts, one-shot and symbol breakpoints and hit counts, watchpoints with the last hit and access log |
+| CPU &amp; breakpoints | Disassembly with library-call names and source lines, editable registers including USP, ISP and MSP, breakpoints with skip counts, one-shot and symbol breakpoints and hit counts, watchpoints with the last hit and access log, range stepping |
 | Memory | Byte, word, longword and ASCII views with pointer following, RAM writes, the memory map, the stack with return-address tagging, and memory search |
 | Chipset | Decoded custom registers and beam position, Copper lists, screenshots and bitplane decoding |
 | State &amp; symbols | Snapshot slots with labels, state files at any path, the automatic snapshot ring, snapshot comparison, address lookup and library offset tables |
-| Watches &amp; stops | DMA watches, register conditions, PC history, program-entry and exception stops, task, exception and segment inspection, crash reports and guest debug output |
-| Input | Keyboard, text, mouse and joystick input |
+| Watches &amp; stops | Debugging a project from its start (build, launch, stop at `main`), DMA watches, register conditions, PC history, program-entry and exception stops, task, exception and segment inspection, crash reports, register and memory captures and guest debug output |
+| Input | Keyboard, text, mouse and joystick input, frame-timed input sequences |
 | Files &amp; disks | Floppy images, Hunk inspection and loading, raw loading, symbol reads and DWARF source, variables and backtraces |
 
 Inspection and edits require a stopped CPU. They never silently interrupt
@@ -150,6 +150,17 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
   section mappings. The tools need the dwarf extra:
   `pip install amiga-devbench[dwarf]` (pyelftools 0.32), and run in an
   isolated helper process with fixed time and read budgets.
+- **Debugging from the start:** `amiga_winuae_debug_run(project)` builds and
+  deploys the project, stops a running instance, arms the process break for
+  the program's name and launches it (or `command`) through the guest
+  bridge from the guest's deploy folder. That folder is `[paths]
+  amiga_deploy_dir` (also a profile key), or else the device the WinUAE
+  `.uae` (`emulator_config`) mounts `deploy_dir` as: `DH0:` for DevBench's
+  WinUAE guest, which boots from that folder. Without either, it is AmiKit's
+  `DH2:Dev`. It stops at the program's first instruction, sets a
+  one-shot breakpoint at `stop_at` (default `main`) and returns the PC and
+  source line with the CPU paused. With `launch="none"` it waits for the
+  program to be started in the guest by other means.
 - **Symbols** of the running program are found the same way. Breakpoints by
   `symbol`, disassembly with `source_xref` and symbol reads take `project` or
   `file` and use the addresses where AmigaDOS loaded the hunks, so they also
@@ -161,6 +172,7 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
 
 | Tool | Purpose |
 |---|---|
+| `amiga_winuae_debug_run` | Build, deploy and launch a project, stopping at its entry or at `main` with its source line |
 | `amiga_winuae_control` | Status, connect, disconnect, pause, resume, step (count), step over, step out, wait for stop, soft or hard reset |
 | `amiga_winuae_range_step` | Step while the PC stays in a range |
 | `amiga_winuae_registers` | Read registers or write one, including USP, ISP and MSP |

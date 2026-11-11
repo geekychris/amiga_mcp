@@ -413,6 +413,7 @@ its behavior and the FS-UAE equivalents.
 | Tool | Parameters | Description |
 |---|---|---|
 | `amiga_winuae_control` | `action`, `count?`, `hard?`, `resume?`, `timeout?` | Connect, pause, resume, step N, step over, step out, wait, reset |
+| `amiga_winuae_debug_run` | `project`, `stop_at?`, `command?`, `launch?`, `build?`, `timeout?` | Build, deploy and launch a project; stop at its entry (`stop_at="entry"`) or a function (default `main`) |
 | `amiga_winuae_registers` | `register?`, `value?` | Read registers or write one, including USP, ISP and MSP |
 | `amiga_winuae_breakpoint` | `operation`, `address?`, `skip?`, `oneshot?`, `symbol?`, `project?`, `file?`, `process?` | Breakpoints with hit counts; `symbol` is a function of the running program at its loaded address |
 | `amiga_winuae_watch` | `operation`, `address?`, `size?`, `access?`, `value?`, `mask?`, `change_only?` | Watches like `amiga_fsuae_watchpoint_*`, plus fetches and an access log |
