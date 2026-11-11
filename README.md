@@ -24,6 +24,19 @@ It does all of this through two front ends at once:
   Codex. An agent can do the whole inner loop itself: edit, build, deploy,
   run, look at the screen, read the logs and fix the bug.
 
+### Why
+
+Traditional Amiga development is hard going. There is no source-level
+debugger on the target, a stock machine has no network, and one bad pointer
+takes down the whole OS. DevBench puts a modern machine in charge: the Amiga
+becomes a build target you can see into and control from outside, even while
+it's crashing.
+
+The bigger aim is to make the Amiga community productive with AI. An agent
+with DevBench's tools can write an Amiga program, run it, watch it fail and
+fix it without a person typing on the Amiga at all. Every game below was made
+that way.
+
 It supports two Amigas:
 
 | | Classic Amiga | AmigaOS 4 |
@@ -96,13 +109,79 @@ libraries, devices, windows and screens on both targets:
 - **Drive the machine.** Inject keys and mouse moves, run AmigaDOS commands
   and ARexx, browse and transfer files, edit the startup-sequence, manage
   windows and screens, share the clipboard.
-- **Debug.** Use the bridge's source-level debugger for your own programs.
-  WinUAE's built-in debugger works from a program's first instruction, with
-  symbols from DWARF. A patched FS-UAE adds CPU-level debugging. SnoopDos-style
-  tracing shows which libraries, devices and files a program opens.
+- **Debug.** Three debuggers (below), plus crash reports that map a Guru
+  Meditation back to your source line, a disassembler, and SnoopDos-style
+  tracing of the libraries, devices and files a program opens.
 - **Share the emulator safely.** When an agent tests on an emulator you're
   also using, it takes a lock and shows a "CLAUDE IS TESTING" banner on the
   Amiga's screen until it's done.
+
+### A program DevBench can see into
+
+A program links `libbridge.a` and adds a few calls. Everything it registers
+shows up in the web UI and in the MCP tools by name:
+
+```c
+#include "bridge_client.h"
+
+static LONG difficulty = 3;
+static BOOL running = TRUE;
+
+static int set_difficulty(const char *args, char *result, int size)
+{
+    difficulty = atol(args);
+    sprintf(result, "difficulty=%ld", (long)difficulty);
+    return 0;
+}
+
+int main(void)
+{
+    ab_init("game");                                      /* connect to the bridge */
+    ab_register_var("difficulty", AB_TYPE_I32, &difficulty);
+    ab_register_hook("set_difficulty", "1-10", set_difficulty);
+    AB_I("started, difficulty %ld", (long)difficulty);    /* a live log line */
+
+    while (running) {
+        ab_poll();               /* answer the host once per frame */
+        /* ... the game ... */
+    }
+    ab_cleanup();
+    return 0;
+}
+```
+
+From the host you can then read or set `difficulty` while the game runs
+(`amiga_get_var`, `amiga_set_var`), or call `set_difficulty` with an argument
+(`amiga_call_hook`). The [programming guide](docs/examples.md) covers memory
+regions, the test harness and the AmigaOS C pitfalls.
+
+### The loop with an AI agent
+
+1. The agent writes or edits the C source on your computer.
+2. `amiga_build_deploy_run` cross-compiles it, copies it to the Amiga and
+   starts it.
+3. `amiga_watch_logs`, `amiga_get_var` and `amiga_screenshot` show what it
+   does. `amiga_input_key` plays it.
+4. If it crashes, `amiga_last_crash` and `amiga_load_symbols` give the alert,
+   the registers and the source line.
+5. The agent fixes the code and goes round again. `amiga_run_tests` runs the
+   program's own tests at the end.
+
+### Three debuggers
+
+| | Bridge debugger | WinUAE debugger | FS-UAE debugger |
+|---|---|---|---|
+| Question it answers | What is my program doing? | What does my program do from its first instruction? | What is the emulated machine doing? |
+| Runs in | the bridge on the Amiga | WinUAE's built-in GDB server | a [patched FS-UAE](https://github.com/geekychris/fsuae_remote_patch) |
+| Source lines, locals, call stack | yes | yes, from DWARF | addresses and symbols |
+| Hardware watchpoints, Kickstart ROM | no | yes | yes |
+| Works after the OS has crashed | no | yes | yes |
+| Targets | 68k | 68k | 68k |
+
+On AmigaOS 4, QEMU's GDB stub fills the same role (`scripts/gdb-os4.sh`).
+They work side by side: use an emulator watchpoint to find *where* memory
+gets overwritten, then the bridge debugger to step through the code around
+it. The [debugger guide](docs/debuggers.md) has the details.
 
 ## How it works
 
@@ -128,6 +207,23 @@ flowchart LR
 - **`amiga-devbench/`** is the Python server on your computer. It talks to
   the bridge, runs the cross-compilers and serves the web UI and MCP from one
   process.
+
+### Where the Amiga can be
+
+The same bridge runs everywhere; only the link and the deploy route differ.
+A profile in `devbench.toml` holds each setup, and you switch with
+`--profile`.
+
+| Setup | Link to DevBench | How programs get there |
+|---|---|---|
+| FS-UAE or AmiKit on this computer | emulated serial port over TCP or a PTY | shared folder |
+| WinUAE on this computer | TCP from the guest's network stack | the guest's boot folder |
+| AmiKit in Amiberry on a Raspberry Pi | TCP on the LAN | the bridge's file transfer |
+| A real Amiga | serial cable, or TCP with RoadShow / AmiTCP | the bridge's file transfer |
+| AmigaOS 4.1 in QEMU (`sam460ex`) | emulated serial port over TCP | written into the dev hard file |
+
+You can run several at once, one DevBench per Amiga: `scripts/start.sh`
+starts the AmigaOS 4 one on port 3000 and the classic one on port 3001.
 
 ## Get started
 
