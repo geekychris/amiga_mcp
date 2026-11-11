@@ -214,9 +214,10 @@ def annotate_line(line: str, library: str | None) -> str | None:
 
 @action('disassemble', capability='disasm')
 async def _disassemble(d: WinuaeDebugger, address: Any = 'pc', count: Any = 20, annotate: Any = True,
-                       library: str | None = None, source_xref: Any = False, project: str | None = None) -> dict:
+                       library: str | None = None, source_xref: Any = False, project: str | None = None,
+                       file: Any = None, process: Any = None) -> dict:
     """WinUAE's disassembler, with library calls named from FD tables and
-    optional source lines from the bridge debugger's loaded symbols."""
+    optional symbols and source lines of the running program."""
     regs = None
     if address == 'pc':
         regs = await d.registers()
@@ -228,7 +229,11 @@ async def _disassemble(d: WinuaeDebugger, address: Any = 'pc', count: Any = 20, 
         # A6 is valid for the current instruction; use its library as a hint.
         name = await _library_name(d, regs['A6'])
         library = name if name and library_key(name) in FD_TABLES else None
-    lines = []
+    lines, notes = [], {}
+    if boolean(source_xref, 'source_xref') and (project is not None or file is not None):
+        from .winuae_program import annotate as source_notes
+        listed = [int(m[1], 16) for m in re.finditer(r'(?m)^\s*([0-9A-Fa-f]{8})\s', text)]
+        notes = await source_notes(d, listed, project, file, process)
     for line in text.splitlines():
         entry: dict[str, Any] = dict(text=line)
         match = re.match(r'\s*([0-9A-Fa-f]{8})\s', line)
@@ -238,7 +243,10 @@ async def _disassemble(d: WinuaeDebugger, address: Any = 'pc', count: Any = 20, 
             note = annotate_line(line, library)
             if note:
                 entry['annotation'] = note
-        if boolean(source_xref, 'source_xref') and 'address' in entry:
+        if entry.get('address') in notes:
+            entry['source'] = notes[entry['address']]
+        elif boolean(source_xref, 'source_xref') and 'address' in entry and project is None and file is None:
+            # Without the program: the bridge debugger's tables, at link addresses.
             from . import symbols
             info = symbols.annotate_address_full(entry['address'], project)
             if info and (info.get('symbol') or info.get('file')):

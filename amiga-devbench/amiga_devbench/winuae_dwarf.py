@@ -2,7 +2,9 @@
 """DWARF source lines, variables and backtraces for WinUAE guests.
 
 winuae_dwarf_helper.py parses a linked m68k ELF file with pyelftools in an
-isolated subprocess. It never connects to the target or runs guest code;
+isolated subprocess. A Hunk executable from the m68k-amigaos toolchain is
+first converted to such an image (winuae_program), and its hunks map to the
+loaded segments of the same index unless mappings say otherwise. It never connects to the target or runs guest code;
 its memory reads go through this session's connection, within fixed time
 and read budgets.
 """
@@ -23,14 +25,38 @@ HELPER = Path(__file__).with_name('winuae_dwarf_helper.py')
 TIME_LIMIT, READ_LIMIT, BYTE_LIMIT, OUTPUT_LIMIT = 15, 512, 65536, 1024 * 1024
 
 
-async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict) -> dict:
-    data = await read_file_async(args.get('file'))
-    parsed = parse_symbols(data)
-    if parsed['format'] != 'elf32-m68k' or int.from_bytes(data[16:18], 'big') != 2:
-        raise DebugError('DWARF tools need a linked ELF32 m68k executable')
-    mappings = args.get('mappings')
+async def debug_image(file: Any, project: Any, mappings: Any) -> tuple[bytes, Any, Any]:
+    """The ELF image the helper reads, the mappings to use with it, and the
+    Hunk program when its mappings are the default ones, whose loaded
+    segments must then match it."""
+    from .winuae_program import load_program, section_name
+    if project is None:
+        data = await read_file_async(file)
+        if data[:4] != b'\0\0\x03\xf3':
+            parsed = parse_symbols(data)
+            if parsed['format'] != 'elf32-m68k' or int.from_bytes(data[16:18], 'big') != 2:
+                raise DebugError('DWARF tools need a linked ELF32 m68k executable or a Hunk executable built with -g')
+            if not isinstance(mappings, list) or not 1 <= len(mappings) <= 256:
+                raise DebugError('An ELF file needs explicit runtime section mappings')
+            return data, mappings, None
+    program = await load_program(file=file, project=project)
+    names = {h.index: section_name(h) for h in program.hunks}
+    if mappings is None:
+        return program.elf(), [dict(section=name, segment=index) for index, name in names.items()], program
     if not isinstance(mappings, list) or not 1 <= len(mappings) <= 256:
-        raise DebugError('Supply explicit runtime section mappings')
+        raise DebugError('Supply 1..256 section mappings, or none for the loaded segments')
+    # Hunk indices name sections, as for symbol reads.
+    for m in mappings:
+        if isinstance(m, dict) and type(m.get('section')) is int and m['section'] not in names:
+            raise DebugError(f"{Path(program.path).name} has no hunk {m['section']}")
+    mappings = [{**m, 'section': names[m['section']]}
+                if isinstance(m, dict) and type(m.get('section')) is int else m for m in mappings]
+    return program.elf(), mappings, None
+
+
+async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict, extra: dict | None = None) -> dict:
+    data, mappings, program = await debug_image(args.get('file'), args.get('project'), args.get('mappings'))
+    parsed = parse_symbols(data)
     expression = args.get('expression')
     if kind == 'variable' and (not isinstance(expression, str) or len(expression) > 256):
         raise DebugError('Supply a variable expression of at most 256 characters')
@@ -53,6 +79,9 @@ async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict) -> dict:
     report = await d._monitor('segments' + (f' {process:x}' if process else ''), 'segments') if any(
         isinstance(m, dict) and m.get('address') is None for m in mappings) else None
     segments = report.get('segments', []) if isinstance(report, dict) else []
+    if program is not None:
+        from .winuae_program import match_segments
+        match_segments(program, segments, process)     # the process runs this program
     runtime = []
     for mapping in mappings:
         if not isinstance(mapping, dict):
@@ -73,6 +102,7 @@ async def dwarf_tool(d: WinuaeDebugger, kind: str, args: dict) -> dict:
                    expression=expression, max_frames=max_frames)
     if address is not None:
         request['address'] = address  # Otherwise the helper uses the PC.
+    request.update(extra or {})
     result = await run_helper(d, request)
     return dict(context=context, **result)
 

@@ -3172,9 +3172,8 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         return JSONResponse(await _fsuae_rpc.bp_clear())
 
     async def api_fsuae_bp_by_symbol(request: Request) -> JSONResponse:
-        """Cross-debugger feature: install a fs-uae CPU breakpoint at the
-        address of a function known to the bridge debugger's symbol tables.
-        Zero ambient cost — pure translation; only invoked on user action.
+        """Install a fs-uae CPU breakpoint at a function of the running
+        program: its offset in its hunk plus where AmigaOS loaded that hunk.
         """
         err = _require_rpc()
         if err: return err
@@ -3182,20 +3181,10 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         project = request.query_params.get("project") or None
         if not name:
             return JSONResponse({"ok": False, "err": "missing name"})
-        from . import symbols
-        hit = symbols.lookup_function_address(name, project)
-        if hit is None:
-            return JSONResponse({
-                "ok": False,
-                "err": f"no symbol '{name}' in loaded projects — load symbols in the Debugger tab first",
-            })
-        resolved_project, addr = hit
+        from .fsuae_symbols import symbol_breakpoint
         skip = int(request.query_params.get("skip", "0"))
         oneshot = request.query_params.get("oneshot", "0") != "0"
-        body = await _fsuae_rpc.bp_add(f"0x{addr:08x}", skip=skip, oneshot=oneshot)
-        body["symbol"] = name
-        body["resolved_project"] = resolved_project
-        return JSONResponse(body)
+        return JSONResponse(await symbol_breakpoint(_fsuae_rpc, name, project, skip=skip, oneshot=oneshot))
 
     async def api_fsuae_watchpoints(request: Request) -> JSONResponse:
         err = _require_rpc()

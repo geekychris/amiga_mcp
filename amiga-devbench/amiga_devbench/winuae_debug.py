@@ -712,7 +712,8 @@ async def _write_memory(d: WinuaeDebugger, address: Any = None, hex_data: Any = 
 @action('breakpoint')
 async def _breakpoint(d: WinuaeDebugger, operation: str = 'list', address: Any = None,
                       kind: str = 'execute', size: Any = 1, skip: Any = 0, oneshot: Any = False,
-                      symbol: str | None = None, project: str | None = None) -> list:
+                      symbol: str | None = None, project: str | None = None, file: Any = None,
+                      process: Any = None) -> list:
     if operation == 'list':
         return d.snapshot()['breakpoints']
     if operation == 'clear':
@@ -728,11 +729,8 @@ async def _breakpoint(d: WinuaeDebugger, operation: str = 'list', address: Any =
     if symbol:
         if code != 0:
             raise DebugError('Symbol breakpoints are execute breakpoints')
-        from . import symbols
-        hit = symbols.lookup_function_address(str(symbol), project)
-        if hit is None:
-            raise DebugError(f"No symbol '{symbol}' in the loaded projects; load symbols first")
-        address = hit[1]
+        from .winuae_program import function_address
+        address = await function_address(d, str(symbol), project, file, process)
     address = integer(address, 'address')
     length = 2 if code == 0 else integer(size, 'size', 65536, 1)
     if address + length > 0x100000000 or (code == 0 and address & 1):

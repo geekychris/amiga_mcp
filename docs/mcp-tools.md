@@ -357,7 +357,7 @@ Always call `amiga_fsuae_status` first to confirm the patched build is detected 
 | `amiga_fsuae_breakpoint_add` | `addr`, `skip?`, `oneshot?` | Add BP (up to 20). Works on Kickstart ROM. |
 | `amiga_fsuae_breakpoint_list` | — | List with hit counts |
 | `amiga_fsuae_breakpoint_clear` | — | Remove all |
-| `amiga_fsuae_breakpoint_by_symbol` | `name`, `project?`, `skip?`, `oneshot?` | **Cross-debugger:** install a CPU BP at the address of a function known to the bridge symbol tables. Requires `amiga_load_symbols` to have been called first. |
+| `amiga_fsuae_breakpoint_by_symbol` | `name`, `project?`, `skip?`, `oneshot?` | Install a CPU BP at a function or symbol of the running program: its hunk offset plus where AmigaOS loaded that hunk, read from the guest's process list. Without `project`, the one project `amiga_load_symbols` loaded that defines `name`. Refuses a running copy whose code differs from the build. |
 | **Watchpoints (memory)** | | |
 | `amiga_fsuae_watchpoint_add` | `addr`, `size?`, `rwi?`, `mustchange?`, `val?`, `valmask?` | Hardware-style watchpoint (up to 20) |
 | `amiga_fsuae_watchpoint_list` | — | List active |
@@ -414,9 +414,9 @@ its behavior and the FS-UAE equivalents.
 |---|---|---|
 | `amiga_winuae_control` | `action`, `count?`, `hard?`, `resume?`, `timeout?` | Connect, pause, resume, step N, step over, step out, wait, reset |
 | `amiga_winuae_registers` | `register?`, `value?` | Read registers or write one, including USP, ISP and MSP |
-| `amiga_winuae_breakpoint` | `operation`, `address?`, `skip?`, `oneshot?`, `symbol?` | Breakpoints with hit counts; `symbol` uses `amiga_load_symbols` tables |
+| `amiga_winuae_breakpoint` | `operation`, `address?`, `skip?`, `oneshot?`, `symbol?`, `project?`, `file?`, `process?` | Breakpoints with hit counts; `symbol` is a function of the running program at its loaded address |
 | `amiga_winuae_watch` | `operation`, `address?`, `size?`, `access?`, `value?`, `mask?`, `change_only?` | Watches like `amiga_fsuae_watchpoint_*`, plus fetches and an access log |
-| `amiga_winuae_disassemble` | `address?`, `count?`, `annotate?`, `library?`, `source_xref?` | Disassembly with library-call names |
+| `amiga_winuae_disassemble` | `address?`, `count?`, `annotate?`, `library?`, `source_xref?`, `project?`, `file?`, `process?` | Disassembly with library-call names; `source_xref` adds the program's symbols and source lines |
 | `amiga_winuae_custom` / `amiga_winuae_stack` / `amiga_winuae_lookup` / `amiga_winuae_fd` | — | Chipset, stack, address names and library offsets |
 | `amiga_winuae_checkpoint` / `amiga_winuae_snapshots` | `operation`, `path?` / `slot?` | State files and slots |
 

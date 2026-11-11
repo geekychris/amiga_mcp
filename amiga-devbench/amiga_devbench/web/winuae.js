@@ -118,7 +118,8 @@
           <label>Image ${input('diskfile', 'placeholder="/path/disk.adf" style="width:220px"')}</label>`) +
         row(`${button('disk-insert', 'Insert', '')}${button('disk-eject', 'Eject', '')}${button('disk-status', 'Status', '')}`) +
         `<p class="wu-note">WinUAE applies drive changes at launch, so a WinUAE started by DevBench restarts and the debugger reconnects.</p>` + out('disk'))}
-      ${card('Executables and symbols', row(`<label>File ${input('exefile', 'placeholder="/path/program" style="width:260px"')}</label>`) +
+      ${card('Executables and symbols', row(`<label>Project ${input('exeproject', 'placeholder="hello_world" style="width:140px"')}</label>
+          <label>or file ${input('exefile', 'placeholder="/path/program" style="width:260px"')}</label>`) +
         row(`${button('hunk-inspect', 'Inspect Hunk', '')}${button('symbols', 'Symbols', '')}`) +
         row(`<label>Placements ${input('placements', 'placeholder=\'[{"address":"0x40000","capacity":4096,"memory":"chip"}]\' style="width:300px"')}</label>${button('hunk-load', 'Load Hunk', 'data-stopped', 'memory-check')}`) +
         row(`<label>Raw load at ${input('rawaddr', 'placeholder="0x40000"')}</label>${button('raw-load', 'Load raw', 'data-stopped', 'memory-check')}`) + out('files'))}
@@ -228,10 +229,11 @@
   }
   async function disassemble(address = el('disaddr').value) {
     const listing = await request('disassemble', {address, count:Number(el('discount').value), annotate:el('annotate').checked,
-      library:el('library').value || null, source_xref:el('xref').checked, project:el('project').value || null});
+      library:el('library').value || null, source_xref:el('xref').checked, ...running()});
     el('disassembly').innerHTML = listing.lines.map(line => escape(line.text) +
       (line.annotation ? ` <span class="wu-note-call">; ${escape(line.annotation)}</span>` : '') +
-      (line.source ? `\n<span class="wu-src-line">↳ ${escape(line.source.symbol || '')} ${escape(line.source.file || '')}${line.source.line ? ':' + line.source.line : ''}</span>` : '')).join('\n');
+      (line.source ? `\n<span class="wu-src-line">↳ ${escape(line.source.symbol || '')} ${escape(line.source.file || '')}${line.source.line ? ':' + line.source.line
+        : line.source.source_error ? `(no source line: ${escape(line.source.source_error)})` : ''}</span>` : '')).join('\n');
   }
   async function cpu() {
     if (state.execution !== 'stopped' || !state.connected) return;
@@ -313,7 +315,19 @@
     ].join('\n');
   }
   const joy = () => el('joy').value.startsWith('button') ? {event:'button', button:Number(el('joy').value.slice(6))} : {event:'joystick', direction:el('joy').value};
-  const mappings = () => el('mappings').value ? JSON.parse(el('mappings').value) : [];
+  const mappings = () => el('mappings').value ? JSON.parse(el('mappings').value) : null;
+  // A DevBench project, or a file: a Hunk built with -g, or an ELF with mappings.
+  const program = () => {
+    if (el('exeproject').value) return {project:el('exeproject').value};
+    if (el('exefile').value) return {file:el('exefile').value};
+    throw new Error('Enter a project or a file under Executables and symbols');
+  };
+  // The running program for symbols and source lines: the project beside
+  // the disassembly, else the one under Executables and symbols, else none.
+  const running = () => {
+    const project = el('project').value || el('exeproject').value;
+    return project ? {project} : el('exefile').value ? {file:el('exefile').value} : {};
+  };
   const watchSources = () => [...panel.querySelectorAll('.wu-src:checked')].map(c => c.value);
 
   const handlers = {
@@ -327,7 +341,7 @@
     disassemble: () => disassemble(),
     'add-bp': () => request('breakpoint', {operation:'add', address:el('bpaddr').value, skip:Number(el('bpskip').value), oneshot:el('oneshot').checked}),
     'add-bp-symbol': () => request('breakpoint', {operation:'add', symbol:el('bpaddr').value, skip:Number(el('bpskip').value), oneshot:el('oneshot').checked,
-      project:el('project').value || null}),
+      ...running()}),
     'clear-bps': () => request('breakpoint', {operation:'clear'}),
     'add-wp': async () => {
       await request('watch', {operation:'add', address:el('wpaddr').value, size:Number(el('wpsize').value), access:el('wprwi').value,
@@ -388,7 +402,8 @@
     tasks: async () => show('inspection', await request('inspect', {subject:'tasks'})),
     exception: async () => show('inspection', await request('inspect', {subject:'exception'})),
     segments: async () => show('inspection', await request('inspect', {subject:'segments', process:el('process').value})),
-    postmortem: async () => show('inspection', await request('postmortem')),
+    postmortem: async () => show('inspection', await request('postmortem',
+      el('exeproject').value || el('exefile').value ? {...program(), mappings:mappings()} : {})),
     'output-on': () => request('guest_output', {operation:'on'}), 'output-off': () => request('guest_output', {operation:'off'}),
     'output-read': async () => show('output', await request('guest_output')), 'output-clear': async () => show('output', await request('guest_output', {operation:'clear'})),
     'key-tap': async () => show('input', await request('key_tap', {codes:[el('keycode').value], resume:true})),
@@ -412,11 +427,11 @@
     symbols: async () => show('files', await request('symbols', {file:el('exefile').value})),
     'hunk-load': async () => show('files', await request('hunk_load', {file:el('exefile').value, placements:JSON.parse(el('placements').value || '[]')})),
     'raw-load': async () => show('files', await request('load', {file:el('exefile').value, address:el('rawaddr').value})),
-    'symbol-read': async () => show('dwarf', await request('symbol_read', {file:el('exefile').value, symbol:el('symname').value,
+    'symbol-read': async () => show('dwarf', await request('symbol_read', {...program(), symbol:el('symname').value,
       format:el('symformat').value, mappings:el('mappings').value ? mappings() : null})),
-    source: async () => show('dwarf', await request('source', {file:el('exefile').value, mappings:mappings()})),
-    variable: async () => show('dwarf', await request('variable', {file:el('exefile').value, mappings:mappings(), expression:el('expression').value})),
-    backtrace: async () => show('dwarf', await request('backtrace', {file:el('exefile').value, mappings:mappings()})),
+    source: async () => show('dwarf', await request('source', {...program(), mappings:mappings()})),
+    variable: async () => show('dwarf', await request('variable', {...program(), mappings:mappings(), expression:el('expression').value})),
+    backtrace: async () => show('dwarf', await request('backtrace', {...program(), mappings:mappings()})),
   };
   async function run(action, waitForStop = false, args = {}) {
     state = await request(action, args); render();

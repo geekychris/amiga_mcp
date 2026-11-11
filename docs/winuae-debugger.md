@@ -142,10 +142,20 @@ limited to 64 KiB and writes to 4 KiB; writes are not transactional.
 - **Loaded segments** accept an Exec Process address; `0` means the current
   process. They can fail if the current task is not a DOS process, for
   example while Kickstart waits for a boot disk.
-- **DWARF** tools need a linked ELF32 m68k file with retained relocations
-  (`-Wl,--emit-relocs`), explicit section mappings and the dwarf extra:
-  `pip install amiga-devbench[dwarf]` (pyelftools 0.32). They run in an
+- **DWARF** tools read the program built with `-g`: pass `project` for a
+  DevBench project, or `file` for its Hunk executable. The m68k-amigaos
+  toolchain stores DWARF in a debug hunk; hunk N maps to loaded segment N of
+  `process` (the current process by default). A linked ELF32 m68k file with
+  retained relocations (`-Wl,--emit-relocs`) also works, with explicit
+  section mappings. The tools need the dwarf extra:
+  `pip install amiga-devbench[dwarf]` (pyelftools 0.32), and run in an
   isolated helper process with fixed time and read budgets.
+- **Symbols** of the running program are found the same way. Breakpoints by
+  `symbol`, disassembly with `source_xref` and symbol reads take `project` or
+  `file` and use the addresses where AmigaDOS loaded the hunks, so they also
+  work for code and data outside the first hunk. Static functions have no
+  hunk symbol; a `-g` build finds them in the DWARF. C names match with or
+  without their leading underscore.
 
 ## MCP tools
 

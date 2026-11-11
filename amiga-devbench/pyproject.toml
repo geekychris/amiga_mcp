@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pyelftools==0.32"]
 # DWARF source, variable and backtrace tools for WinUAE guests.
 dwarf = ["pyelftools==0.32"]
 

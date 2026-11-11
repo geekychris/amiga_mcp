@@ -164,16 +164,19 @@ async def _stack_bytes(d: WinuaeDebugger, base: int) -> dict:
 
 
 @action('postmortem')
-async def _postmortem(d: WinuaeDebugger, file: Any = None, mappings: Any = None, max_frames: Any = 32) -> dict:
+async def _postmortem(d: WinuaeDebugger, file: Any = None, mappings: Any = None, max_frames: Any = 32,
+                      project: Any = None) -> dict:
     """A bounded crash report: fault and current registers, disassembly,
-    stack bytes, segments and guest output. With a linked ELF file and
-    mappings, it also contains a DWARF backtrace."""
+    stack bytes, segments and guest output. With the program (a project, a
+    Hunk executable built with -g, or a linked ELF file and mappings), it
+    also contains a DWARF backtrace."""
     report = await postmortem(d)
-    if file is not None:
+    if file is not None or project is not None:
         from .winuae_dwarf import dwarf_tool
         try:
             report['backtrace'] = await dwarf_tool(d, 'backtrace', dict(
-                file=file, mappings=mappings, max_frames=max_frames, context=report['diagnosis_context']))
+                file=file, project=project, mappings=mappings, max_frames=max_frames,
+                context=report['diagnosis_context']))
         except DebugError as exc:
             report['errors']['backtrace'] = str(exc)
             report['backtrace'] = None

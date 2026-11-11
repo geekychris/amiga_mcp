@@ -3,7 +3,8 @@
 
 Hunk format: AmigaDOS executable file format (ROM Kernel Reference Manual:
 DOS, chapter 11), without overlays, external references or relative
-relocations. ELF: the generic ELF ABI for 32-bit big-endian m68k files.
+relocations. Debug hunks are kept for winuae_program, including the one the
+m68k-amigaos linker appends after the last hunk. ELF: the generic ELF ABI for 32-bit big-endian m68k files.
 Nothing here relocates ELF sections implicitly or infers C types.
 """
 from __future__ import annotations
@@ -43,7 +44,24 @@ class Hunk:
     symbols: list[tuple[str, int]] = field(default_factory=list)
 
 
+@dataclass
+class HunkFile:
+    hunks: list[Hunk]
+    debug: list[bytes] = field(default_factory=list)  # HUNK_DEBUG bodies, in file order
+
+
+def is_linker_marker(name: str) -> bool:
+    """The m68k-amigaos linker script brackets each DWARF section with
+    __debug_<section>_start/_end symbols. Those of empty sections land in
+    the last hunk with offsets outside it; they never name guest data."""
+    return name.startswith('__debug_') and name.endswith(('_start', '_end'))
+
+
 def parse_hunk(data: bytes) -> list[Hunk]:
+    return parse_hunk_file(data).hunks
+
+
+def parse_hunk_file(data: bytes) -> HunkFile:
     cursor = 0
 
     def take(n: int) -> bytes:
@@ -61,7 +79,7 @@ def parse_hunk(data: bytes) -> list[Hunk]:
     count, first, last = u32(), u32(), u32()
     if not count or count > 256 or first != 0 or last != count - 1:
         raise DebugError('Unsupported hunk table or overlay')
-    hunks, total, symbol_count, relocation_count = [], 0, 0, 0
+    hunks, debug, total, symbol_count, relocation_count = [], [], 0, 0, 0
     for i in range(count):
         descriptor = u32()
         flags = descriptor >> 30
@@ -76,8 +94,10 @@ def parse_hunk(data: bytes) -> list[Hunk]:
         payload, offsets = False, set()
         while True:
             tag = u32() & 0x3fffffff
-            if tag in (1000, 1009):  # HUNK_NAME, HUNK_DEBUG
+            if tag == 1000:  # HUNK_NAME
                 take(u32() * 4)
+            elif tag == 1009:  # HUNK_DEBUG
+                debug.append(take(u32() * 4))
             elif tag in (1001, 1002, 1003):
                 if payload:
                     raise DebugError('Duplicate hunk payload')
@@ -121,6 +141,8 @@ def parse_hunk(data: bytes) -> list[Hunk]:
                         raise DebugError('Symbol budget exceeded')
                     name = take(words * 4).split(b'\0', 1)[0].decode('latin-1')
                     offset = u32()
+                    if is_linker_marker(name):
+                        continue
                     if not name or offset > hunk.size:
                         raise DebugError('Invalid hunk symbol')
                     hunk.symbols.append((name, offset))
@@ -128,9 +150,20 @@ def parse_hunk(data: bytes) -> list[Hunk]:
                 break
             else:
                 raise DebugError(f'Unsupported hunk record {tag}')
-    if cursor != len(data):
-        raise DebugError('Trailing data or an unsupported overlay')
-    return hunks
+    # The m68k-amigaos linker appends its DWARF as a debug hunk after the
+    # last HUNK_END, with section marker symbols and a HUNK_END of its own.
+    while cursor < len(data):
+        tag = u32() & 0x3fffffff
+        if tag == 1009:
+            debug.append(take(u32() * 4))
+        elif tag == 1008:
+            while words := u32():
+                if words > 256:
+                    raise DebugError('Symbol budget exceeded')
+                take(words * 4 + 4)
+        elif tag != HUNK_END or not debug:
+            raise DebugError('Trailing data or an unsupported overlay')
+    return HunkFile(hunks, debug)
 
 
 def relocate(hunks: list[Hunk], placements: Any) -> tuple[list[tuple[int, int]], list[bytearray]]:
@@ -332,15 +365,23 @@ FORMATS = {'u8': 1, 's8': 1, 'u16': 2, 's16': 2, 'u32': 4, 's32': 4}
 @action('symbol_read')
 async def _symbol_read(d: WinuaeDebugger, file: Any = None, symbol: Any = None, section: Any = None,
                        process: Any = None, offset: Any = 0, format: Any = 'bytes', length: Any = None,
-                       count: Any = 1, mappings: Any = None) -> dict:
+                       count: Any = 1, mappings: Any = None, project: Any = None) -> dict:
     """Read an exact symbol from the running program, located through loaded
     segments (Hunk) or explicit section mappings (ELF). The format is the
     caller's choice; no C types are inferred."""
+    if project is not None:
+        if file is not None:
+            raise DebugError('Supply file or project, not both')
+        from .winuae_program import project_binary
+        file = await asyncio.to_thread(project_binary, str(project))
     parsed = parse_symbols(await read_file_async(file))
     if not isinstance(symbol, str) or not symbol or len(symbol) > 1024:
         raise DebugError('Expected an exact symbol name')
     wanted = None if section is None else integer(section, 'section', 4095)
-    candidates = [s for s in parsed['symbols'] if s['name'] == symbol and (wanted is None or s['section'] == wanted)]
+    def matching(name):
+        return [s for s in parsed['symbols'] if s['name'] == name and (wanted is None or s['section'] == wanted)]
+    # A C name matches its symbol with or without the leading underscore.
+    candidates = matching(symbol) or matching('_' + symbol)
     if len(candidates) != 1:
         raise DebugError('Ambiguous symbol; supply its section index' if candidates else 'Symbol not found')
     sym = candidates[0]
