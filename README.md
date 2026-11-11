@@ -34,7 +34,7 @@ it's crashing.
 
 The bigger aim is to make the Amiga community productive with AI. An agent
 with DevBench's tools can write an Amiga program, run it, watch it fail and
-fix it without a person typing on the Amiga at all. Every game below was made
+fix it without a person typing on the Amiga at all. Most of the programs below were made
 that way.
 
 It supports two Amigas:
