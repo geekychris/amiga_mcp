@@ -37,8 +37,11 @@ Host -> Amiga: PING, GETVAR, SETVAR, INSPECT, EXEC, LISTCLIENTS,
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 LEVEL_NAMES = {"D": "DEBUG", "I": "INFO", "W": "WARN", "E": "ERROR"}
 
@@ -928,13 +931,29 @@ def parse_message(line: str) -> dict[str, Any] | None:
         return {"type": "CLIPBOARD", "length": length, "text": text}
 
     if msg_type == "CAPABILITIES":
-        # Format: CAPABILITIES|version|protocol|maxLine|commands
+        # Level 1: CAPABILITIES|version|protocolLevel|maxLine|commands
+        # Level 2: CAPABILITIES|version|protocolLevel|maxLine|commands|platform|features|profiles
+        # The level is the grammar version of this line. A level above 2 is
+        # parsed as level 2 (extra fields ignored); a level >= 2 line that lacks
+        # the three level-2 fields is flagged malformed rather than silently
+        # treated as level 1.
         version = parts[1] if len(parts) > 1 else ""
         protocol_level = _int(parts[2]) if len(parts) > 2 else 0
         max_line = _int(parts[3]) if len(parts) > 3 else 0
         commands = parts[4].split(",") if len(parts) > 4 else []
-        return {"type": "CAPABILITIES", "version": version, "protocolLevel": protocol_level,
-                "maxLine": max_line, "commands": commands}
+        msg: dict[str, Any] = {"type": "CAPABILITIES", "version": version,
+                               "protocolLevel": protocol_level,
+                               "maxLine": max_line, "commands": commands}
+        if len(parts) > 7:
+            msg["platform"] = parts[5]
+            msg["features"] = [f for f in parts[6].split(",") if f]
+            msg["profiles"] = [p for p in parts[7].split(",") if p]
+        elif protocol_level >= 2:
+            msg["malformed"] = True
+            log.warning("CAPABILITIES declares protocol level %d but has only %d "
+                        "fields (expected platform|features|profiles)",
+                        protocol_level, len(parts) - 1)
+        return msg
 
     if msg_type == "PROCLIST":
         # Format: PROCLIST|count|id1:cmd1:status1,id2:cmd2:status2,...
@@ -1024,8 +1043,9 @@ def parse_message(line: str) -> dict[str, Any] | None:
         return {"type": "PORTS", "count": count, "ports": ports_list}
 
     if msg_type == "SYSINFO":
-        # Format: SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz
-        return {
+        # Format: SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz[|transport]
+        # transport ("serial" / "tcp") was added in v1.21; absent from older daemons.
+        msg = {
             "type": "SYSINFO",
             "chipFree": _int(parts[1]) if len(parts) > 1 else 0,
             "fastFree": _int(parts[2]) if len(parts) > 2 else 0,
@@ -1036,6 +1056,9 @@ def parse_message(line: str) -> dict[str, Any] | None:
             "cpuType": parts[7] if len(parts) > 7 else "",
             "vblankHz": _int(parts[8]) if len(parts) > 8 else 0,
         }
+        if len(parts) > 9:
+            msg["transport"] = parts[9]
+        return msg
 
     if msg_type == "UPTIME":
         return {
@@ -1172,6 +1195,8 @@ def format_command(cmd: dict[str, Any]) -> str:
         return f"INPUTKEY|{cmd['rawkey']}|{cmd['direction']}"
     if t == "INPUTMOVE":
         return f"INPUTMOVE|{cmd['dx']}|{cmd['dy']}"
+    if t == "INPUTPOS":
+        return f"INPUTPOS|{cmd['x']}|{cmd['y']}"
     if t == "INPUTCLICK":
         return f"INPUTCLICK|{cmd['button']}|{cmd['direction']}"
     if t == "WINACTIVATE":

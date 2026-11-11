@@ -2242,6 +2242,16 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
             return JSONResponse({"status": "ok", "message": msg.get("message", "")})
         return JSONResponse({"error": "Timeout"}, status_code=504)
 
+    async def api_tool_input_pos(request: Request) -> JSONResponse:
+        if not _conn or not _conn.connected:
+            return JSONResponse({"error": "Not connected"})
+        body = await request.json()
+        _conn.send({"type": "INPUTPOS", "x": body.get("x", 0), "y": body.get("y", 0)})
+        msg = await _event_bus.wait_for("ok", timeout=5.0)
+        if msg:
+            return JSONResponse({"status": "ok", "message": msg.get("message", "")})
+        return JSONResponse({"error": "Timeout"}, status_code=504)
+
     async def api_tool_input_click(request: Request) -> JSONResponse:
         if not _conn or not _conn.connected:
             return JSONResponse({"error": "Not connected"})
@@ -5240,6 +5250,7 @@ def create_app(args: Any, cfg: DevBenchConfig | None = None) -> Starlette:
         # Input injection
         Route("/api/tool/input/key", api_tool_input_key, methods=["POST"]),
         Route("/api/tool/input/move", api_tool_input_move, methods=["POST"]),
+        Route("/api/tool/input/pos", api_tool_input_pos, methods=["POST"]),
         Route("/api/tool/input/click", api_tool_input_click, methods=["POST"]),
         Route("/api/tool/win/activate", api_tool_win_activate, methods=["POST"]),
         Route("/api/tool/win/tofront", api_tool_win_tofront, methods=["POST"]),

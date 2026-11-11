@@ -256,11 +256,19 @@ void protocol_parse_line(const char *line)
     } else if (strcmp(cmd, "LASTCRASH") == 0) {
         handle_lastcrash();
     } else if (strcmp(cmd, "CRASHINIT") == 0) {
+#ifdef __PPC__
+        send_err("Unknown command", cmd);  /* 68k crash handler only */
+#else
         crash_init();
         send_ok("CRASHINIT", "Crash handler installed");
+#endif
     } else if (strcmp(cmd, "CRASHREMOVE") == 0) {
+#ifdef __PPC__
+        send_err("Unknown command", cmd);
+#else
         crash_cleanup();
         send_ok("CRASHREMOVE", "Crash handler removed");
+#endif
     } else if (strcmp(cmd, "MEMMAP") == 0) {
         sys_handle_memmap();
     } else if (strcmp(cmd, "STACKINFO") == 0) {
@@ -278,11 +286,19 @@ void protocol_parse_line(const char *line)
     } else if (strcmp(cmd, "LIBFUNCS") == 0) {
         sys_handle_libfuncs(args);
     } else if (strcmp(cmd, "SNOOPSTART") == 0) {
+#ifdef __PPC__
+        send_err("Unknown command", cmd);  /* 68k SetFunction() patches only */
+#else
         snoop_start();
         send_ok("SNOOPSTART", "Snoop monitoring started");
+#endif
     } else if (strcmp(cmd, "SNOOPSTOP") == 0) {
+#ifdef __PPC__
+        send_err("Unknown command", cmd);
+#else
         snoop_stop();
         send_ok("SNOOPSTOP", "Snoop monitoring stopped");
+#endif
     } else if (strcmp(cmd, "SNOOPSTATUS") == 0) {
         snoop_handle_status();
     } else if (strcmp(cmd, "AUDIOCHANNELS") == 0) {
@@ -315,12 +331,18 @@ void protocol_parse_line(const char *line)
         input_handle_key(args);
     } else if (strcmp(cmd, "INPUTMOVE") == 0) {
         input_handle_mouse_move(args);
+    } else if (strcmp(cmd, "INPUTPOS") == 0) {
+        input_handle_pointer_pos(args);
     } else if (strcmp(cmd, "INPUTCLICK") == 0) {
         input_handle_mouse_button(args);
     } else if (strcmp(cmd, "CRASHTEST") == 0) {
+#ifdef __PPC__
+        send_err("Unknown command", cmd);  /* no crash handler on OS4 */
+#else
         /* Trigger a non-fatal Alert to test the crash handler */
         send_ok("CRASHTEST", "Triggering test alert...");
         Alert(0x00010000); /* AG_NoMemory, recoverable */
+#endif
     } else if (strcmp(cmd, "LISTFONTS") == 0) {
         font_handle_list();
     } else if (strcmp(cmd, "FONTINFO") == 0) {
@@ -2005,6 +2027,10 @@ static void handle_getperf(const char *args)
  */
 static void handle_lastcrash(void)
 {
+#ifdef __PPC__
+    /* 68k exception-frame crash handler only - not advertised on OS4. */
+    send_err("Unknown command", "LASTCRASH");
+#else
     static char buf[BRIDGE_MAX_LINE];
 
     if (crash_get_last(buf, BRIDGE_MAX_LINE) == 0) {
@@ -2012,6 +2038,7 @@ static void handle_lastcrash(void)
     } else {
         send_err("LASTCRASH", "no crash data");
     }
+#endif
 }
 
 /* ---- New command handlers ---- */

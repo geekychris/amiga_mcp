@@ -1,6 +1,6 @@
 # Protocol fixtures
 
-Golden lines as the bridge daemon emits them, used by `tests/test_characterisation.py`.
+Golden lines as the bridge daemon emits them, used by `tests/test_characterisation.py` and `tests/test_protocol_level2.py`.
 Reference commit: upstream `94a8888`. Nothing here was captured from a running
 Amiga yet; lines marked *synthetic* should be replaced by a real capture when one
 is available (values only - the shapes are taken from the source).
@@ -15,6 +15,20 @@ is available (values only - the shapes are taken from the source).
 | `VERSION\|AmigaBridge\|1\|20\|...` | shape from `amiga-bridge/src/protocol_handler.c:2389`; major/minor from `include/bridge_internal.h:13-14`; build date **synthetic** (it is `__DATE__ " " __TIME__`, `src/version.c:9`) |
 | `HB\|tick\|chipFree\|fastFree` | shape from `protocol_handler.c:477`; values **synthetic** |
 
+## `bridge_v1.21_68k.txt` / `bridge_v1.21_ppc.txt`
+
+Protocol level 2 (daemon v1.21). **Generated, not hand-typed** - regenerate with
+
+```bash
+python3 amiga-devbench/tests/fixtures/gen_bridge_fixtures.py   # needs gcc/clang
+```
+
+| Line | Provenance |
+|------|------------|
+| `CAPABILITIES\|AmigaBridge v1.21\|2\|8192\|commands\|platform\|features\|profiles` | the four per-build fields come from `amiga-bridge/host/test_bridge --dump-caps`, which links the daemon's own `amiga-bridge/src/caps_util.c`; version and `maxLine` are read from `amiga-bridge/include/bridge_internal.h`; the line is assembled exactly as `sys_handle_capabilities()` does |
+| `SYSINFO\|...\|transport` | ninth field (`serial` on the 68k fixture, `tcp` on PPC) per `system_inspector.c` `sys_handle_sysinfo()`; other values **synthetic** as for v1.20 |
+| `READY`, `VERSION`, `HB` | as for v1.20 (minor = 21, build date **synthetic**) |
+
 ## `bridge_v1.16.txt`
 
 Same structure, for the daemon binary the repository tracks (`amiga-bridge/amiga-bridge`).
@@ -24,6 +38,21 @@ Same structure, for the daemon binary the repository tracks (`amiga-bridge/amiga
 | `CAPABILITIES\|AmigaBridge v1.16\|...` | verbatim from `strings amiga-bridge/amiga-bridge` with `%ld` -> 8192; 105 names, identical to the v1.20 68k list |
 | `VERSION\|AmigaBridge\|%ld\|%ld\|%s` | shape verbatim from the binary's strings; 1/16 and build date **synthetic** |
 | `READY`, `SYSINFO`, `HB` | as for 68k above (the binary is a 68k build) |
+
+## `bridge_v1.22_68k.txt` / `bridge_v1.22_ppc.txt`
+
+Daemon v1.22: v1.21 plus `INPUTPOS` (absolute pointer position) in the `input`
+profile - 121 verbs on 68k, 86 on PPC. Generated exactly like the v1.21 pair.
+
+## `bridge_v1.24_68k.txt` / `bridge_v1.24_ppc.txt`
+
+Daemon v1.24: the fork's v1.21/v1.22 rebased onto upstream main (which had its
+own v1.21: STOP signals the registered client's task, `STOP|HARD`), plus the
+`%d` -> `%ld` fix in the CAPABILITIES `sprintf` - amiga.lib's `%d` reads a
+16-bit WORD, so v1.21-v1.23 hung a real A1200 on the first `CAPABILITIES`
+(the host-built `test_bridge --dump-caps` never saw it: it links the C
+library's sprintf). Same verb list as v1.22. Generated exactly like the v1.21
+pair; v1.23 fixtures were replaced, that daemon never answered on hardware.
 
 ## `mcp_tools_v94a8888.txt`
 

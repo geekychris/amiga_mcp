@@ -10,6 +10,7 @@
  * so `make test` fails visibly in CI.
  */
 #include "script_util.h"
+#include "caps_util.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -276,6 +277,163 @@ static int test_tiny_bufsize(void)
     return _failures_this_test;
 }
 
+/* --- caps_util tests ------------------------------------------------------ */
+
+/* Line limit the daemon applies to every protocol line (bridge_internal.h). */
+#define CAPS_TEST_MAX_LINE 8192
+
+static const char *DEBUGGER_VERBS[] = {
+    "DBGATTACH", "DBGDETACH", "BPSET", "BPCLEAR", "BPLIST", "DBGSTEP",
+    "DBGNEXT", "DBGCONT", "DBGREGS", "DBGSETREG", "DBGBT", "DBGBREAK",
+    "DBGCLEARALLBP", "DBGSTATUS", "DBGLAUNCH",
+};
+#define NUM_DEBUGGER_VERBS (sizeof(DEBUGGER_VERBS) / sizeof(DEBUGGER_VERBS[0]))
+
+/* Verbs the PPC build cannot perform; they answer ERR|Unknown command. */
+static const char *PPC_DROPPED_VERBS[] = {
+    "CRASHINIT", "CRASHREMOVE", "CRASHTEST", "LASTCRASH",
+    "SNOOPSTART", "SNOOPSTOP", "SNOOPSTATUS",
+    "POOLSTART", "POOLSTOP", "POOLS",
+    "READREGS", "CHIPREGS", "CHIPLOGSTART", "CHIPLOGSTOP", "CHIPLOGSNAPSHOT",
+    "SPRITES", "COPPERLIST", "AUDIOCHANNELS", "AUDIOSAMPLE", "LIBFUNCS",
+};
+#define NUM_PPC_DROPPED (sizeof(PPC_DROPPED_VERBS) / sizeof(PPC_DROPPED_VERBS[0]))
+
+#define FEATURES_68K \
+    "exec.async,exec.signals,env.vars,fs.tail,fs.attrs,gfx.planar," \
+    "gfx.truecolor,gfx.palette.read,gfx.palette.write,gfx.window,mem.regs," \
+    "dbg.attach,dbg.breakpoints,dbg.step,dbg.backtrace,dbg.registers.write," \
+    "dbg.crash,client.lib,amiga.intuition,amiga.arexx,amiga.libs," \
+    "amiga.libs.jumptable,amiga.copper,amiga.paula,amiga.chipset," \
+    "amiga.snoop,amiga.assigns,amiga.pools,amiga.clipboard,amiga.fonts"
+#define FEATURES_PPC \
+    "exec.async,exec.signals,env.vars,fs.tail,fs.attrs,gfx.chunky," \
+    "gfx.truecolor,gfx.palette.read,gfx.palette.write,gfx.window," \
+    "client.lib,amiga.intuition,amiga.arexx,amiga.libs,amiga.assigns," \
+    "amiga.clipboard,amiga.fonts"
+#define PROFILES_68K "core,mem,fs,exec,gfx,input,debug,client"
+#define PROFILES_PPC "core,mem,fs,exec,gfx,input,client"
+
+/* Split a comma list in place; returns the number of names. */
+static size_t split_names(char *list, const char **names, size_t max)
+{
+    size_t n = 0;
+    char *p = list;
+    if (!*p) return 0;
+    names[n++] = p;
+    while ((p = strchr(p, ',')) != NULL && n < max) {
+        *p++ = '\0';
+        names[n++] = p;
+    }
+    return n;
+}
+
+static int list_contains(const char **names, size_t n, const char *name)
+{
+    for (size_t i = 0; i < n; i++)
+        if (strcmp(names[i], name) == 0) return 1;
+    return 0;
+}
+
+static int list_has_duplicates(const char **names, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        for (size_t j = i + 1; j < n; j++)
+            if (strcmp(names[i], names[j]) == 0) return 1;
+    return 0;
+}
+
+static int test_caps_68k_commands(void)
+{
+    static char buf[CAPS_TEST_MAX_LINE];
+    static const char *names[256];
+    _failures_this_test = 0;
+    size_t len = caps_build_commands(buf, sizeof(buf), CAPS_ARCH_68K);
+    ASSERT_EQ_SIZE(len, strlen(buf));
+    size_t n = split_names(buf, names, 256);
+    ASSERT_EQ_SIZE(n, 121);
+    ASSERT(!list_has_duplicates(names, n));
+    for (size_t i = 0; i < NUM_DEBUGGER_VERBS; i++)
+        ASSERT(list_contains(names, n, DEBUGGER_VERBS[i]));
+    for (size_t i = 0; i < NUM_PPC_DROPPED; i++)
+        ASSERT(list_contains(names, n, PPC_DROPPED_VERBS[i]));
+    ASSERT(list_contains(names, n, "LIBFUNCS"));
+    ASSERT_EQ_STR(names[0], "PING");
+    return _failures_this_test;
+}
+
+static int test_caps_ppc_commands(void)
+{
+    static char buf[CAPS_TEST_MAX_LINE];
+    static const char *names[256];
+    _failures_this_test = 0;
+    size_t len = caps_build_commands(buf, sizeof(buf), CAPS_ARCH_PPC);
+    ASSERT_EQ_SIZE(len, strlen(buf));
+    size_t n = split_names(buf, names, 256);
+    ASSERT_EQ_SIZE(n, 121 - NUM_DEBUGGER_VERBS - NUM_PPC_DROPPED);  /* 86 */
+    ASSERT(!list_has_duplicates(names, n));
+    for (size_t i = 0; i < NUM_DEBUGGER_VERBS; i++)
+        ASSERT(!list_contains(names, n, DEBUGGER_VERBS[i]));
+    for (size_t i = 0; i < NUM_PPC_DROPPED; i++)
+        ASSERT(!list_contains(names, n, PPC_DROPPED_VERBS[i]));
+    /* Everything the PPC build lists is also listed on 68k. */
+    static char buf68[CAPS_TEST_MAX_LINE];
+    static const char *names68[256];
+    caps_build_commands(buf68, sizeof(buf68), CAPS_ARCH_68K);
+    size_t n68 = split_names(buf68, names68, 256);
+    for (size_t i = 0; i < n; i++)
+        ASSERT(list_contains(names68, n68, names[i]));
+    return _failures_this_test;
+}
+
+static int test_caps_features_profiles(void)
+{
+    static char buf[CAPS_TEST_MAX_LINE];
+    _failures_this_test = 0;
+    caps_build_features(buf, sizeof(buf), CAPS_ARCH_68K);
+    ASSERT_EQ_STR(buf, FEATURES_68K);
+    caps_build_features(buf, sizeof(buf), CAPS_ARCH_PPC);
+    ASSERT_EQ_STR(buf, FEATURES_PPC);
+    caps_build_profiles(buf, sizeof(buf), CAPS_ARCH_68K);
+    ASSERT_EQ_STR(buf, PROFILES_68K);
+    caps_build_profiles(buf, sizeof(buf), CAPS_ARCH_PPC);
+    ASSERT_EQ_STR(buf, PROFILES_PPC);
+    ASSERT_EQ_STR(caps_platform(CAPS_ARCH_68K), "amiga/aos3/unknown");
+    ASSERT_EQ_STR(caps_platform(CAPS_ARCH_PPC), "amiga/aos4/unknown");
+    ASSERT_EQ_SIZE(CAPS_PROTOCOL_LEVEL, 2);
+    return _failures_this_test;
+}
+
+static int test_caps_line_fits(void)
+{
+    /* The whole CAPABILITIES line must fit in one protocol line. */
+    static char buf[CAPS_TEST_MAX_LINE];
+    _failures_this_test = 0;
+    for (int arch = CAPS_ARCH_68K; arch <= CAPS_ARCH_PPC; arch++) {
+        size_t total = strlen("CAPABILITIES|AmigaBridge v99.99|2|8192|||");
+        total += caps_build_commands(buf, sizeof(buf), arch);
+        total += strlen(caps_platform(arch));
+        total += caps_build_features(buf, sizeof(buf), arch);
+        total += caps_build_profiles(buf, sizeof(buf), arch);
+        ASSERT(total < CAPS_TEST_MAX_LINE);
+    }
+    return _failures_this_test;
+}
+
+static int test_caps_truncation(void)
+{
+    /* A too-small buffer truncates at a name boundary and reports the
+     * full length, so the caller can detect it with ret >= cap. */
+    char small[8];
+    _failures_this_test = 0;
+    size_t need = caps_build_profiles(small, sizeof(small), CAPS_ARCH_PPC);
+    ASSERT_EQ_SIZE(need, strlen(PROFILES_PPC));
+    ASSERT(need >= sizeof(small));
+    ASSERT_EQ_STR(small, "core");
+    ASSERT_EQ_SIZE(caps_build_profiles(NULL, 0, CAPS_ARCH_PPC), strlen(PROFILES_PPC));
+    return _failures_this_test;
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 typedef int (*test_fn)(void);
@@ -292,13 +450,41 @@ static const TestCase TESTS[] = {
     { "long_payload_survives",      test_long_payload_survives },
     { "semicolon_at_chunk_boundary",test_semicolon_at_chunk_boundary },
     { "tiny_bufsize",               test_tiny_bufsize },
+    { "caps_68k_commands",          test_caps_68k_commands },
+    { "caps_ppc_commands",          test_caps_ppc_commands },
+    { "caps_features_profiles",     test_caps_features_profiles },
+    { "caps_line_fits",             test_caps_line_fits },
+    { "caps_truncation",            test_caps_truncation },
 };
 static const size_t NUM_TESTS = sizeof(TESTS) / sizeof(TESTS[0]);
 
-int main(void)
+/* `test_bridge --dump-caps` prints the builder output for both builds so
+ * protocol fixtures can be generated from the real strings instead of being
+ * typed by hand (see amiga-devbench/tests/fixtures/README.md). */
+static int dump_caps(void)
+{
+    static char buf[CAPS_TEST_MAX_LINE];
+    static const char *archname[] = { "68k", "ppc" };
+    for (int arch = CAPS_ARCH_68K; arch <= CAPS_ARCH_PPC; arch++) {
+        printf("%s.level=%d\n", archname[arch], CAPS_PROTOCOL_LEVEL);
+        caps_build_commands(buf, sizeof(buf), arch);
+        printf("%s.commands=%s\n", archname[arch], buf);
+        printf("%s.platform=%s\n", archname[arch], caps_platform(arch));
+        caps_build_features(buf, sizeof(buf), arch);
+        printf("%s.features=%s\n", archname[arch], buf);
+        caps_build_profiles(buf, sizeof(buf), arch);
+        printf("%s.profiles=%s\n", archname[arch], buf);
+    }
+    return 0;
+}
+
+int main(int argc, char **argv)
 {
     int total_failures = 0;
     int failed_test_count = 0;
+
+    if (argc > 1 && strcmp(argv[1], "--dump-caps") == 0)
+        return dump_caps();
 
     for (size_t i = 0; i < NUM_TESTS; i++) {
         printf("[%zu/%zu] %s ... ", i + 1, NUM_TESTS, TESTS[i].name);

@@ -124,7 +124,7 @@ reviews:
         - Compile flags must include `-noixemul` and `-m68020` (on m68k). Flag
           any Makefile change that drops these.
         - The bridge wire protocol is line-based, pipe-delimited, `:`-separated
-          in some records, 1024 chars max per line. Flag any change that could
+          in some records, 8192 chars max per line (BRIDGE_MAX_LINE). Flag any change that could
           produce a longer line or push an unescaped `|` / `:` into a field.
         - Ignore complaints from clang/cppcheck about "unknown identifier" for
           Amiga types (APTR, ULONG, UWORD, STRPTR, BPTR, struct Task, struct

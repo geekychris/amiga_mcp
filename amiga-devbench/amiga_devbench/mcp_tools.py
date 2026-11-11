@@ -1812,6 +1812,18 @@ async def amiga_input_mouse_move(dx: int, dy: int) -> str:
 
 
 @mcp.tool()
+async def amiga_input_pointer_pos(x: int, y: int) -> str:
+    """Move the mouse pointer to an absolute screen position (pixels). Unlike
+    amiga_input_mouse_move this is exact: no Input Prefs acceleration applies."""
+    conn, state, bus = _require_connected()
+    conn.send({"type": "INPUTPOS", "x": x, "y": y})
+    msg = await bus.wait_for("ok", timeout=5.0)
+    if msg:
+        return msg.get("message", "Pointer positioned")
+    return "Timeout"
+
+
+@mcp.tool()
 async def amiga_input_click(button: str = "left", direction: str = "down") -> str:
     """Inject a mouse button event. button: left/right/middle. direction: down/up."""
     conn, state, bus = _require_connected()
@@ -1955,7 +1967,7 @@ async def amiga_arexx_send(port: str, command: str) -> str:
 
 @mcp.tool()
 async def amiga_capabilities() -> str:
-    """Query the bridge daemon's capabilities: version, protocol level, and supported commands."""
+    """Query the bridge daemon's capabilities: version, protocol level, supported commands, platform, features and profiles."""
     conn, state, bus = _require_connected()
     conn.send({"type": "CAPABILITIES"})
     msg = await bus.wait_for("capabilities", timeout=5.0)
@@ -1967,6 +1979,12 @@ async def amiga_capabilities() -> str:
         f"Max Line: {msg.get('maxLine', '?')}",
         f"Commands ({len(msg.get('commands', []))}): {', '.join(msg.get('commands', []))}",
     ]
+    if "platform" in msg:  # protocol level 2 (daemon v1.21+)
+        lines.append(f"Platform: {msg['platform']}")
+        lines.append(f"Features: {', '.join(msg.get('features', []))}")
+        lines.append(f"Profiles: {', '.join(msg.get('profiles', []))}")
+    if msg.get("malformed"):
+        lines.append("Warning: level-2 CAPABILITIES line is missing platform/features/profiles")
     return "\n".join(lines)
 
 

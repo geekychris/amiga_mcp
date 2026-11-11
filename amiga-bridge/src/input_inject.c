@@ -290,6 +290,46 @@ void input_handle_mouse_move(const char *args)
 }
 
 /*
+ * input_handle_pointer_pos - Move the pointer to an absolute screen position
+ *
+ * Args format: x|y   (pixels on the current screen; no acceleration applies,
+ * unlike INPUTMOVE whose relative deltas go through Input Prefs acceleration)
+ */
+void input_handle_pointer_pos(const char *args)
+{
+    static char linebuf[256];
+    struct InputEvent ie;
+    LONG x, y;
+    const char *p;
+    int rc;
+
+    if (!args || !args[0]) {
+        protocol_send_raw("ERR|INPUTPOS|Missing arguments (x|y)");
+        return;
+    }
+
+    x = strtol(args, NULL, 10);
+    p = strchr(args, '|');
+    if (!p) {
+        protocol_send_raw("ERR|INPUTPOS|Missing y");
+        return;
+    }
+    y = strtol(p + 1, NULL, 10);
+
+    memset(&ie, 0, sizeof(ie));
+    ie.ie_Class = IECLASS_POINTERPOS;
+    ie.ie_Code = IECODE_NOBUTTON;
+    ie.ie_Qualifier = g_heldQuals | g_keyQuals;
+    ie.ie_X = (WORD)x;
+    ie.ie_Y = (WORD)y;
+
+    rc = inject_event(&ie);
+    sprintf(linebuf, "%s|INPUTPOS|Pointer at %ld,%ld%s",
+        rc == 0 ? "OK" : "ERR", (long)x, (long)y, inject_note(rc));
+    protocol_send_raw(linebuf);
+}
+
+/*
  * input_handle_mouse_button - Inject a mouse button event
  *
  * Args format: button|updown

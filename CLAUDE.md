@@ -181,7 +181,10 @@ Line-based text protocol over serial/TCP, pipe-delimited fields.
 ### Amiga → Host
 - `CLOG|client|level|tick|message` — Client log message
 - `CVAR|client|name|type|value` — Variable report
-- `HB|tick|free_chip|free_fast|num_clients` — Heartbeat
+- `HB|tick|free_chip|free_fast` — Heartbeat (three fields)
+- `CAPABILITIES|version|protocolLevel|maxLine|commands|platform|features|profiles` — Protocol level 2 (v1.21+); level 1 stops after `commands`. The command list is honest per build: the PPC/OS4 daemon omits the verbs it cannot perform (debugger, crash, snoop, pools, chipset, Paula, `READREGS`, `LIBFUNCS`) and answers `ERR|Unknown command|<VERB>` for them. Lists built in `amiga-bridge/src/caps_util.c` (host-testable).
+- `SYSINFO|chipFree|fastFree|chipTotal|fastTotal|execVer|execRev|cpuType|vblankHz|transport` — `transport` is `serial` or `tcp` (v1.21+)
+- `INPUTPOS|x|y` — put the pointer at an absolute screen position via `IECLASS_POINTERPOS` (v1.22+); `INPUTMOVE` deltas are subject to Input Prefs mouse acceleration, `INPUTPOS` is exact
 - `LISTCLIENTS|id|name|...` — Client enumeration
 - `HOOK_RESULT|client|hook|status|result` — Hook call result
 
