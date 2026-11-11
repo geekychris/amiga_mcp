@@ -76,6 +76,10 @@ class DevBenchConfig:
     # web UI saves its changes.
     config_path: str = ""
 
+    # The guest's path of deploy_dir, for launching deployed programs. Empty:
+    # work it out from a WinUAE .uae's mounts, else AmiKit's DH2:Dev.
+    amiga_deploy_dir: str = ""
+
     # Bridge options
     crash_handler_auto_enable: bool = True
 
@@ -234,6 +238,8 @@ def apply_profile(cfg: DevBenchConfig, name: str) -> None:
     # Paths
     if "deploy_dir" in p:
         cfg.deploy_dir = str(p["deploy_dir"])
+    if "amiga_deploy_dir" in p:
+        cfg.amiga_deploy_dir = str(p["amiga_deploy_dir"])
     # Arch + build settings
     if "arch" in p:
         cfg.arch = str(p["arch"]).lower()
@@ -281,6 +287,8 @@ def _apply_toml(cfg: DevBenchConfig, data: dict[str, Any]) -> None:
     paths = data.get("paths", {})
     if "deploy_dir" in paths:
         cfg.deploy_dir = paths["deploy_dir"]
+    if "amiga_deploy_dir" in paths:
+        cfg.amiga_deploy_dir = str(paths["amiga_deploy_dir"])
     if "project_root" in paths:
         cfg.project_root = paths["project_root"]
 
@@ -442,6 +450,7 @@ def save_config(cfg: DevBenchConfig, path: str | None = None) -> str:
         '',
         '[paths]',
         f'deploy_dir = "{cfg.deploy_dir}"',
+        *([f'amiga_deploy_dir = "{_toml_escape(cfg.amiga_deploy_dir)}"'] if cfg.amiga_deploy_dir else []),
         '',
         '[bridge]',
         f'crash_handler_auto_enable = {"true" if cfg.crash_handler_auto_enable else "false"}',

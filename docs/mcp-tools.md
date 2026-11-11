@@ -325,7 +325,7 @@ are maintained server-side across sessions.
 | Tool | Parameters | Description |
 |---|---|---|
 | `amiga_create_project` | `name`, `template?` | Create new example project (window/screen/headless) |
-| `amiga_run` | `project`, `command?` | Deploy and launch (skip build) |
+| `amiga_run` | `project`, `command?` | Deploy and launch (skip build). Without `command` it runs the program from the guest's deploy folder: `[paths] amiga_deploy_dir`, else the device a WinUAE `.uae` mounts `deploy_dir` as, else `Dropbox:Dev` |
 
 ### FS-UAE Native Debugger (`amiga_fsuae_*`)
 

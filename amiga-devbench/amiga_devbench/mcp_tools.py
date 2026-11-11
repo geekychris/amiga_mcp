@@ -37,6 +37,7 @@ _event_bus: EventBus | None = None
 _dbg_state: DebuggerState | None = None
 _fsuae_rpc: FsuaeRpcClient | None = None
 _emulator: Any = None  # EmulatorManager | RemoteEmulatorController | None
+_config: Any = None  # DevBenchConfig
 
 mcp = FastMCP("amiga-dev")
 
@@ -52,9 +53,10 @@ def init_tools(
     event_bus: EventBus,
     fsuae_rpc: FsuaeRpcClient | None = None,
     emulator: Any = None,
+    config: Any = None,
 ) -> None:
     """Initialize module-level references for MCP tools."""
-    global _conn, _state, _builder, _deployer, _event_bus, _fsuae_rpc, _emulator
+    global _conn, _state, _builder, _deployer, _event_bus, _fsuae_rpc, _emulator, _config
     _conn = conn
     _state = state
     _builder = builder
@@ -62,6 +64,7 @@ def init_tools(
     _event_bus = event_bus
     _fsuae_rpc = fsuae_rpc
     _emulator = emulator
+    _config = config
 
 
 def _require_connected() -> tuple[SerialConnection, AmigaState, EventBus]:
@@ -952,7 +955,8 @@ async def amiga_run(project: str, command: str | None = None) -> str:
 
     steps: list[str] = []
     binary_name = project.rstrip("/").split("/")[-1]
-    launch_command = command or f"Dropbox:Dev/{binary_name}"
+    from .guest_paths import launch_command as guest_command
+    launch_command = command or guest_command(_config, binary_name, "Dropbox:Dev")
 
     # 1. Build
     build_result = await _builder.build(project)

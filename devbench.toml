@@ -99,6 +99,10 @@ log_level = "INFO"
 
 [paths]
 deploy_dir = "/Applications/AmiKit.app/Contents/SharedSupport/prefix/drive_c/AmiKit/Dropbox/Dev"
+# The guest's path of deploy_dir, used to launch deployed programs. Default:
+# the device a WinUAE .uae (emulator_config) mounts deploy_dir as, else
+# AmiKit's DH2:Dev (Dropbox:Dev).
+# amiga_deploy_dir = "DH2:Dev"
 
 [bridge]
 crash_handler_auto_enable = true
